@@ -16,5 +16,5 @@ inputs:
       The ID of your application (can be found in the Clever Cloud console).
       Takes precedence over `alias` if both are defined.
 runs:
-  using: node12
-  main: dist/index.js
+  using: docker
+  image: Dockerfile
