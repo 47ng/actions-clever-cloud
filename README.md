@@ -2,7 +2,7 @@
 
 [![Marketplace](https://img.shields.io/github/v/release/47ng/actions-clever-cloud?label=Marketplace)](https://github.com/marketplace/actions/deploy-to-clever-cloud)
 [![MIT License](https://img.shields.io/github/license/47ng/actions-clever-cloud.svg?color=blue)](https://github.com/47ng/actions-clever-cloud/blob/master/LICENSE)
-![GitHub Workflow Status](https://img.shields.io/github/workflow/status/47ng/actions-clever-cloud/main)
+[![CI/CD](https://github.com/47ng/actions-clever-cloud/workflows/CI/CD/badge.svg)](https://github.com/47ng/actions-clever-cloud/actions)
 [![Dependabot Status](https://api.dependabot.com/badges/status?host=github&repo=47ng/actions-clever-cloud)](https://dependabot.com)
 [![Average issue resolution time](https://isitmaintained.com/badge/resolution/47ng/actions-clever-cloud.svg)](https://isitmaintained.com/project/47ng/actions-clever-cloud)
 [![Number of open issues](https://isitmaintained.com/badge/open/47ng/actions-clever-cloud.svg)](https://isitmaintained.com/project/47ng/actions-clever-cloud)
@@ -38,7 +38,7 @@ Clever Cloud uses a `.clever.json` file at the root of your repository
 to link to application IDs.
 
 If you have committed the `.clever.json` file, you only need to specify
-the alias to the application to deploy:
+the alias of the application to deploy:
 
 ```yml
 steps:
