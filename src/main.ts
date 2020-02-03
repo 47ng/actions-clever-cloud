@@ -19,13 +19,13 @@ async function run(): Promise<void> {
     }
     const appID = core.getInput('appID')
     const alias = core.getInput('alias')
-    console.dir(process.env)
-    await exec('clever login')
+    const cleverCLI = `${process.env.GITHUB_WORKSPACE}/node_modules/.bin/clever`
+    await exec(cleverCLI, ['login'])
 
     if (appID) {
       const args = alias ? ['link', appID, '--alias', alias] : ['link', appID]
       core.debug(`Linking ${appID}`)
-      await exec('clever', args)
+      await exec(cleverCLI, args)
     }
 
     const args = ['deploy', '--quiet', '--no-update-notifier']
@@ -33,7 +33,7 @@ async function run(): Promise<void> {
       args.push('--alias')
       args.push(alias)
     }
-    await exec('clever', args)
+    await exec(cleverCLI, args)
   } catch (error) {
     core.setFailed(error.message)
   }
