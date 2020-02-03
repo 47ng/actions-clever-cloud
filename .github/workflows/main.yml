@@ -27,16 +27,3 @@ jobs:
           name: 47ng/actions-clever-cloud
           username: ${{ secrets.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_PASSWORD }}
-          tag script: |
-            return context.ref
-              .replace('refs/heads/')
-              .replace('refs/tags/')
-              .replace('refs/pull/')
-              .replace(/\//g, '_')
-              .replace(/#/g, '');
-
-# if (ref.match(/[a-f0-9]{40}/)) {
-#   // Full Git SHA-1, slice to first 8 chars
-#   return ref.slice(0, 8);
-# }
-# return ref;
