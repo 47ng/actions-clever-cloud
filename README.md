@@ -1,117 +1,96 @@
-<p align="center">
-  <a href="https://github.com/actions/typescript-action/actions"><img alt="typescript-action status" src="https://github.com/actions/typescript-action/workflows/build-test/badge.svg"></a>
-</p>
+# Deploy to Clever Cloud
 
-# Create a JavaScript Action using TypeScript
+[![Marketplace](https://img.shields.io/github/v/release/47ng/actions-clever-cloud?label=Marketplace)](https://github.com/marketplace/actions/deploy-to-clever-cloud)
+[![MIT License](https://img.shields.io/github/license/47ng/actions-clever-cloud.svg?color=blue)](https://github.com/47ng/actions-clever-cloud/blob/master/LICENSE)
+![GitHub Workflow Status](https://img.shields.io/github/workflow/status/47ng/actions-clever-cloud/test)
+[![Dependabot Status](https://api.dependabot.com/badges/status?host=github&repo=47ng/actions-clever-cloud)](https://dependabot.com)
+[![Average issue resolution time](https://isitmaintained.com/badge/resolution/47ng/actions-clever-cloud.svg)](https://isitmaintained.com/project/47ng/actions-clever-cloud)
+[![Number of open issues](https://isitmaintained.com/badge/open/47ng/actions-clever-cloud.svg)](https://isitmaintained.com/project/47ng/actions-clever-cloud)
 
-Use this template to bootstrap the creation of a JavaScript action.:rocket:
+GitHub action to deploy your application to
+[Clever Cloud](https://clever-cloud.com).
 
-This template includes compilication support, tests, a validation workflow, publishing, and versioning guidance.  
+## Usage
 
-If you are new, there's also a simpler introduction.  See the [Hello World JavaScript Action](https://github.com/actions/hello-world-javascript-action)
+In your workflow file:
 
-## Create an action from this template
+```yml
+steps:
+  # This action requires an unshallow working copy,
+  # so the following prerequisites are necessary:
+  - uses: actions/checkout@v2
+  - run: git fetch --prune --unshallow
 
-Click the `Use this Template` and provide the new repo details for your action
-
-## Code in Master
-
-Install the dependencies  
-```bash
-$ npm install
+  # Deploy your application
+  - uses: 47ng/actions-clever-cloud
+    env:
+      CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+      CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
 
-Build the typescript
-```bash
-$ npm run build
+This assumes you have only one application for this repository that was
+linked with `clever link`, and the `.clever.json` file is versioned at
+the root of the repository. If that's not the case, read on:
+
+## Specifying the application to deploy
+
+Clever Cloud uses a `.clever.json` file at the root of your repository
+to link to application IDs.
+
+If you have committed the `.clever.json` file, you only need to specify
+the alias to the application to deploy:
+
+```yml
+steps:
+  - uses: 47ng/actions-clever-cloud
+    with:
+      alias: my-app-alias
+    env:
+      CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+      CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
 
-Run the tests :heavy_check_mark:  
-```bash
-$ npm test
+If you don't have this `.clever.json` file or you want to explicly
+deploy to another application, you can pass its ID:
 
- PASS  ./index.test.js
-  ✓ throws invalid number (3ms)
-  ✓ wait 500 ms (504ms)
-  ✓ test runs (95ms)
-
-...
+```yml
+steps:
+  - uses: 47ng/actions-clever-cloud
+    with:
+      appID: app_facade42-cafe-babe-cafe-deadf00dbaad
+    env:
+      CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+      CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
 
-## Change action.yml
+Application IDs can be found in the Clever Cloud console, at the
+top-right corner of any page for a given app, or in the Information tab.
+It looks like `app_{uuidv4}`.
 
-The action.yml contains defines the inputs and output for your action.
+## Authentication
 
-Update the action.yml with your name, description, inputs and outputs for your action.
+You will need to pass a token and a secret for authentication, via the
+`CLEVER_TOKEN` and `CLEVER_SECRET` environment variables.
 
-See the [documentation](https://help.github.com/en/articles/metadata-syntax-for-github-actions)
+At the time of writing, the only way to obtain those credentials is to
+re-use the ones generated for a local CLI. For that:
 
-## Change the Code
+1. Install the [`clever-tools`](https://github.com/CleverCloud/clever-tools) CLI locally
+2. Login on the CLI with `clever login` and follow the Web login process
+3. Extract the credentials:
 
-Most toolkit and CI/CD operations involve async operations so the action is run in an async function.
-
-```javascript
-import * as core from '@actions/core';
-...
-
-async function run() {
-  try { 
-      ...
-  } 
-  catch (error) {
-    core.setFailed(error.message);
-  }
-}
-
-run()
+```shell
+$ cat ~/.config/clever-cloud
+{"token":"[token]","secret":"[secret]"}
 ```
 
-See the [toolkit documentation](https://github.com/actions/toolkit/blob/master/README.md#packages) for the various packages.
+4. In your repository settings, under [Secrets](https://help.github.com/en/actions/automating-your-workflow-with-github-actions/creating-and-using-encrypted-secrets),
+   add the following secrets:
+  - `CLEVER_TOKEN`: the `token` value in the credentials
+  - `CLEVER_SECRET`: the `secret` value in the credentials
 
-## Publish to a distribution branch
+## Versioning
 
-Actions are run from GitHub repos.  We will create a releases branch and only checkin production modules (core in this case). 
-
-Comment out node_modules in .gitignore and create a releases/v1 branch
-```bash
-# comment out in distribution branches
-# node_modules/
-```
-
-```bash
-$ git checkout -b releases/v1
-$ git commit -a -m "prod dependencies"
-```
-
-```bash
-$ npm prune --production
-$ git add node_modules
-$ git commit -a -m "prod dependencies"
-$ git push origin releases/v1
-```
-
-Your action is now published! :rocket: 
-
-See the [versioning documentation](https://github.com/actions/toolkit/blob/master/docs/action-versioning.md)
-
-## Validate
-
-You can now validate the action by referencing the releases/v1 branch
-
-```yaml
-uses: actions/typescript-action@releases/v1
-with:
-  milliseconds: 1000
-```
-
-See the [actions tab](https://github.com/actions/javascript-action/actions) for runs of this action! :rocket:
-
-## Usage:
-
-After testing you can [create a v1 tag](https://github.com/actions/toolkit/blob/master/docs/action-versioning.md) to reference the stable and tested action
-
-```yaml
-uses: actions/typescript-action@v1
-with:
-  milliseconds: 1000
-```
+This action follows [SemVer](https://semver.org/).
+Please note that the API is subject to breaking changes before reaching
+1.0.0.
