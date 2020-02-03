@@ -21,7 +21,7 @@ async function run(): Promise<void> {
     const appID = core.getInput('appID')
     const alias = core.getInput('alias')
     // Will be copied from deps at build time
-    const cleverCLI = path.resolve(__dirname, 'clever')
+    const cleverCLI = path.resolve(__dirname, '../node_modules/.bin/clever')
     await exec(cleverCLI, ['login', '--token', token, '--secret', secret])
 
     if (appID) {
