@@ -9,9 +9,12 @@
     "format": "prettier --write **/*.ts",
     "format-check": "prettier --check **/*.ts",
     "lint": "eslint src/**/*.ts",
-    "pack": "ncc build",
     "test": "jest",
-    "all": "npm run build && npm run format && npm run lint && npm run pack && npm test"
+    "pack": "run-s pack:main pack:clever",
+    "pack:main": "ncc build lib/main.js",
+    "pack:clever": "ncc build node_modules/.bin/clever -o dist/clever",
+    "all": "run-s build format lint pack test",
+    "precommit": "npm run build && git add dist/"
   },
   "repository": {
     "type": "git",
@@ -46,6 +49,7 @@
     "jest": "^24.9.0",
     "jest-circus": "^24.9.0",
     "js-yaml": "^3.13.1",
+    "npm-run-all": "^4.1.5",
     "prettier": "^1.19.1",
     "ts-jest": "^24.2.0",
     "typescript": "^3.6.4"

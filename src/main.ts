@@ -1,3 +1,4 @@
+import path from 'path'
 import * as core from '@actions/core'
 import { exec } from '@actions/exec'
 
@@ -19,7 +20,8 @@ async function run(): Promise<void> {
     }
     const appID = core.getInput('appID')
     const alias = core.getInput('alias')
-    const cleverCLI = `${process.env.GITHUB_WORKSPACE}/node_modules/.bin/clever`
+    // Will be copied from deps at build time
+    const cleverCLI = path.resolve(__dirname, 'clever')
     await exec(cleverCLI, ['login', '--token', token, '--secret', secret])
 
     if (appID) {

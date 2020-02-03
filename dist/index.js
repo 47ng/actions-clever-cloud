@@ -962,6 +962,9 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 var __importStar = (this && this.__importStar) || function (mod) {
     if (mod && mod.__esModule) return mod;
     var result = {};
@@ -970,6 +973,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+const path_1 = __importDefault(__webpack_require__(622));
 const core = __importStar(__webpack_require__(470));
 const exec_1 = __webpack_require__(986);
 function throwMissingEnvVar(name) {
@@ -988,7 +992,8 @@ function run() {
             }
             const appID = core.getInput('appID');
             const alias = core.getInput('alias');
-            const cleverCLI = `${process.env.GITHUB_WORKSPACE}/node_modules/.bin/clever`;
+            // Will be copied from deps at build time
+            const cleverCLI = path_1.default.resolve(__dirname, 'clever');
             yield exec_1.exec(cleverCLI, ['login', '--token', token, '--secret', secret]);
             if (appID) {
                 const args = alias ? ['link', appID, '--alias', alias] : ['link', appID];
