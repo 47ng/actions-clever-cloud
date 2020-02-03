@@ -988,8 +988,7 @@ function run() {
             }
             const appID = core.getInput('appID');
             const alias = core.getInput('alias');
-            core.debug(`appID:   ${appID || 'not specified'}`);
-            core.debug(`alias:   ${alias || 'not specified'}`);
+            console.dir(process.env);
             yield exec_1.exec('clever login');
             if (appID) {
                 const args = alias ? ['link', appID, '--alias', alias] : ['link', appID];
