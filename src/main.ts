@@ -19,8 +19,7 @@ async function run(): Promise<void> {
     }
     const appID = core.getInput('appID')
     const alias = core.getInput('alias')
-    core.debug(`appID:   ${appID || 'not specified'}`)
-    core.debug(`alias:   ${alias || 'not specified'}`)
+    console.dir(process.env)
     await exec('clever login')
 
     if (appID) {
