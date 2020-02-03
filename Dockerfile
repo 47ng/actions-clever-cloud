@@ -1,5 +1,3 @@
-# Note: build context is root of monorepo
-
 FROM mhart/alpine-node:12 AS builder
 
 WORKDIR /action
@@ -19,4 +17,4 @@ FROM mhart/alpine-node:slim-12 AS final
 WORKDIR /action
 COPY --from=builder /action .
 
-CMD node /action/lib/main.js
+CMD node /action/dist/main.js

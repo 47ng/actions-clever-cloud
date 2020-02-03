@@ -3,18 +3,12 @@
   "version": "0.1.0-alpha.3",
   "private": true,
   "description": "GitHub Action to deploy to Clever Cloud",
-  "main": "lib/main.js",
+  "main": "dist/main.js",
   "scripts": {
     "build": "tsc",
-    "format": "prettier --write **/*.ts",
-    "format-check": "prettier --check **/*.ts",
     "lint": "eslint src/**/*.ts",
     "test": "jest",
-    "pack": "run-s pack:main pack:clever",
-    "pack:main": "ncc build lib/main.js",
-    "pack:clever": "ncc build node_modules/.bin/clever -o dist/clever",
-    "all": "run-s build format lint pack test",
-    "precommit": "npm run build && git add dist/"
+    "ci": "run-s lint build test"
   },
   "repository": {
     "type": "git",
@@ -54,5 +48,26 @@
     "prettier": "^1.19.1",
     "ts-jest": "^24.2.0",
     "typescript": "^3.6.4"
+  },
+  "jest": {
+    "clearMocks": true,
+    "moduleFileExtensions": ["js", "ts"],
+    "testEnvironment": "node",
+    "testMatch": ["**/*.test.ts"],
+    "testRunner": "jest-circus/runner",
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "verbose": true
+  },
+  "prettier": {
+    "printWidth": 80,
+    "tabWidth": 2,
+    "useTabs": false,
+    "semi": false,
+    "singleQuote": true,
+    "trailingComma": "none",
+    "arrowParens": "avoid",
+    "parser": "typescript"
   }
 }
