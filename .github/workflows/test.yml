@@ -14,9 +14,9 @@ jobs:
     - run: |
         npm install
         npm run all
-    - uses: ./
-      with:
-        appID: ${{ secrets.CLEVER_APP_ID }}
-      env:
-        CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
-        CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+    # - uses: ./
+    #   with:
+    #     appID: ${{ secrets.CLEVER_APP_ID }}
+    #   env:
+    #     CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+    #     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
