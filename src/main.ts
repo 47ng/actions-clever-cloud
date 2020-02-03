@@ -1,16 +1,40 @@
 import * as core from '@actions/core'
-import {wait} from './wait'
+import { exec } from '@actions/exec'
+
+function throwMissingEnvVar(name: string): never {
+  throw new Error(
+    `Missing ${name} environment variable: https://err.sh/47ng/actions-clever-cloud/env`
+  )
+}
 
 async function run(): Promise<void> {
   try {
-    const ms: string = core.getInput('milliseconds')
-    core.debug(`Waiting ${ms} milliseconds ...`)
+    const token = process.env.CLEVER_TOKEN
+    const secret = process.env.CLEVER_SECRET
+    if (!token) {
+      throwMissingEnvVar('CLEVER_TOKEN')
+    }
+    if (!secret) {
+      throwMissingEnvVar('CLEVER_SECRET')
+    }
+    const appID = core.getInput('appID')
+    const alias = core.getInput('alias')
+    core.debug(`appID:   ${appID || 'not specified'}`)
+    core.debug(`alias:   ${alias || 'not specified'}`)
+    await exec('clever login')
 
-    core.debug(new Date().toTimeString())
-    await wait(parseInt(ms, 10))
-    core.debug(new Date().toTimeString())
+    if (appID) {
+      const args = alias ? ['link', appID, '--alias', alias] : ['link', appID]
+      core.debug(`Linking ${appID}`)
+      await exec('clever', args)
+    }
 
-    core.setOutput('time', new Date().toTimeString())
+    const args = ['deploy', '--quiet', '--no-update-notifier']
+    if (alias) {
+      args.push('--alias')
+      args.push(alias)
+    }
+    await exec('clever', args)
   } catch (error) {
     core.setFailed(error.message)
   }

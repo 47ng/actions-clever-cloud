@@ -19,5 +19,8 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - uses: ./
-      with: 
-        milliseconds: 1000
+      with:
+        appID: ${{ secrets.CLEVER_APP_ID }}
+      env:
+        CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+        CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}

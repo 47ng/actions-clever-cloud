@@ -1,8 +1,8 @@
 {
-  "name": "typescript-action",
+  "name": "@47ng/actions-clever-cloud",
   "version": "0.0.0",
   "private": true,
-  "description": "TypeScript template action",
+  "description": "GitHub Action to deploy to Clever Cloud",
   "main": "lib/main.js",
   "scripts": {
     "build": "tsc",
@@ -20,12 +20,20 @@
   "keywords": [
     "actions",
     "node",
-    "setup"
+    "deploy",
+    "deployment",
+    "clever-cloud"
   ],
-  "author": "YourNameOrOrganization",
+  "author": {
+    "name": "François Best",
+    "email": "contact@francoisbest.com",
+    "url": "https://francoisbest.com"
+  },
   "license": "MIT",
   "dependencies": {
-    "@actions/core": "^1.2.0"
+    "@actions/core": "^1.2.0",
+    "@actions/exec": "^1.0.3",
+    "clever-tools": "^1.6.2"
   },
   "devDependencies": {
     "@types/jest": "^24.0.23",

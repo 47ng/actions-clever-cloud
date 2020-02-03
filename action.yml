@@ -1,10 +1,20 @@
-name: 'Your name here'
-description: 'Provide a description here'
-author: 'Your name or organization here'
+name: Deploy to Clever Cloud
+description: Deploy your application to Clever Cloud
+author: Francois Best
+branding:
+  icon: upload-cloud
+  color: red
 inputs:
-  myInput:              # change this
-    description: 'input description here'
-    default: 'default value if applicable'
+  alias:
+    required: false
+    description: |
+      The alias of the application to deploy,
+      if you are using a .clever.json file.
+  appID:
+    required: false
+    description: |
+      The ID of your application (can be found in the Clever Cloud console).
+      Takes precedence over `alias` if both are defined.
 runs:
-  using: 'node12'
-  main: 'dist/index.js'
+  using: node12
+  main: dist/index.js
