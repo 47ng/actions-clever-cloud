@@ -20,7 +20,7 @@ async function run(): Promise<void> {
     const appID = core.getInput('appID')
     const alias = core.getInput('alias')
     const cleverCLI = `${process.env.GITHUB_WORKSPACE}/node_modules/.bin/clever`
-    await exec(cleverCLI, ['login'])
+    await exec(cleverCLI, ['login', '--token', token, '--secret', secret])
 
     if (appID) {
       const args = alias ? ['link', appID, '--alias', alias] : ['link', appID]
