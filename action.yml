@@ -17,4 +17,4 @@ inputs:
       Takes precedence over `alias` if both are defined.
 runs:
   using: docker
-  image: docker://47ng/actions-clever-cloud:0.2.0
+  image: docker://47ng/actions-clever-cloud:v0.2.0
