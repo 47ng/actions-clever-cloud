@@ -19,4 +19,4 @@ FROM mhart/alpine-node:slim-12 AS final
 WORKDIR /action
 COPY --from=builder /action .
 
-CMD node ./lib/main.js
+CMD node /action/lib/main.js
