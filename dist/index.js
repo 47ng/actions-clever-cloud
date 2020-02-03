@@ -988,19 +988,19 @@ function run() {
             }
             const appID = core.getInput('appID');
             const alias = core.getInput('alias');
-            console.dir(process.env);
-            yield exec_1.exec('clever login');
+            const cleverCLI = `${process.env.GITHUB_WORKSPACE}/node_modules/.bin/clever`;
+            yield exec_1.exec(cleverCLI, ['login', '--token', token, '--secret', secret]);
             if (appID) {
                 const args = alias ? ['link', appID, '--alias', alias] : ['link', appID];
                 core.debug(`Linking ${appID}`);
-                yield exec_1.exec('clever', args);
+                yield exec_1.exec(cleverCLI, args);
             }
-            const args = ['deploy', '--quiet', '--no-update-notifier'];
+            const args = ['deploy'];
             if (alias) {
                 args.push('--alias');
                 args.push(alias);
             }
-            yield exec_1.exec('clever', args);
+            yield exec_1.exec(cleverCLI, args);
         }
         catch (error) {
             core.setFailed(error.message);
