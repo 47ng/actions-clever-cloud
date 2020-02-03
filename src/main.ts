@@ -28,7 +28,7 @@ async function run(): Promise<void> {
       await exec(cleverCLI, args)
     }
 
-    const args = ['deploy', '--quiet', '--no-update-notifier']
+    const args = ['deploy']
     if (alias) {
       args.push('--alias')
       args.push(alias)
