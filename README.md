@@ -22,7 +22,7 @@ steps:
   - run: git fetch --prune --unshallow
 
   # Deploy your application
-  - uses: 47ng/actions-clever-cloud@v0.4.0
+  - uses: 47ng/actions-clever-cloud@v0.5.0
     env:
       CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
       CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
@@ -42,7 +42,7 @@ If you have committed the `.clever.json` file, you only need to specify
 the alias of the application to deploy:
 
 ```yml
-- uses: 47ng/actions-clever-cloud@v0.4.0
+- uses: 47ng/actions-clever-cloud@v0.5.0
   with:
     alias: my-app-alias
   env:
@@ -54,7 +54,7 @@ If you don't have this `.clever.json` file or you want to explicly
 deploy to another application, you can pass its ID:
 
 ```yml
-- uses: 47ng/actions-clever-cloud@v0.4.0
+- uses: 47ng/actions-clever-cloud@v0.5.0
   with:
     appID: app_facade42-cafe-babe-cafe-deadf00dbaad
   env:
@@ -94,7 +94,7 @@ Please note that the API is subject to breaking changes before reaching
 1.0.0.
 
 To specify the version of the action to use:
-- `uses: 47ng/actions-clever-cloud@v0.4.0`: latest stable version
+- `uses: 47ng/actions-clever-cloud@v0.5.0`: latest stable version
 - `uses: 47ng/actions-clever-cloud@master`: latest code from master
 - `uses: 47ng/actions-clever-cloud@v1.2.3`: a specific version
 
