@@ -2,7 +2,7 @@ name: CI/CD
 on: # rebuild any PRs and main branch changes
   pull_request:
   release:
-    types: [published]
+    types: [created, published, edited]
   push:
     branches:
       - master
