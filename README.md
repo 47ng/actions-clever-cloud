@@ -22,15 +22,16 @@ steps:
   - run: git fetch --prune --unshallow
 
   # Deploy your application
-  - uses: 47ng/actions-clever-cloud
+  - uses: 47ng/actions-clever-cloud@v0.4.0
     env:
       CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
       CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
 
-This assumes you have only one application for this repository that was
-linked with `clever link`, and the `.clever.json` file is versioned at
-the root of the repository. If that's not the case, read on:
+This minimal example assumes you have only one application for this
+repository that was linked with `clever link`, and the `.clever.json`
+file is versioned at the root of the repository. If that's not the case,
+read on:
 
 ## Specifying the application to deploy
 
@@ -41,26 +42,24 @@ If you have committed the `.clever.json` file, you only need to specify
 the alias of the application to deploy:
 
 ```yml
-steps:
-  - uses: 47ng/actions-clever-cloud
-    with:
-      alias: my-app-alias
-    env:
-      CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
-      CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+- uses: 47ng/actions-clever-cloud@v0.4.0
+  with:
+    alias: my-app-alias
+  env:
+    CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+    CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
 
 If you don't have this `.clever.json` file or you want to explicly
 deploy to another application, you can pass its ID:
 
 ```yml
-steps:
-  - uses: 47ng/actions-clever-cloud
-    with:
-      appID: app_facade42-cafe-babe-cafe-deadf00dbaad
-    env:
-      CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
-      CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+- uses: 47ng/actions-clever-cloud@v0.4.0
+  with:
+    appID: app_facade42-cafe-babe-cafe-deadf00dbaad
+  env:
+    CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+    CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
 
 Application IDs can be found in the Clever Cloud console, at the
@@ -84,8 +83,7 @@ $ cat ~/.config/clever-cloud
 {"token":"[token]","secret":"[secret]"}
 ```
 
-4. In your repository settings, under [Secrets](https://help.github.com/en/actions/automating-your-workflow-with-github-actions/creating-and-using-encrypted-secrets),
-   add the following secrets:
+4. In your repository settings, [add the following secrets](https://help.github.com/en/actions/automating-your-workflow-with-github-actions/creating-and-using-encrypted-secrets):
   - `CLEVER_TOKEN`: the `token` value in the credentials
   - `CLEVER_SECRET`: the `secret` value in the credentials
 
@@ -94,3 +92,15 @@ $ cat ~/.config/clever-cloud
 This action follows [SemVer](https://semver.org/).
 Please note that the API is subject to breaking changes before reaching
 1.0.0.
+
+To specify the version of the action to use:
+- `uses: 47ng/actions-clever-cloud@v0.4.0`: latest stable version
+- `uses: 47ng/actions-clever-cloud@master`: latest code from master
+- `uses: 47ng/actions-clever-cloud@v1.2.3`: a specific version
+
+## Why ?
+
+Clever Cloud lets you connect your GitHub repository so that any push is
+deployed. This is great for staging environments, but in some cases you
+may want to deploy to production only on specific events, like a release
+being published, or after a CI run.
