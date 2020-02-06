@@ -107,7 +107,7 @@ being published, or after a CI run.
 
 ## Roadmap to 1.0.0
 
-- [x] Test all 3 deployment cases:
+- [x] Test all deployment cases:
   - [x] .clever.json, single app, no arguments
   - [x] .clever.json, multiple apps, alias
   - [x] .clever.json, explicit appID
