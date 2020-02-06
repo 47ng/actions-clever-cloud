@@ -25,4 +25,4 @@ inputs:
       - `none`: Don't show build or deployment logs, quit early with no status info
 runs:
   using: docker
-  image: docker://47ng/actions-clever-cloud:v0.5.0
+  image: docker://47ng/actions-clever-cloud:latest
