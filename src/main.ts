@@ -53,7 +53,7 @@ async function run(): Promise<void> {
         stdline: line => {
           core.info(line)
           if (
-            line.includes('Your code has been pushed to Clever Cloud') &&
+            line === 'Your source code has been pushed to Clever Cloud.' &&
             logsToShow === 'none'
           ) {
             core.info('-> quit now')
