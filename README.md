@@ -62,9 +62,9 @@ deploy to another application, you can pass its ID:
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
 
-Application IDs can be found in the Clever Cloud console, at the
-top-right corner of any page for a given app, or in the Information tab.
-It looks like `app_{uuidv4}`.
+Application IDs can be found in the [Clever Cloud console](https://console.clever-cloud.com/),
+at the top-right corner of any page for a given app, or in the Information tab.
+They look like `app_{uuidv4}`.
 
 ## Authentication
 
@@ -104,3 +104,13 @@ Clever Cloud lets you connect your GitHub repository so that any push is
 deployed. This is great for staging environments, but in some cases you
 may want to deploy to production only on specific events, like a release
 being published, or after a CI run.
+
+## Roadmap to 1.0.0
+
+- [x] Test all 3 deployment cases:
+  - [x] .clever.json, single app, no arguments
+  - [x] .clever.json, multiple apps, alias
+  - [x] .clever.json, explicit appID
+  - [x] no .clever.json, appID
+- [ ] Testing against [clevercloud/clever-tools#318](https://github.com/CleverCloud/clever-tools/issues/318) (process hanging) => might be hard to reproduce
+- [ ] Provide early exit option => [clevercloud/clever-tools#319](https://github.com/CleverCloud/clever-tools/issues/319)
