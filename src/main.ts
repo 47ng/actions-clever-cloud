@@ -50,14 +50,23 @@ async function run(): Promise<void> {
     await exec(cleverCLI, args, {
       silent: true,
       listeners: {
+        debug: line => {
+          core.info('dbg: ' + line)
+        },
         stdline: line => {
-          core.info(line)
+          core.info('std:' + line)
           if (
             line === 'Your source code has been pushed to Clever Cloud.' &&
-            logsToShow === 'none'
+            logsToShow === LogsToShow.none
           ) {
             core.info('-> quit now')
             // quit now
+          }
+          if (
+            line.includes('Build succeeded in') &&
+            logsToShow === LogsToShow.build
+          ) {
+            core.info('-> quit now')
           }
         }
       }
