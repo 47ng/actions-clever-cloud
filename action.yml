@@ -15,6 +15,14 @@ inputs:
     description: |
       The ID of your application (can be found in the Clever Cloud console).
       Takes precedence over `alias` if both are defined.
+  logs:
+    required: false
+    default: "full"
+    description: |
+      The amount of logs to show before exiting:
+      - `full`: Show build + run logs, exit with deployment status.
+      - `build`: Only show build logs, exit with build status (deployment status ignored)
+      - `none`: Don't show build or deployment logs, quit early with no status info
 runs:
   using: docker
   image: docker://47ng/actions-clever-cloud:v0.5.0
