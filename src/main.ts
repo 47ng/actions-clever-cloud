@@ -51,10 +51,10 @@ async function run(): Promise<void> {
       silent: true,
       listeners: {
         debug: line => {
-          core.info('dbg: ' + line)
+          core.info(`dbg: ${line}`)
         },
         stdline: line => {
-          core.info('std:' + line)
+          core.info(`std: ${line}`)
           if (
             line === 'Your source code has been pushed to Clever Cloud.' &&
             logsToShow === LogsToShow.none
