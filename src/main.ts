@@ -1,7 +1,7 @@
 import run, { processArguments } from './action'
 import core from '@actions/core'
 
-async function main() {
+async function main(): Promise<void> {
   try {
     const args = processArguments()
     return await run(args)
