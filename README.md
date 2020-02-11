@@ -22,7 +22,7 @@ steps:
   - run: git fetch --prune --unshallow
 
   # Deploy your application
-  - uses: 47ng/actions-clever-cloud@v0.5.0
+  - uses: 47ng/actions-clever-cloud@v1
     env:
       CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
       CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
@@ -42,7 +42,7 @@ If you have committed the `.clever.json` file, you only need to specify
 the alias of the application to deploy:
 
 ```yml
-- uses: 47ng/actions-clever-cloud@v0.5.0
+- uses: 47ng/actions-clever-cloud@v1
   with:
     alias: my-app-alias
   env:
@@ -54,7 +54,7 @@ If you don't have this `.clever.json` file or you want to explicly
 deploy to another application, you can pass its ID:
 
 ```yml
-- uses: 47ng/actions-clever-cloud@v0.5.0
+- uses: 47ng/actions-clever-cloud@v1
   with:
     appID: app_facade42-cafe-babe-cafe-deadf00dbaad
   env:
@@ -90,13 +90,11 @@ $ cat ~/.config/clever-cloud
 ## Versioning
 
 This action follows [SemVer](https://semver.org/).
-Please note that the API is subject to breaking changes before reaching
-1.0.0.
 
 To specify the version of the action to use:
-- `uses: 47ng/actions-clever-cloud@v0.5.0`: latest stable version
+- `uses: 47ng/actions-clever-cloud@v1`: latest stable version
 - `uses: 47ng/actions-clever-cloud@master`: latest code from master
-- `uses: 47ng/actions-clever-cloud@v1.2.3`: a specific version
+- `uses: 47ng/actions-clever-cloud@v1.2.3`: a specific version (check out the [releases](https://github.com/47ng/actions-clever-cloud/releases))
 
 ## Why ?
 
@@ -104,13 +102,3 @@ Clever Cloud lets you connect your GitHub repository so that any push is
 deployed. This is great for staging environments, but in some cases you
 may want to deploy to production only on specific events, like a release
 being published, or after a CI run.
-
-## Roadmap to 1.0.0
-
-- [x] Test all deployment cases:
-  - [x] .clever.json, single app, no arguments
-  - [x] .clever.json, multiple apps, alias
-  - [x] .clever.json, explicit appID
-  - [x] no .clever.json, appID
-- [ ] Testing against [clevercloud/clever-tools#318](https://github.com/CleverCloud/clever-tools/issues/318) (process hanging) => might be hard to reproduce
-- [ ] Provide early exit option => [clevercloud/clever-tools#319](https://github.com/CleverCloud/clever-tools/issues/319)
