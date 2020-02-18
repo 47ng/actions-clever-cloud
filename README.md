@@ -87,13 +87,13 @@ $ cat ~/.config/clever-cloud
   - `CLEVER_TOKEN`: the `token` value in the credentials
   - `CLEVER_SECRET`: the `secret` value in the credentials
 
-## Extra Environment Variables
+## Extra Environment Variables (`unreleased`)
 
 You can set extra environment variables on the deployed application by
 prefixing them with `CLEVER_ENV_` in the input arguments:
 
 ```yml
-- uses: 47ng/actions-clever-cloud@v1
+- uses: 47ng/actions-clever-cloud@master
   with:
     CLEVER_ENV_FOO: bar # sets FOO=bar on the application
   env:
