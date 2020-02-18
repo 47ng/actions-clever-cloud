@@ -81,6 +81,12 @@ export default async function run({
 
     // If there are environment variables to pass to the application,
     // set them before deployment so the new instance can use them.
+    if (Object.keys(extraEnv).length) {
+      core.info('Setting extra environment variables:')
+      for (const envName of Object.keys(extraEnv)) {
+        core.info(`  ${envName}`)
+      }
+    }
     for (const envName of Object.keys(extraEnv)) {
       const args = ['env', 'set']
       if (alias) {
