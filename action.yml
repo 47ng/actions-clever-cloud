@@ -15,6 +15,11 @@ inputs:
     description: |
       The ID of your application (can be found in the Clever Cloud console).
       Takes precedence over `alias` if both are defined.
+  extraEnvSafelist:
+    required: false
+    description: |
+      A comma-separated list of extra environment variable names to allow
+      to be set, see https://github.com/47ng/ations-clever-cloud#safelisting
 runs:
   using: docker
   image: docker://47ng/actions-clever-cloud:latest

@@ -95,9 +95,11 @@ prefixing them with `CLEVER_ENV_` in the input arguments:
 ```yml
 - uses: 47ng/actions-clever-cloud@master
   with:
-    CLEVER_ENV_FOO: bar # sets FOO=bar on the application
+    CLEVER_ENV_FOO: bar         # sets FOO=bar on the application
+    CLEVER_ENV_EGG: spam        # sets EGG=spam on the application
+    extraEnvSafelist: FOO,EGG   # Only allow FOO and EGG to be set
   env:
-    CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+    CLEVER_TOKEN:  ${{ secrets.CLEVER_TOKEN }}
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
 
@@ -106,6 +108,17 @@ variable in the application, and the value will follow what is passed.
 
 Environment variables will be set before the application is deployed,
 to let the new deployment use them.
+
+### Safelisting
+
+Because GitHub actions share their environment, it would be possible for a
+malicious action used before this one to export an undesired `INPUT_CLEVER_ENV_XYZ`
+variable, which would be injected to your application. This is unfortunately
+not a bug, but a feature of Actions, according to GitHub.
+
+Therefore, to make sure you will only set your own environment variables,
+you can set a safelist of comma-separated names. Only those will make it to
+your app.
 
 ### Caveats
 

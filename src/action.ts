@@ -22,8 +22,17 @@ function throwMissingEnvVar(name: string): never {
 }
 
 function listExtraEnv(): ExtraEnv {
+  const extraEnvSafelist = core.getInput('extraEnvSafelist')
+  const safeList = (extraEnvSafelist || '').split(',')
+
   return Object.keys(process.env)
-    .filter(name => name.startsWith('INPUT_CLEVER_ENV_'))
+    .filter(name => {
+      const matches = name.match(/^INPUT_CLEVER_ENV_([A-Z0-9_]*)$/)
+      if (!matches) {
+        return false
+      }
+      return extraEnvSafelist ? safeList.includes(matches[1]) : true
+    })
     .reduce((env, key) => {
       const targetEnvName = key.replace(/^INPUT_CLEVER_ENV_/, '')
       return {

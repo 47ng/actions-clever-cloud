@@ -3,37 +3,10 @@ import run, { processArguments } from '../src/action'
 const core = require('@actions/core')
 const { exec } = require('@actions/exec')
 
-jest.mock('@actions/core')
 jest.mock('@actions/exec')
+jest.mock('@actions/core')
 
 // --
-
-describe('processArguments', () => {
-  const OLD_ENV = process.env
-
-  beforeEach(() => {
-    jest.resetModules() // this is important - it clears the cache
-    process.env = { ...OLD_ENV }
-    delete process.env.NODE_ENV
-  })
-
-  afterEach(() => {
-    process.env = OLD_ENV
-  })
-
-  test('fail if authentication is not provided', async () => {
-    const run = () => processArguments()
-    expect(run).toThrow()
-  })
-
-  test('obtain auth credentials from the environment', async () => {
-    process.env.CLEVER_TOKEN = 'token'
-    process.env.CLEVER_SECRET = 'secret'
-    const args = processArguments()
-    expect(args.token).toEqual('token')
-    expect(args.secret).toEqual('secret')
-  })
-})
 
 test('deploy default application (no arguments)', async () => {
   await run({
