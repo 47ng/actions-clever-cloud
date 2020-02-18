@@ -87,6 +87,35 @@ $ cat ~/.config/clever-cloud
   - `CLEVER_TOKEN`: the `token` value in the credentials
   - `CLEVER_SECRET`: the `secret` value in the credentials
 
+## Extra Environment Variables
+
+You can set extra environment variables on the deployed application by
+prefixing them with `CLEVER_ENV_` in the input arguments:
+
+```yml
+- uses: 47ng/actions-clever-cloud@v1
+  with:
+    CLEVER_ENV_FOO: bar # sets FOO=bar on the application
+  env:
+    CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+    CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+```
+
+Whatever follows `CLEVER_ENV_` will be the name of the environment
+variable in the application, and the value will follow what is passed.
+
+Environment variables will be set before the application is deployed,
+to let the new deployment use them.
+
+### Caveats
+
+If the deployment fails, the environment variables will still have been
+updated. This could be a problem if your app restarts or scales up, as
+the new instance would use the new variable.
+
+In the future, we might include a way to rollback environment variables
+set by this action if deployment fails.
+
 ## Versioning
 
 This action follows [SemVer](https://semver.org/).
