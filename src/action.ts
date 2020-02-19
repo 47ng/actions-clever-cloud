@@ -25,13 +25,19 @@ function listExtraEnv(): ExtraEnv {
   const extraEnvSafelist = core.getInput('extraEnvSafelist')
   const safeList = (extraEnvSafelist || '').split(',')
 
-  return Object.keys(process.env)
+  const extraEnv = Object.keys(process.env)
     .filter(name => {
       const matches = name.match(/^INPUT_CLEVER_ENV_([A-Z0-9_]*)$/)
       if (!matches) {
         return false
       }
-      return extraEnvSafelist ? safeList.includes(matches[1]) : true
+      if (extraEnvSafelist && !safeList.includes(matches[1])) {
+        core.warning(
+          `Ignoring unsafe extra environment variable ${name} (https://github.com/47ng/actions-clever-cloud#safelisting)`
+        )
+        return false
+      }
+      return true
     })
     .reduce((env, key) => {
       const targetEnvName = key.replace(/^INPUT_CLEVER_ENV_/, '')
@@ -40,6 +46,14 @@ function listExtraEnv(): ExtraEnv {
         [targetEnvName]: process.env[key]
       }
     }, {})
+
+  if (Object.keys(extraEnv).length) {
+    core.info('Setting extra environment variables:')
+    for (const envName of Object.keys(extraEnv)) {
+      core.info(`  ${envName}`)
+    }
+  }
+  return extraEnv
 }
 
 export function processArguments(): Arguments {
@@ -90,12 +104,6 @@ export default async function run({
 
     // If there are environment variables to pass to the application,
     // set them before deployment so the new instance can use them.
-    if (Object.keys(extraEnv).length) {
-      core.info('Setting extra environment variables:')
-      for (const envName of Object.keys(extraEnv)) {
-        core.info(`  ${envName}`)
-      }
-    }
     for (const envName of Object.keys(extraEnv)) {
       const args = ['env', 'set']
       if (alias) {
