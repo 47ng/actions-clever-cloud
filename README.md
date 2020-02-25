@@ -129,6 +129,21 @@ the new instance would use the new variable.
 In the future, we might include a way to rollback environment variables
 set by this action if deployment fails.
 
+## Deployment Timeout
+
+Because build minutes are precious, and also because of two ongoing issues in
+the Clever Tools CLI ([#318](), [#319]()), you can specify a timeout in seconds
+after which the workflow will move on, regardless of the deployment status:
+
+```yml
+- uses: 47ng/actions-clever-cloud@master
+  with:
+    timeout: 1800 # wait at maximum 30 minutes before moving on
+  env:
+    CLEVER_TOKEN:  ${{ secrets.CLEVER_TOKEN }}
+    CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+```
+
 ## Versioning
 
 This action follows [SemVer](https://semver.org/).
