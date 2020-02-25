@@ -87,7 +87,9 @@ $ cat ~/.config/clever-cloud
   - `CLEVER_TOKEN`: the `token` value in the credentials
   - `CLEVER_SECRET`: the `secret` value in the credentials
 
-## Extra Environment Variables (`unreleased`)
+## Extra Environment Variables
+
+> Note: this feature is not yet released, but can be previewed from the `master` branch.
 
 You can set extra environment variables on the deployed application by
 prefixing them with `CLEVER_ENV_` in the input arguments:
@@ -130,6 +132,8 @@ In the future, we might include a way to rollback environment variables
 set by this action if deployment fails.
 
 ## Deployment Timeout
+
+> Note: this feature is not yet released, but can be previewed from the `master` branch.
 
 Because build minutes are precious, and also because of two ongoing issues in
 the Clever Tools CLI (
