@@ -52,3 +52,27 @@ test('extra env, with safelisting', () => {
   expect(args.extraEnv!.BAR).toEqual('bar')
   expect(args.extraEnv!.EVIL).toBeUndefined()
 })
+
+test('timeout, default value is undefined', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_TIMEOUT = undefined
+  const args = processArguments()
+  expect(args.timeout).toBeUndefined()
+})
+
+test('timeout, default value is a number', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_TIMEOUT = '1800'
+  const args = processArguments()
+  expect(args.timeout).toEqual(1800)
+})
+
+test('timeout, default value is not a number', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_TIMEOUT = 'nope'
+  const args = processArguments()
+  expect(args.timeout).toBeUndefined()
+})

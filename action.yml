@@ -20,6 +20,12 @@ inputs:
     description: |
       A comma-separated list of extra environment variable names to allow
       to be set, see https://github.com/47ng/ations-clever-cloud#safelisting
+  timeout:
+    required: false
+    description: |
+      How long (in seconds) to wait at most before moving on.
+      This can help saving build minutes with very long deployments,
+      but you will lose any deployment failure information.
 runs:
   using: docker
   image: docker://47ng/actions-clever-cloud:latest

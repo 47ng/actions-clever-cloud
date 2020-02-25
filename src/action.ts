@@ -1,6 +1,7 @@
 import path from 'path'
 import * as core from '@actions/core'
 import { exec } from '@actions/exec'
+import { setTimeout, clearTimeout } from 'timers'
 
 export type ExtraEnv = {
   [key: string]: string
@@ -11,6 +12,7 @@ export interface Arguments {
   secret: string
   alias?: string
   appID?: string
+  timeout?: number
   cleverCLI: string
   extraEnv?: ExtraEnv
 }
@@ -68,11 +70,13 @@ export function processArguments(): Arguments {
 
   const appID = core.getInput('appID')
   const alias = core.getInput('alias')
+  const timeout = parseInt(core.getInput('timeout')) || undefined
   return {
     token,
     secret,
     alias,
     appID,
+    timeout,
     cleverCLI: path.resolve(__dirname, '../node_modules/.bin/clever'),
     extraEnv: listExtraEnv()
   }
@@ -84,6 +88,7 @@ export default async function run({
   appID,
   alias,
   cleverCLI,
+  timeout,
   extraEnv = {}
 }: Arguments): Promise<void> {
   try {
@@ -119,7 +124,26 @@ export default async function run({
     } else if (alias) {
       args.push('--alias', alias)
     }
-    await exec(cleverCLI, args)
+
+    if (timeout) {
+      let timeoutID: NodeJS.Timeout | undefined
+      let timedOut = false
+      const timeoutPromise = new Promise(resolve => {
+        timeoutID = setTimeout(() => {
+          timedOut = true
+          resolve()
+        }, timeout)
+      })
+      await Promise.race([exec(cleverCLI, args), timeoutPromise])
+      if (timeoutID) {
+        clearTimeout(timeoutID)
+      }
+      if (timedOut) {
+        core.info('Deployment timed out, moving on with workflow run')
+      }
+    } else {
+      await exec(cleverCLI, args)
+    }
   } catch (error) {
     core.setFailed(error.message)
   }
