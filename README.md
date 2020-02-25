@@ -132,8 +132,11 @@ set by this action if deployment fails.
 ## Deployment Timeout
 
 Because build minutes are precious, and also because of two ongoing issues in
-the Clever Tools CLI ([#318](), [#319]()), you can specify a timeout in seconds
-after which the workflow will move on, regardless of the deployment status:
+the Clever Tools CLI (
+[#318](https://github.com/CleverCloud/clever-tools/issues/318),
+[#319](https://github.com/CleverCloud/clever-tools/issues/319)),
+you can specify a timeout in seconds after which the workflow will move on,
+regardless of the deployment status:
 
 ```yml
 - uses: 47ng/actions-clever-cloud@master
