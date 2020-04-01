@@ -30,7 +30,7 @@
   "dependencies": {
     "@actions/core": "^1.2.3",
     "@actions/exec": "^1.0.3",
-    "clever-tools": "^1.6.2",
+    "clever-tools": "^2.3.0",
     "ws": "^7.2.3"
   },
   "devDependencies": {
