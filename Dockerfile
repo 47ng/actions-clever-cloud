@@ -1,4 +1,4 @@
-FROM mhart/alpine-node:13 AS builder
+FROM mhart/alpine-node:14 AS builder
 
 WORKDIR /action
 
@@ -12,7 +12,7 @@ RUN npm prune --production
 
 # ---
 
-FROM mhart/alpine-node:13 AS final
+FROM mhart/alpine-node:14 AS final
 
 WORKDIR /action
 COPY --from=builder /action .
