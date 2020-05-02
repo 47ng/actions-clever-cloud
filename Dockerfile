@@ -2,13 +2,14 @@ FROM mhart/alpine-node:14 AS builder
 
 WORKDIR /action
 
-COPY package.json package-lock.json  ./
+COPY package.json yarn.lock  ./
 
-RUN npm install
+RUN yarn
 COPY src ./src
 COPY tsconfig.json ./
-RUN npm run build
-RUN npm prune --production
+RUN yarn build
+RUN rm -rf node_modules
+RUN yarn install --production
 
 # ---
 

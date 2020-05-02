@@ -118,6 +118,8 @@ malicious action used before this one to export an undesired `INPUT_CLEVER_ENV_X
 variable, which would be injected to your application. This is unfortunately
 not a bug, but a feature of Actions, according to GitHub.
 
+> Read more about this issue on my [blog](https://francoisbest.com/posts) post: [The Security of GitHub Actions](https://francoisbest.com/posts/2020/the-security-of-github-actions).
+
 Therefore, to make sure you will only set your own environment variables,
 you can set a safelist of comma-separated names. Only those will make it to
 your app.
