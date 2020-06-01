@@ -289,10 +289,10 @@
   resolved "https://registry.yarnpkg.com/@bcoe/v8-coverage/-/v8-coverage-0.2.3.tgz#75a2e8b51cb758a7553d6804a5932d7aace75c39"
   integrity sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==
 
-"@clevercloud/client@^5.1.0":
-  version "5.1.0"
-  resolved "https://registry.yarnpkg.com/@clevercloud/client/-/client-5.1.0.tgz#a49117fdb0908332cae7d13773fe0085be7421a4"
-  integrity sha512-MIjB8Pt9reiFzKyk3Vj6msNCUl+CZhkK5op7vPYhMVefyQ7ihydfSjMrh4lnPerXcz7a+3xb8KmoBXlhIAH8tA==
+"@clevercloud/client@^6.0.0":
+  version "6.0.0"
+  resolved "https://registry.yarnpkg.com/@clevercloud/client/-/client-6.0.0.tgz#683f25526989dfab6d4fda4c78944ca3aacf2e57"
+  integrity sha512-dqLLujUUP0mDNxTu8rCC43xIVy9+/dyp9zcZNlr3szUtxYDr49UnWXrVKYTkOOhB7QMB/RKxtwrl0dG2c3K2Tw==
   dependencies:
     component-emitter "^1.3.0"
     oauth-1.0a "^2.2.6"
@@ -962,11 +962,6 @@ babel-preset-jest@^25.5.0:
     babel-plugin-jest-hoist "^25.5.0"
     babel-preset-current-node-syntax "^0.1.2"
 
-baconjs@^0.7.83:
-  version "0.7.95"
-  resolved "https://registry.yarnpkg.com/baconjs/-/baconjs-0.7.95.tgz#96869a814c730e62e5991944eb2fcb8c97171615"
-  integrity sha512-3qp0GuAfEUlJybSVPQ2oai8VYO0aSTJf4wP/jYZpgaffEXi31VBcqSlVmD8ahmXXGzgdO+yFk9onDnt2ZJJXxA==
-
 balanced-match@^1.0.0:
   version "1.0.0"
   resolved "https://registry.yarnpkg.com/balanced-match/-/balanced-match-1.0.0.tgz#89b4d199ab2bee49de164ea02b89ce462d71b767"
@@ -1204,14 +1199,13 @@ clean-git-ref@1.0.3:
   resolved "https://registry.yarnpkg.com/clean-git-ref/-/clean-git-ref-1.0.3.tgz#5325dc839eab01c974ae0e97f5734782750f88ec"
   integrity sha1-UyXcg56rAcl0rg6X9XNHgnUPiOw=
 
-clever-tools@^2.4.0:
-  version "2.4.0"
-  resolved "https://registry.yarnpkg.com/clever-tools/-/clever-tools-2.4.0.tgz#3cf25f453cdec1ce80ca3577fa2fb742e43e5a27"
-  integrity sha512-qzARp08jNZT4wCpRh8hdyjrlEKCTvJnI1a/0VtS6D1znPjzc2UHscbxs02BripLaBFOIAmlbVqOMVkl5yf+u5Q==
+clever-tools@^2.6.1:
+  version "2.6.1"
+  resolved "https://registry.yarnpkg.com/clever-tools/-/clever-tools-2.6.1.tgz#794bf9d5c81118ca0e590fc9f26e4b97c8c77f52"
+  integrity sha512-C5M5S4KLAdqjtj1tx6vaE1tWLSmWK5VMnKPB44LL7nIS1daEUEULxkSwFgGNEZV23e7Vzqt6799s06/IZ97Uqw==
   dependencies:
-    "@clevercloud/client" "^5.1.0"
+    "@clevercloud/client" "^6.0.0"
     "@weseek/clf-date" "^0.2.1"
-    baconjs "^0.7.83"
     cliparse "^0.3.1"
     colors "^1.4.0"
     common-env "^6.3.1"
