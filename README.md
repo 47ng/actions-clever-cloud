@@ -121,8 +121,19 @@ not a bug, but a feature of Actions, according to GitHub.
 > Read more about this issue on my [blog](https://francoisbest.com/posts) post: [The Security of GitHub Actions](https://francoisbest.com/posts/2020/the-security-of-github-actions).
 
 Therefore, to make sure you will only set your own environment variables,
-you can set a safelist of comma-separated names. Only those will make it to
-your app.
+you must set a safelist of comma-separated environment variable names.
+Only those will make it to your app.
+
+> Note: because the safelist can also be injected, it is strongly recommended
+> to always set it to an empty string for deployments without extra env:
+> ```
+> - uses: 47ng/actions-clever-cloud@master
+>   with:
+>     extraEnvSafelist: ''   # Disable env injection
+>   env:
+>     CLEVER_TOKEN:  ${{ secrets.CLEVER_TOKEN }}
+>     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+> ```
 
 ### Caveats
 
