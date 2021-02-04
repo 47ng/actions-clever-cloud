@@ -128,7 +128,7 @@ export default async function run({
     if (timeout) {
       let timeoutID: NodeJS.Timeout | undefined
       let timedOut = false
-      const timeoutPromise = new Promise(resolve => {
+      const timeoutPromise = new Promise<void>(resolve => {
         timeoutID = setTimeout(() => {
           timedOut = true
           resolve()
