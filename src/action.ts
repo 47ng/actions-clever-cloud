@@ -25,7 +25,7 @@ function throwMissingEnvVar(name: string): never {
 
 function listExtraEnv(): ExtraEnv {
   const extraEnvSafelist = core.getInput('extraEnvSafelist')
-  const safeList = (extraEnvSafelist || '').split(',')
+  const safeList = (extraEnvSafelist || '').split(',').map(item => item.trim())
 
   const extraEnv = Object.keys(process.env)
     .filter(name => {
