@@ -31,7 +31,7 @@
     "@actions/core": "^1.2.7",
     "@actions/exec": "^1.0.4",
     "clever-tools": "^2.8.0",
-    "ws": "^7.4.3"
+    "ws": "^7.4.5"
   },
   "devDependencies": {
     "@types/jest": "^26.0.20",
