@@ -29,7 +29,7 @@
   "license": "MIT",
   "dependencies": {
     "@actions/core": "^1.4.0",
-    "@actions/exec": "^1.0.4",
+    "@actions/exec": "^1.1.0",
     "clever-tools": "^2.8.0",
     "ws": "^7.4.5"
   },
