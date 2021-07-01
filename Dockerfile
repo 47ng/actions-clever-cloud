@@ -1,4 +1,4 @@
-FROM mhart/alpine-node:14 AS builder
+FROM mhart/alpine-node:16 AS builder
 
 WORKDIR /action
 
@@ -13,7 +13,7 @@ RUN yarn install --production
 
 # ---
 
-FROM mhart/alpine-node:14 AS final
+FROM mhart/alpine-node:16 AS final
 
 WORKDIR /action
 COPY --from=builder /action .
