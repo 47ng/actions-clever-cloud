@@ -36,7 +36,6 @@ jobs:
     name: Deployment
     needs: ci
     runs-on: ubuntu-latest
-    if: ${{ github.ref_name == 'master' }}
     steps:
       - uses: actions/checkout@a81bbbf8298c0fa03ea29cdc473d45769f953675
       - uses: manusa/actions-publish-docker@db938e45d2a3487e0eab9646e83550f554c17af3
