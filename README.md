@@ -3,7 +3,6 @@
 [![Marketplace](https://img.shields.io/github/v/release/47ng/actions-clever-cloud?label=Marketplace)](https://github.com/marketplace/actions/deploy-to-clever-cloud)
 [![MIT License](https://img.shields.io/github/license/47ng/actions-clever-cloud.svg?color=blue)](https://github.com/47ng/actions-clever-cloud/blob/master/LICENSE)
 [![CI/CD](https://github.com/47ng/actions-clever-cloud/workflows/CI/CD/badge.svg)](https://github.com/47ng/actions-clever-cloud/actions)
-[![Dependabot Status](https://api.dependabot.com/badges/status?host=github&repo=47ng/actions-clever-cloud)](https://dependabot.com)
 [![Average issue resolution time](https://isitmaintained.com/badge/resolution/47ng/actions-clever-cloud.svg)](https://isitmaintained.com/project/47ng/actions-clever-cloud)
 [![Number of open issues](https://isitmaintained.com/badge/open/47ng/actions-clever-cloud.svg)](https://isitmaintained.com/project/47ng/actions-clever-cloud)
 
@@ -159,3 +158,9 @@ Clever Cloud lets you connect your GitHub repository so that any push is
 deployed. This is great for staging environments, but in some cases you
 may want to deploy to production only on specific events, like a release
 being published, or after a CI run.
+
+## License
+
+[MIT](https://github.com/47ng/actions-clever-cloud/blob/master/LICENSE) - Made with ❤️ by [François Best](https://francoisbest.com)
+
+Using this action at work ? [Sponsor me](https://github.com/sponsors/franky47) to help with support and maintenance.
