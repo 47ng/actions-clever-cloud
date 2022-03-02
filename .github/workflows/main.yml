@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@a81bbbf8298c0fa03ea29cdc473d45769f953675
       - uses: actions/setup-node@56899e050abffc08c2b3b61f3ec6a79a9dc3223d
         with:
-          node-version: 14.x
+          node-version: 16.x
       - uses: actions/cache@d1255ad9362389eac595a9ae406b8e8cb3331f16
         name: Load Yarn cache
         with:
@@ -36,6 +36,7 @@ jobs:
     name: Deployment
     needs: ci
     runs-on: ubuntu-latest
+    if: ${{ github.ref_name == 'master' }}
     steps:
       - uses: actions/checkout@a81bbbf8298c0fa03ea29cdc473d45769f953675
       - uses: manusa/actions-publish-docker@db938e45d2a3487e0eab9646e83550f554c17af3
