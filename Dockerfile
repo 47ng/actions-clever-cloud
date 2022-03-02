@@ -1,4 +1,4 @@
-FROM mhart/alpine-node:16 AS builder
+FROM node:16-bullseye AS builder
 
 WORKDIR /action
 
@@ -13,9 +13,8 @@ RUN yarn install --production
 
 # ---
 
-FROM mhart/alpine-node:16 AS final
+FROM node:16-bullseye AS final
 
-WORKDIR /action
 COPY --from=builder /action .
 
 CMD node /action/dist/main.js
