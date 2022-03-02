@@ -15,6 +15,6 @@ RUN yarn install --production
 
 FROM node:16-bullseye AS final
 
-COPY --from=builder /action .
+COPY --from=builder /action /action
 
 CMD node /action/dist/main.js
