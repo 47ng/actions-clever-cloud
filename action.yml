@@ -1,6 +1,6 @@
 name: Deploy to Clever Cloud
 description: Deploy your application to Clever Cloud
-author: Francois Best
+author: François Best
 branding:
   icon: upload-cloud
   color: red
@@ -15,17 +15,25 @@ inputs:
     description: |
       The ID of your application (can be found in the Clever Cloud console).
       Takes precedence over `alias` if both are defined.
-  extraEnvSafelist:
-    required: false
-    description: |
-      A comma-separated list of extra environment variable names to allow
-      to be set, see https://github.com/47ng/ations-clever-cloud#safelisting
   timeout:
     required: false
     description: |
       How long (in seconds) to wait at most before moving on.
       This can help saving build minutes with very long deployments,
       but you will lose any deployment failure information.
+  setEnv:
+    required: false
+    description: |
+      Extra environment variables to set on the application before deployment.
+      Values are separated by a newline character (\n), use a YAML literal block
+      scalar `|` to preserve newlines and separate multiple variables definitions.
+      (see https://github.com/47ng/actions-clever-cloud#extra-environment-variables)
+  extraEnvSafelist:
+    required: false
+    deprecationMessage: This is no longer needed or used, use the `setEnv` input instead.
+    description: |
+      A comma-separated list of extra environment variable names to allow
+      to be set, see https://github.com/47ng/ations-clever-cloud#safelisting
 runs:
   using: docker
   image: docker://47ng/actions-clever-cloud:latest

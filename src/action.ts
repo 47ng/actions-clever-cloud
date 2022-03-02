@@ -1,7 +1,7 @@
-import path from 'path'
 import * as core from '@actions/core'
 import { exec } from '@actions/exec'
-import { setTimeout, clearTimeout } from 'timers'
+import path from 'path'
+import { clearTimeout, setTimeout } from 'timers'
 
 export type ExtraEnv = {
   [key: string]: string
@@ -24,34 +24,25 @@ function throwMissingEnvVar(name: string): never {
 }
 
 function listExtraEnv(): ExtraEnv {
-  const extraEnvSafelist = core.getInput('extraEnvSafelist')
-  const safeList = (extraEnvSafelist || '').split(',').map(item => item.trim())
+  const envLineRegex = /^(\w+)=(.*)$/
 
-  const extraEnv = Object.keys(process.env)
-    .filter(name => {
-      const matches = name.match(/^INPUT_CLEVER_ENV_([A-Z0-9_]*)$/)
-      if (!matches) {
-        return false
+  const extraEnv = core
+    .getMultilineInput('setEnv')
+    .map(line => line.trim())
+    .reduce((env, line) => {
+      const match = line.match(envLineRegex)
+      if (!match) {
+        return env
       }
-      if (extraEnvSafelist && !safeList.includes(matches[1])) {
-        core.warning(
-          `Ignoring unsafe extra environment variable ${name} (https://github.com/47ng/actions-clever-cloud#safelisting)`
-        )
-        return false
-      }
-      return true
-    })
-    .reduce((env, key) => {
-      const targetEnvName = key.replace(/^INPUT_CLEVER_ENV_/, '')
-      return {
-        ...env,
-        [targetEnvName]: process.env[key]
-      }
-    }, {})
+      const key = match[1]
+      const value = match[2]
+      env[key] = value
+      return env
+    }, {} as Record<string, string>)
 
   if (Object.keys(extraEnv).length) {
     core.info('Setting extra environment variables:')
-    for (const envName of Object.keys(extraEnv)) {
+    for (const envName in extraEnv) {
       core.info(`  ${envName}`)
     }
   }
@@ -145,6 +136,10 @@ export default async function run({
       await exec(cleverCLI, args)
     }
   } catch (error) {
-    core.setFailed(error.message)
+    if (error instanceof Error) {
+      core.setFailed(error.message)
+    } else {
+      core.setFailed(String(error))
+    }
   }
 }
