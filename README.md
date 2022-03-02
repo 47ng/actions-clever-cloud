@@ -91,51 +91,31 @@ $ cat ~/.config/clever-cloud
 
 > Note: this feature is not yet released, but can be previewed from the `master` branch.
 
-You can set extra environment variables on the deployed application by
-prefixing them with `CLEVER_ENV_` in the input arguments:
+You can set extra environment variables on the deployed application under the
+`setEnv` option. It follows the same syntax as .env files (newline-separated,
+key=value).
 
 ```yml
 - uses: 47ng/actions-clever-cloud@master
   with:
-    CLEVER_ENV_FOO: bar         # sets FOO=bar on the application
-    CLEVER_ENV_EGG: spam        # sets EGG=spam on the application
-    extraEnvSafelist: FOO,EGG   # Only allow FOO and EGG to be set
+    setEnv: | # <- note the pipe here..
+      FOO=bar
+      EGG=spam
+    # ^-- ..and the indentation here
   env:
     CLEVER_TOKEN:  ${{ secrets.CLEVER_TOKEN }}
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
 
-Whatever follows `CLEVER_ENV_` will be the name of the environment
-variable in the application, and the value will follow what is passed.
+> _Note: you need to use a [literal block scalar](https://yaml-multiline.info/) `|` to preserve newlines in a YAML string._
 
 Environment variables will be set before the application is deployed,
 to let the new deployment use them.
 
-### Safelisting
-
-Because GitHub actions share their environment, it would be possible for a
-malicious action used before this one to export an undesired `INPUT_CLEVER_ENV_XYZ`
-variable, which would be injected to your application. This is unfortunately
-not a bug, but a feature of Actions, according to GitHub.
-
-> Read more about this issue on my [blog](https://francoisbest.com/posts) post: [The Security of GitHub Actions](https://francoisbest.com/posts/2020/the-security-of-github-actions).
-
-Therefore, to make sure you will only set your own environment variables,
-you must set a safelist of comma-separated environment variable names.
-Only those will make it to your app.
-
-> Note: because the safelist can also be injected, it is strongly recommended
-> to always set it to an empty string for deployments without extra env:
-> ```
-> - uses: 47ng/actions-clever-cloud@master
->   with:
->     extraEnvSafelist: ''   # Disable env injection
->   env:
->     CLEVER_TOKEN:  ${{ secrets.CLEVER_TOKEN }}
->     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
-> ```
-
 ### Caveats
+
+Multi-line environment variable values (eg: SSH keys, X.509 certificates) are
+currently not supported (due to splitting on newline), but contributions are welcome.
 
 If the deployment fails, the environment variables will still have been
 updated. This could be a problem if your app restarts or scales up, as

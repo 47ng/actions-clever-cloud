@@ -27,29 +27,25 @@ test('obtain auth credentials from the environment', () => {
   expect(args.secret).toEqual('secret')
 })
 
-test('extra env, no safelisting', () => {
-  process.env.INPUT_CLEVER_ENV_FOO = 'foo'
-  process.env.INPUT_CLEVER_ENV_BAR = 'bar'
-  process.env.INPUT_CLEVER_ENV_EVIL = 'evil'
+test('extra env', () => {
+  process.env.INPUT_SETENV = `
+  FOO=foo
+  BAR=bar
+
+  # empty line or comment is ignored
+  lowercase=blah
+  123=456
+  many_equals=dod==d=doodod=d
+`
   process.env.CLEVER_TOKEN = 'token'
   process.env.CLEVER_SECRET = 'secret'
   const args = processArguments()
   expect(args.extraEnv).toBeDefined()
   expect(args.extraEnv!.FOO).toEqual('foo')
   expect(args.extraEnv!.BAR).toEqual('bar')
-  expect(args.extraEnv!.EVIL).toEqual('evil')
-})
-test('extra env, with safelisting', () => {
-  process.env.INPUT_CLEVER_ENV_FOO = 'foo'
-  process.env.INPUT_CLEVER_ENV_BAR = 'bar'
-  process.env.INPUT_CLEVER_ENV_EVIL = 'evil'
-  process.env.INPUT_EXTRAENVSAFELIST = 'FOO,BAR'
-  process.env.CLEVER_TOKEN = 'token'
-  process.env.CLEVER_SECRET = 'secret'
-  const args = processArguments()
-  expect(args.extraEnv).toBeDefined()
-  expect(args.extraEnv!.FOO).toEqual('foo')
-  expect(args.extraEnv!.BAR).toEqual('bar')
+  expect(args.extraEnv!.lowercase).toEqual('blah')
+  expect(args.extraEnv!['123']).toEqual('456')
+  expect(args.extraEnv!.many_equals).toEqual('dod==d=doodod=d')
   expect(args.extraEnv!.EVIL).toBeUndefined()
 })
 

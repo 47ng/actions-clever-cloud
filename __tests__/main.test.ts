@@ -1,4 +1,4 @@
-import run, { processArguments } from '../src/action'
+import run from '../src/action'
 
 const core = require('@actions/core')
 const { exec } = require('@actions/exec')
