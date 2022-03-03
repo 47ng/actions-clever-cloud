@@ -1,4 +1,4 @@
-import core from '@actions/core'
+import * as core from '@actions/core'
 import run, { processArguments } from './action'
 
 async function main(): Promise<void> {
