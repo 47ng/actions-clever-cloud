@@ -19,14 +19,14 @@ test('deploy default application (no arguments)', async () => {
     cleverCLI: 'clever'
   })
 
-  expect(exec).toHaveBeenNthCalledWith(1, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(2, 'clever', [
     'login',
     '--token',
     'token',
     '--secret',
     'secret'
   ])
-  expect(exec).toHaveBeenNthCalledWith(2, 'clever', ['deploy'])
+  expect(exec).toHaveBeenNthCalledWith(3, 'clever', ['deploy'])
   expect(core.setFailed).not.toHaveBeenCalled()
 })
 
@@ -38,14 +38,14 @@ test('deploy application with alias', async () => {
     cleverCLI: 'clever'
   })
 
-  expect(exec).toHaveBeenNthCalledWith(1, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(2, 'clever', [
     'login',
     '--token',
     'token',
     '--secret',
     'secret'
   ])
-  expect(exec).toHaveBeenNthCalledWith(2, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(3, 'clever', [
     'deploy',
     '--alias',
     'app-alias'
@@ -60,20 +60,20 @@ test('deploy application with app ID', async () => {
     appID: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
     cleverCLI: 'clever'
   })
-  expect(exec).toHaveBeenNthCalledWith(1, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(2, 'clever', [
     'login',
     '--token',
     'token',
     '--secret',
     'secret'
   ])
-  expect(exec).toHaveBeenNthCalledWith(2, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(3, 'clever', [
     'link',
     'app_facade42-cafe-babe-cafe-deadf00dbaad',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
   ])
-  expect(exec).toHaveBeenNthCalledWith(3, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(4, 'clever', [
     'deploy',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
@@ -88,20 +88,20 @@ test('when both app ID and alias are provided, appID takes precedence', async ()
     appID: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
     cleverCLI: 'clever'
   })
-  expect(exec).toHaveBeenNthCalledWith(1, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(2, 'clever', [
     'login',
     '--token',
     'token',
     '--secret',
     'secret'
   ])
-  expect(exec).toHaveBeenNthCalledWith(2, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(3, 'clever', [
     'link',
     'app_facade42-cafe-babe-cafe-deadf00dbaad',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
   ])
-  expect(exec).toHaveBeenNthCalledWith(3, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(4, 'clever', [
     'deploy',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
@@ -118,26 +118,26 @@ test('passing extra env variables, using no input args', async () => {
       egg: 'spam'
     }
   })
-  expect(exec).toHaveBeenNthCalledWith(1, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(2, 'clever', [
     'login',
     '--token',
     'token',
     '--secret',
     'secret'
   ])
-  expect(exec).toHaveBeenNthCalledWith(2, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(3, 'clever', [
     'env',
     'set',
     'foo',
     'bar'
   ])
-  expect(exec).toHaveBeenNthCalledWith(3, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(4, 'clever', [
     'env',
     'set',
     'egg',
     'spam'
   ])
-  expect(exec).toHaveBeenNthCalledWith(4, 'clever', ['deploy'])
+  expect(exec).toHaveBeenNthCalledWith(5, 'clever', ['deploy'])
 })
 
 test('passing extra env variables, using appID', async () => {
@@ -151,20 +151,20 @@ test('passing extra env variables, using appID', async () => {
       egg: 'spam'
     }
   })
-  expect(exec).toHaveBeenNthCalledWith(1, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(2, 'clever', [
     'login',
     '--token',
     'token',
     '--secret',
     'secret'
   ])
-  expect(exec).toHaveBeenNthCalledWith(2, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(3, 'clever', [
     'link',
     'app_facade42-cafe-babe-cafe-deadf00dbaad',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
   ])
-  expect(exec).toHaveBeenNthCalledWith(3, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(4, 'clever', [
     'env',
     'set',
     '--alias',
@@ -172,7 +172,7 @@ test('passing extra env variables, using appID', async () => {
     'foo',
     'bar'
   ])
-  expect(exec).toHaveBeenNthCalledWith(4, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(5, 'clever', [
     'env',
     'set',
     '--alias',
@@ -180,7 +180,7 @@ test('passing extra env variables, using appID', async () => {
     'egg',
     'spam'
   ])
-  expect(exec).toHaveBeenNthCalledWith(5, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(6, 'clever', [
     'deploy',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
@@ -198,14 +198,14 @@ test('passing extra env variables, using alias only', async () => {
       egg: 'spam'
     }
   })
-  expect(exec).toHaveBeenNthCalledWith(1, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(2, 'clever', [
     'login',
     '--token',
     'token',
     '--secret',
     'secret'
   ])
-  expect(exec).toHaveBeenNthCalledWith(2, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(3, 'clever', [
     'env',
     'set',
     '--alias',
@@ -213,7 +213,7 @@ test('passing extra env variables, using alias only', async () => {
     'foo',
     'bar'
   ])
-  expect(exec).toHaveBeenNthCalledWith(3, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(4, 'clever', [
     'env',
     'set',
     '--alias',
@@ -221,7 +221,7 @@ test('passing extra env variables, using alias only', async () => {
     'egg',
     'spam'
   ])
-  expect(exec).toHaveBeenNthCalledWith(4, 'clever', [
+  expect(exec).toHaveBeenNthCalledWith(5, 'clever', [
     'deploy',
     '--alias',
     'foo'

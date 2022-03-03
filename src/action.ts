@@ -73,6 +73,23 @@ export function processArguments(): Arguments {
   }
 }
 
+async function checkForShallowCopy(): Promise<void> {
+  let output = ''
+  await exec('git', ['rev-parse', '--is-shallow-repository'], {
+    listeners: {
+      stdout: (data: Buffer) => (output += data.toString())
+    }
+  })
+  if (output.trim() === 'true') {
+    throw new Error(`This action requires an unshallow working copy.
+-> Use the following step before running this action:
+ - uses: actions/checkout@v3
+   with:
+     fetch-depth: 0
+`)
+  }
+}
+
 export default async function run({
   token,
   secret,
@@ -83,6 +100,8 @@ export default async function run({
   extraEnv = {}
 }: Arguments): Promise<void> {
   try {
+    await checkForShallowCopy()
+
     core.debug(`Clever CLI path: ${cleverCLI}`)
 
     // Authenticate (this will only store the credentials at a known location)

@@ -17,8 +17,9 @@ In your workflow file:
 steps:
   # This action requires an unshallow working copy,
   # so the following prerequisites are necessary:
-  - uses: actions/checkout@v1.1
-  - run: git fetch --prune --unshallow
+  - uses: actions/checkout@v3
+    with:
+      fetch-depth: 0
 
   # Deploy your application
   - uses: 47ng/actions-clever-cloud@v1.1
