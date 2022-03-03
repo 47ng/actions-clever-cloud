@@ -125,15 +125,21 @@ export default async function run({
           resolve()
         }, timeout)
       })
-      await Promise.race([exec(cleverCLI, args), timeoutPromise])
+      const result = await Promise.race([exec(cleverCLI, args), timeoutPromise])
       if (timeoutID) {
         clearTimeout(timeoutID)
       }
       if (timedOut) {
         core.info('Deployment timed out, moving on with workflow run')
       }
+      if (typeof result === 'number' && result !== 0) {
+        throw new Error(`Deployment failed with code ${result}`)
+      }
     } else {
-      await exec(cleverCLI, args)
+      const code = await exec(cleverCLI, args)
+      if (code !== 0) {
+        throw new Error(`Deployment failed with code ${code}`)
+      }
     }
   } catch (error) {
     if (error instanceof Error) {

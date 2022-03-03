@@ -1,3 +1,5 @@
+// @ts-check
+
 import run from '../src/action'
 
 const core = require('@actions/core')
@@ -9,11 +11,14 @@ jest.mock('@actions/core')
 // --
 
 test('deploy default application (no arguments)', async () => {
+  exec.mockResolvedValue(0)
+
   await run({
     token: 'token',
     secret: 'secret',
     cleverCLI: 'clever'
   })
+
   expect(exec).toHaveBeenNthCalledWith(1, 'clever', [
     'login',
     '--token',
@@ -32,6 +37,7 @@ test('deploy application with alias', async () => {
     alias: 'app-alias',
     cleverCLI: 'clever'
   })
+
   expect(exec).toHaveBeenNthCalledWith(1, 'clever', [
     'login',
     '--token',
@@ -220,4 +226,25 @@ test('passing extra env variables, using alias only', async () => {
     '--alias',
     'foo'
   ])
+})
+
+test('deployment failure fails the workflow', async () => {
+  exec.mockResolvedValue(42)
+  await run({
+    token: 'token',
+    secret: 'secret',
+    cleverCLI: 'clever'
+  })
+  expect(core.setFailed).toHaveBeenCalledWith('Deployment failed with code 42')
+})
+
+test('deployment failure with timeout fails the workflow', async () => {
+  exec.mockResolvedValue(42)
+  await run({
+    token: 'token',
+    secret: 'secret',
+    cleverCLI: 'clever',
+    timeout: 10_000
+  })
+  expect(core.setFailed).toHaveBeenCalledWith('Deployment failed with code 42')
 })
