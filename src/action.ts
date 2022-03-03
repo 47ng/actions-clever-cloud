@@ -132,11 +132,13 @@ export default async function run({
       if (timedOut) {
         core.info('Deployment timed out, moving on with workflow run')
       }
+      core.info(`result: ${result}`)
       if (typeof result === 'number' && result !== 0) {
         throw new Error(`Deployment failed with code ${result}`)
       }
     } else {
       const code = await exec(cleverCLI, args)
+      core.info(`code: ${code}`)
       if (code !== 0) {
         throw new Error(`Deployment failed with code ${code}`)
       }
