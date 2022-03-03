@@ -150,7 +150,7 @@ This action follows [SemVer](https://semver.org/).
 
 To specify the version of the action to use:
 - `uses: 47ng/actions-clever-cloud@v1.1`: latest stable version
-- `uses: 47ng/actions-clever-cloud@4d9aae3b941dabe7ef59ed94b20f26a63d53d495`: pinned to a specific Git SHA-1 (check out the [releases](https://github.com/47ng/actions-clever-cloud/releases))
+- `uses: 47ng/actions-clever-cloud@3e5402496b8d6492401ebb3134acfeccc25c3fce`: pinned to a specific Git SHA-1 (check out the [releases](https://github.com/47ng/actions-clever-cloud/releases))
 - `uses: 47ng/actions-clever-cloud@master`: latest code from master (not recommended, as it may break: hic sunt dracones.)
 
 ## Why ?
