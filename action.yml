@@ -15,6 +15,11 @@ inputs:
     description: |
       The ID of your application (can be found in the Clever Cloud console).
       Takes precedence over `alias` if both are defined.
+  force:
+    required: false
+    default: 'false'
+    description: |
+      Use true if you want to force deploy even if it's not fast-forwardable
   timeout:
     required: false
     description: |

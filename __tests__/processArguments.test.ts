@@ -7,6 +7,8 @@ const OLD_ENV = process.env
 beforeEach(() => {
   jest.resetModules() // this is important - it clears the cache
   process.env = { ...OLD_ENV }
+  // Simulate default value for this input
+  process.env.INPUT_FORCE = 'false'
   delete process.env.NODE_ENV
 })
 
@@ -71,4 +73,34 @@ test('timeout, default value is not a number', () => {
   process.env.INPUT_TIMEOUT = 'nope'
   const args = processArguments()
   expect(args.timeout).toBeUndefined()
+})
+
+test('force, default value is false', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  const args = processArguments()
+  expect(args.force).toBe(false)
+})
+
+test('force, value is true', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_FORCE = 'true'
+  const args = processArguments()
+  expect(args.force).toBe(true)
+})
+
+test('force, value is false', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_FORCE = 'false'
+  const args = processArguments()
+  expect(args.force).toBe(false)
+})
+test('force, wrong value type fails the action', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_FORCE = 'nope'
+  const run = () => processArguments()
+  expect(run).toThrow()
 })

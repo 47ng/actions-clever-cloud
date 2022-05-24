@@ -144,6 +144,20 @@ regardless of the deployment status:
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
 
+## Force deployement
+
+Clever Cloud uses a Git remote to perform deploys. By default, if the commit you want to deploy is not a fast-forward from the commit currently deployed, the deploy will be rejected. You can pass `force: true` to force the deploy anyway:
+
+```yml
+- uses: 47ng/actions-clever-cloud@v1.1
+  with:
+    appID: app_facade42-cafe-babe-cafe-deadf00dbaad
+    force: true
+  env:
+    CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+    CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+```
+
 ## Versioning
 
 This action follows [SemVer](https://semver.org/).

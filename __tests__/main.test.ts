@@ -248,3 +248,32 @@ test('deployment failure with timeout fails the workflow', async () => {
   })
   expect(core.setFailed).toHaveBeenCalledWith('Deployment failed with code 42')
 })
+
+test('force deploy application', async () => {
+  await run({
+    token: 'token',
+    secret: 'secret',
+    appID: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+    cleverCLI: 'clever',
+    force: true
+  })
+  expect(exec).toHaveBeenNthCalledWith(2, 'clever', [
+    'login',
+    '--token',
+    'token',
+    '--secret',
+    'secret'
+  ])
+  expect(exec).toHaveBeenNthCalledWith(3, 'clever', [
+    'link',
+    'app_facade42-cafe-babe-cafe-deadf00dbaad',
+    '--alias',
+    'app_facade42-cafe-babe-cafe-deadf00dbaad'
+  ])
+  expect(exec).toHaveBeenNthCalledWith(4, 'clever', [
+    'deploy',
+    '--alias',
+    'app_facade42-cafe-babe-cafe-deadf00dbaad',
+    '--force'
+  ])
+})
