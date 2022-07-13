@@ -169,6 +169,12 @@ To specify the version of the action to use:
 - `uses: 47ng/actions-clever-cloud@3e5402496b8d6492401ebb3134acfeccc25c3fce`: pinned to a specific Git SHA-1 (check out the [releases](https://github.com/47ng/actions-clever-cloud/releases))
 - `uses: docker://47ng/actions-clever-cloud:latest`: latest code from master (not recommended, as it may break: hic sunt dracones.)
 
+> Note: `uses: 47ng/actions-clever-cloud@master` will not use the latest code on the `master` branch,
+> because the action manifest is pinned on the latest relase for performance reasons (it saves
+> rebuilding the Docker image when consuming the action).
+>
+> If you wish to test unreleased features, go through Docker directly.
+
 ## Why ?
 
 Clever Cloud lets you connect your GitHub repository so that any push is
