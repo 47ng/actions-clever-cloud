@@ -146,7 +146,7 @@ regardless of the deployment status:
 
 ## Force deployement
 
-> _Available since v1.2.0_
+> Support: introduced in v1.2
 
 Clever Cloud uses a Git remote to perform deploys. By default, if the commit you want to deploy is not a fast-forward from the commit currently deployed, the deploy will be rejected. You can pass `force: true` to force the deploy anyway:
 
