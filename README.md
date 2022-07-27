@@ -22,7 +22,7 @@ steps:
       fetch-depth: 0
 
   # Deploy your application
-  - uses: 47ng/actions-clever-cloud@v1.2
+  - uses: 47ng/actions-clever-cloud@v1.2.0
     env:
       CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
       CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
@@ -42,7 +42,7 @@ If you have committed the `.clever.json` file, you only need to specify
 the alias of the application to deploy:
 
 ```yml
-- uses: 47ng/actions-clever-cloud@v1.2
+- uses: 47ng/actions-clever-cloud@v1.2.0
   with:
     alias: my-app-alias
   env:
@@ -54,7 +54,7 @@ If you don't have this `.clever.json` file or you want to explicly
 deploy to another application, you can pass its ID:
 
 ```yml
-- uses: 47ng/actions-clever-cloud@v1.2
+- uses: 47ng/actions-clever-cloud@v1.2.0
   with:
     appID: app_facade42-cafe-babe-cafe-deadf00dbaad
   env:
@@ -89,14 +89,14 @@ $ cat ~/.config/clever-cloud
 
 ## Extra Environment Variables
 
-> Support: introduced in v1.2
+> Support: introduced in v1.2.0
 
 You can set extra environment variables on the deployed application under the
 `setEnv` option. It follows the same syntax as .env files (newline-separated,
 key=value).
 
 ```yml
-- uses: 47ng/actions-clever-cloud@v1.2
+- uses: 47ng/actions-clever-cloud@v1.2.0
   with:
     setEnv: | # <- note the pipe here..
       FOO=bar
@@ -126,7 +126,7 @@ set by this action if deployment fails.
 
 ## Deployment Timeout
 
-> Support: introduced in v1.2
+> Support: introduced in v1.2.0
 
 Because build minutes are precious, and also because of two ongoing issues in
 the Clever Tools CLI (
@@ -136,7 +136,7 @@ you can specify a timeout in seconds after which the workflow will move on,
 regardless of the deployment status:
 
 ```yml
-- uses: 47ng/actions-clever-cloud@v1.2
+- uses: 47ng/actions-clever-cloud@v1.2.0
   with:
     timeout: 1800 # wait at maximum 30 minutes before moving on
   env:
@@ -146,12 +146,12 @@ regardless of the deployment status:
 
 ## Force deployement
 
-> Support: introduced in v1.2
+> Support: introduced in v1.2.0
 
 Clever Cloud uses a Git remote to perform deploys. By default, if the commit you want to deploy is not a fast-forward from the commit currently deployed, the deploy will be rejected. You can pass `force: true` to force the deploy anyway:
 
 ```yml
-- uses: 47ng/actions-clever-cloud@v1.2
+- uses: 47ng/actions-clever-cloud@v1.2.0
   with:
     appID: app_facade42-cafe-babe-cafe-deadf00dbaad
     force: true
@@ -165,7 +165,7 @@ Clever Cloud uses a Git remote to perform deploys. By default, if the commit you
 This action follows [SemVer](https://semver.org/).
 
 To specify the version of the action to use:
-- `uses: 47ng/actions-clever-cloud@v1.2`: latest stable version
+- `uses: 47ng/actions-clever-cloud@v1.2.0`: latest stable version
 - `uses: 47ng/actions-clever-cloud@3e5402496b8d6492401ebb3134acfeccc25c3fce`: pinned to a specific Git SHA-1 (check out the [releases](https://github.com/47ng/actions-clever-cloud/releases))
 - `uses: docker://47ng/actions-clever-cloud:latest`: latest code from master (not recommended, as it may break: hic sunt dracones.)
 
