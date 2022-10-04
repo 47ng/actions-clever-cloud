@@ -33,6 +33,17 @@ inputs:
       Values are separated by a newline character (\n), use a YAML literal block
       scalar `|` to preserve newlines and separate multiple variables definitions.
       (see https://github.com/47ng/actions-clever-cloud#extra-environment-variables)
+  logFile:
+    required: false
+    description: |
+      Path to a file where to store the deployment logs.
+      Example usage:
+      ```yaml
+      - uses: 47ng/actions-clever-cloud@version
+          id: deploy
+          with:
+            logFile: ${{ github.workspace }}/logs/clever-cloud-deploy.log
+      ```
   extraEnvSafelist:
     required: false
     deprecationMessage: This is no longer needed or used, use the `setEnv` input instead.
