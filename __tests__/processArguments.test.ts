@@ -7,7 +7,7 @@ const OLD_ENV = process.env
 beforeEach(() => {
   jest.resetModules() // this is important - it clears the cache
   process.env = { ...OLD_ENV }
-  // Simulate default value for this input
+  // Simulate default values
   process.env.INPUT_FORCE = 'false'
   delete process.env.NODE_ENV
 })
@@ -103,4 +103,19 @@ test('force, wrong value type fails the action', () => {
   process.env.INPUT_FORCE = 'nope'
   const run = () => processArguments()
   expect(run).toThrow()
+})
+
+test('log file is unset by default', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  const args = processArguments()
+  expect(args.logFile).toBeUndefined()
+})
+
+test('log file', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_LOGFILE = '/some/path'
+  const args = processArguments()
+  expect(args.logFile).toBe('/some/path')
 })

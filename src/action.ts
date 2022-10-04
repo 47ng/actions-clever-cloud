@@ -1,7 +1,8 @@
 import * as core from '@actions/core'
 import { exec } from '@actions/exec'
-import path from 'path'
-import { clearTimeout, setTimeout } from 'timers'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import { clearTimeout, setTimeout } from 'node:timers'
 
 export type ExtraEnv = {
   [key: string]: string
@@ -16,6 +17,7 @@ export interface Arguments {
   timeout?: number
   cleverCLI: string
   extraEnv?: ExtraEnv
+  logFile?: string
 }
 
 function throwMissingEnvVar(name: string): never {
@@ -62,8 +64,9 @@ export function processArguments(): Arguments {
 
   const appID = core.getInput('appID')
   const alias = core.getInput('alias')
-  const force = core.getBooleanInput('force')
+  const force = core.getBooleanInput('force', { required: false })
   const timeout = parseInt(core.getInput('timeout')) || undefined
+  const logFile = core.getInput('logFile') || undefined
   return {
     token,
     secret,
@@ -72,7 +75,8 @@ export function processArguments(): Arguments {
     appID,
     timeout,
     cleverCLI: path.resolve(__dirname, '../node_modules/.bin/clever'),
-    extraEnv: listExtraEnv()
+    extraEnv: listExtraEnv(),
+    logFile
   }
 }
 
@@ -101,10 +105,18 @@ export default async function run({
   force,
   cleverCLI,
   timeout,
+  logFile,
   extraEnv = {}
 }: Arguments): Promise<void> {
   try {
     await checkForShallowCopy()
+
+    const logFileStream = logFile
+      ? (await fs.open(logFile)).createWriteStream()
+      : undefined
+    if (logFileStream) {
+      process.stdout.pipe(logFileStream)
+    }
 
     core.debug(`Clever CLI path: ${cleverCLI}`)
 
