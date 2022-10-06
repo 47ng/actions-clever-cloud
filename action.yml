@@ -37,13 +37,6 @@ inputs:
     required: false
     description: |
       Path to a file where to store the deployment logs.
-      Example usage:
-      ```yaml
-      - uses: 47ng/actions-clever-cloud@version
-          id: deploy
-          with:
-            logFile: ${{ github.workspace }}/logs/clever-cloud-deploy.log
-      ```
   quiet:
     required: false
     default: 'false'
@@ -58,4 +51,4 @@ inputs:
       to be set, see https://github.com/47ng/ations-clever-cloud#safelisting
 runs:
   using: docker
-  image: docker://47ng/actions-clever-cloud:v1.3.0
+  image: docker://47ng/actions-clever-cloud:v1.3.1
