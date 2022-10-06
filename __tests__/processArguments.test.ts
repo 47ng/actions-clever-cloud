@@ -9,6 +9,7 @@ beforeEach(() => {
   process.env = { ...OLD_ENV }
   // Simulate default values
   process.env.INPUT_FORCE = 'false'
+  process.env.INPUT_QUIET = 'false'
   delete process.env.NODE_ENV
 })
 
@@ -118,4 +119,19 @@ test('log file', () => {
   process.env.INPUT_LOGFILE = '/some/path'
   const args = processArguments()
   expect(args.logFile).toBe('/some/path')
+})
+
+test('quiet (not by default)', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  const args = processArguments()
+  expect(args.quiet).toBe(false)
+})
+
+test('quiet', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_QUIET = 'true'
+  const args = processArguments()
+  expect(args.quiet).toBe(true)
 })

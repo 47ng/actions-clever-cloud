@@ -160,6 +160,48 @@ Clever Cloud uses a Git remote to perform deploys. By default, if the commit you
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
 
+## Logs
+
+> Support: introduced in v1.3.0
+
+You can write the deployment logs to a file for archiving:
+
+```yml
+- uses: 47ng/actions-clever-cloud@v1.3.0
+  with:
+    logFile: ./clever-cloud-deploy.log
+  env:
+    CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+    CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+# Optional: save the file as an artifact
+- uses: actions/upload-artifact@v2
+  name: Upload deployment logs
+  with:
+    name: clever-cloud-deploy.log
+    path: ./clever-cloud-deploy.log
+    retention-days: 30
+```
+
+If your deployment process is susceptible to log secrets or PII, you can also
+disable it from printing onto the console, using the `quiet` option:
+
+```yml
+- uses: 47ng/actions-clever-cloud@v1.3.0
+  with:
+    quiet: true
+  env:
+    CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+    CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+```
+
+### Annotations
+
+The action will detect the [workflow commands](https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#setting-a-notice-message)
+`::notice`, `::error`, and `::warning` being emitted from your deployment
+logs, and will forward them so they can be used to annotate a run.
+
+_Note: this behaviour will be disabled if the `quiet` option is used._
+
 ## Versioning
 
 This action follows [SemVer](https://semver.org/).
