@@ -44,6 +44,12 @@ inputs:
           with:
             logFile: ${{ github.workspace }}/logs/clever-cloud-deploy.log
       ```
+  quiet:
+    required: false
+    default: 'false'
+    description: |
+      Don't print deployment output to the console. Use this in case your deployment
+      may reveal secrets or PII.
   extraEnvSafelist:
     required: false
     deprecationMessage: This is no longer needed or used, use the `setEnv` input instead.

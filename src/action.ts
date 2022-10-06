@@ -1,7 +1,8 @@
 import * as core from '@actions/core'
-import { exec } from '@actions/exec'
+import { exec, ExecOptions } from '@actions/exec'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { PassThrough, Transform, Writable } from 'node:stream'
 import { clearTimeout, setTimeout } from 'node:timers'
 
 export type ExtraEnv = {
@@ -18,6 +19,7 @@ export interface Arguments {
   cleverCLI: string
   extraEnv?: ExtraEnv
   logFile?: string
+  quiet?: boolean
 }
 
 function throwMissingEnvVar(name: string): never {
@@ -67,6 +69,7 @@ export function processArguments(): Arguments {
   const force = core.getBooleanInput('force', { required: false })
   const timeout = parseInt(core.getInput('timeout')) || undefined
   const logFile = core.getInput('logFile') || undefined
+  const quiet = core.getBooleanInput('quiet', { required: false })
   return {
     token,
     secret,
@@ -76,7 +79,8 @@ export function processArguments(): Arguments {
     timeout,
     cleverCLI: path.resolve(__dirname, '../node_modules/.bin/clever'),
     extraEnv: listExtraEnv(),
-    logFile
+    logFile,
+    quiet
   }
 }
 
@@ -102,20 +106,18 @@ export default async function run({
   secret,
   appID,
   alias,
-  force,
+  force = false,
   cleverCLI,
   timeout,
   logFile,
+  quiet = false,
   extraEnv = {}
 }: Arguments): Promise<void> {
   try {
     await checkForShallowCopy()
 
-    const logFileStream = logFile
-      ? (await fs.open(logFile)).createWriteStream()
-      : undefined
-    if (logFileStream) {
-      process.stdout.pipe(logFileStream)
+    const execOptions: ExecOptions = {
+      outStream: await getOutputStream(quiet, logFile)
     }
 
     core.debug(`Clever CLI path: ${cleverCLI}`)
@@ -129,7 +131,7 @@ export default async function run({
     // to the appID, and the alias argument is ignored if also specified.
     if (appID) {
       core.debug(`Linking ${appID}`)
-      await exec(cleverCLI, ['link', appID, '--alias', appID])
+      await exec(cleverCLI, ['link', appID, '--alias', appID], execOptions)
       alias = appID
     }
 
@@ -141,7 +143,7 @@ export default async function run({
         args.push('--alias', alias)
       }
       args.push(envName, extraEnv[envName])
-      await exec(cleverCLI, args)
+      await exec(cleverCLI, args, execOptions)
     }
 
     const args = ['deploy']
@@ -164,7 +166,10 @@ export default async function run({
           resolve()
         }, timeout)
       })
-      const result = await Promise.race([exec(cleverCLI, args), timeoutPromise])
+      const result = await Promise.race([
+        exec(cleverCLI, args, execOptions),
+        timeoutPromise
+      ])
       if (timeoutID) {
         clearTimeout(timeoutID)
       }
@@ -176,7 +181,7 @@ export default async function run({
         throw new Error(`Deployment failed with code ${result}`)
       }
     } else {
-      const code = await exec(cleverCLI, args)
+      const code = await exec(cleverCLI, args, execOptions)
       core.info(`code: ${code}`)
       if (code !== 0) {
         throw new Error(`Deployment failed with code ${code}`)
@@ -189,4 +194,55 @@ export default async function run({
       core.setFailed(String(error))
     }
   }
+}
+
+// --
+
+async function getOutputStream(
+  quiet: boolean,
+  logFile?: string
+): Promise<Writable> {
+  const tee = new PassThrough()
+  if (!quiet) {
+    let lineSeparator = '\n'
+    async function* splitNewlines(
+      input: AsyncIterable<Buffer>
+    ): AsyncGenerator<string> {
+      for await (const chunk of input) {
+        const str = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : chunk
+        if (str.includes('\r\n')) {
+          lineSeparator = '\r\n'
+        }
+        const lines = str.split(/\r?\n/)
+        for (const line of lines) {
+          yield line
+        }
+      }
+    }
+    async function* injectAnnotations(
+      lines: AsyncIterable<string>
+    ): AsyncGenerator<string> {
+      for await (const line of lines) {
+        yield line + lineSeparator
+        // Remove timestamp
+        const message = line.slice('xxxx-xx-xxTxx:xx:xx+xx:xx '.length)
+        if (
+          message.startsWith('::notice ') ||
+          message.startsWith('::error ') ||
+          message.startsWith('::warning ')
+        ) {
+          yield message + lineSeparator
+        }
+      }
+    }
+    tee
+      .pipe(Transform.from(splitNewlines))
+      .pipe(Transform.from(injectAnnotations))
+      .pipe(process.stdout)
+  }
+  if (logFile) {
+    const logFileStream = (await fs.open(logFile, 'w')).createWriteStream()
+    tee.pipe(logFileStream)
+  }
+  return tee
 }
