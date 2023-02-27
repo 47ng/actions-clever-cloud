@@ -9,6 +9,26 @@
 GitHub action to deploy your application to
 [Clever Cloud](https://clever-cloud.com).
 
+## Prerequisite
+
+⚠️ When creating an application on Clever Cloud, you have to choose
+between deploying "*from a local repository*" (using Clever CLI, Git
+or SFTP) or "*from a Github repository*" (using a webhook setup
+automatically by Clever Cloud). Only the first type of applications
+can be deployed using this Github action.
+
+In your project's `.clever.json`, if the `deploy_url` value starts
+with `https://github.com/`, your application is meant to be deployed
+"*from a Github repository*" only.
+If you try deploying it with this Github action, you will get the
+following message in your logs: `[ERROR] HTTP Error: 401 Authorization
+Required`.
+
+Currently (early 2023), the only workaround is to create a new
+application on Clever Cloud, that deploys "*from a local repository*",
+then remove the Clever Cloud webhook that has been created on your
+Github repository.
+
 ## Usage
 
 In your workflow file:
