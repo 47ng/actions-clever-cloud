@@ -79,7 +79,7 @@ re-use the ones generated for a local CLI. For that:
 3. Extract the credentials:
 
 ```shell
-$ cat ~/.config/clever-cloud
+$ cat ~/.config/clever-cloud/clever-tools.json
 {"token":"[token]","secret":"[secret]"}
 ```
 
