@@ -127,7 +127,7 @@ key=value).
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
 
-> _Note: you need to use a [literal block scalar](https://yaml-multiline.info/) `|` to preserve newlines in a YAML string._
+> **Note**: you need to use a [literal block scalar](https://yaml-multiline.info/) `|` to preserve newlines in a YAML string.
 
 Environment variables will be set before the application is deployed,
 to let the new deployment use them.
@@ -229,13 +229,17 @@ This action follows [SemVer](https://semver.org/).
 To specify the version of the action to use:
 - `uses: 47ng/actions-clever-cloud@v1.3.1`: latest stable version
 - `uses: 47ng/actions-clever-cloud@3e5402496b8d6492401ebb3134acfeccc25c3fce`: pinned to a specific Git SHA-1 (check out the [releases](https://github.com/47ng/actions-clever-cloud/releases))
-- `uses: docker://47ng/actions-clever-cloud:latest`: latest code from master (not recommended, as it may break: hic sunt dracones.)
+- `uses: docker://ghcr.io/47ng/actions-clever-cloud:latest`: latest code from master (not recommended, as it may break: hic sunt dracones.)
 
-> Note: `uses: 47ng/actions-clever-cloud@master` will not use the latest code on the `master` branch,
+> **Note**: `uses: 47ng/actions-clever-cloud@master` will not use the latest code on the `master` branch,
 > because the action manifest is pinned on the latest relase for performance reasons (it saves
 > rebuilding the Docker image when consuming the action).
 >
 > If you wish to test unreleased features, go through Docker directly.
+
+> **Note**: as of 2023-03-24, Docker images have been moved from Docker Hub
+> (`47ng/actions-clever-cloud`) to GitHub Container Registry (`ghcr.io/47ng/actions-clever-cloud`),
+> in response to Docker's plan to delete open source organisations on free plans.
 
 ## Why ?
 
