@@ -38,6 +38,7 @@ jobs:
           name: 47ng/actions-clever-cloud
           username: ${{ secrets.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_PASSWORD }}
+          include pull requests: true
           tag script: |
             const tag = context.ref
               .replace('refs/heads/', '')
