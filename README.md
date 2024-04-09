@@ -1,13 +1,11 @@
 # Deploy to Clever Cloud
 
 [![Marketplace](https://img.shields.io/github/v/release/47ng/actions-clever-cloud?label=Marketplace)](https://github.com/marketplace/actions/deploy-to-clever-cloud)
-[![MIT License](https://img.shields.io/github/license/47ng/actions-clever-cloud.svg?color=blue)](https://github.com/47ng/actions-clever-cloud/blob/master/LICENSE)
+[![MIT License](https://img.shields.io/github/license/47ng/actions-clever-cloud.svg?color=blue&label=License)](https://github.com/47ng/actions-clever-cloud/blob/master/LICENSE)
 [![CI/CD](https://github.com/47ng/actions-clever-cloud/workflows/CI/CD/badge.svg)](https://github.com/47ng/actions-clever-cloud/actions)
-[![Average issue resolution time](https://isitmaintained.com/badge/resolution/47ng/actions-clever-cloud.svg)](https://isitmaintained.com/project/47ng/actions-clever-cloud)
-[![Number of open issues](https://isitmaintained.com/badge/open/47ng/actions-clever-cloud.svg)](https://isitmaintained.com/project/47ng/actions-clever-cloud)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/franky47?color=%23db61a2&label=Sponsors)](https://github.com/sponsors/franky47)
 
-GitHub action to deploy your application to
-[Clever Cloud](https://clever-cloud.com).
+GitHub action to deploy your application to [Clever Cloud](https://clever-cloud.com).
 
 ## Prerequisite
 
