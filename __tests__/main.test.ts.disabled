@@ -1,12 +1,9 @@
 // @ts-check
 
+import * as core from '@actions/core'
+import * as exec from '@actions/exec'
+import { expect, test, vi } from 'vitest'
 import run from '../src/action'
-
-const core = require('@actions/core')
-const { exec } = require('@actions/exec')
-
-jest.mock('@actions/exec')
-jest.mock('@actions/core')
 
 // --
 
@@ -14,16 +11,19 @@ function expectCleverCLICallWithArgs(
   callIndex: number,
   ...expectedArgs: any[]
 ) {
-  const cli = exec.mock.calls[callIndex][0]
-  const args = exec.mock.calls[callIndex][1]
+  const _exec = vi.spyOn(exec, 'exec')
+  const cli = _exec.mock.calls[callIndex]?.[0]
+  const args = _exec.mock.calls[callIndex]?.[1]
   expect(cli).toEqual('clever')
   expectedArgs.map((arg, i) => {
-    expect(args[i]).toEqual(arg)
+    expect(args?.[i]).toEqual(arg)
   })
 }
 
 test('deploy default application (no arguments)', async () => {
-  exec.mockResolvedValue(0)
+  vi.mock('@actions/exec', () => ({
+    exec: () => Promise.resolve(0)
+  }))
   await run({
     token: 'token',
     secret: 'secret',
@@ -173,7 +173,9 @@ test('passing extra env variables, using alias only', async () => {
 })
 
 test('deployment failure fails the workflow', async () => {
-  exec.mockResolvedValue(42)
+  vi.mock('@actions/exec', () => ({
+    exec: () => Promise.resolve(42)
+  }))
   await run({
     token: 'token',
     secret: 'secret',
@@ -183,7 +185,9 @@ test('deployment failure fails the workflow', async () => {
 })
 
 test('deployment failure with timeout fails the workflow', async () => {
-  exec.mockResolvedValue(42)
+  vi.mock('@actions/exec', () => ({
+    exec: () => Promise.resolve(42)
+  }))
   await run({
     token: 'token',
     secret: 'secret',

@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, expect, test, vitest, } from 'vitest'
 import { processArguments } from '../src/action'
 
 // --
@@ -5,7 +6,7 @@ import { processArguments } from '../src/action'
 const OLD_ENV = process.env
 
 beforeEach(() => {
-  jest.resetModules() // this is important - it clears the cache
+  vitest.resetModules() // this is important - it clears the cache
   process.env = { ...OLD_ENV }
   // Simulate default values
   process.env.INPUT_FORCE = 'false'

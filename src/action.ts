@@ -1,9 +1,12 @@
 import * as core from '@actions/core'
-import { exec, ExecOptions } from '@actions/exec'
+import { exec, type ExecOptions } from '@actions/exec'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { PassThrough, Transform, Writable } from 'node:stream'
 import { clearTimeout, setTimeout } from 'node:timers'
+import { fileURLToPath } from 'node:url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export type ExtraEnv = {
   [key: string]: string
@@ -28,22 +31,25 @@ function throwMissingEnvVar(name: string): never {
   )
 }
 
-function listExtraEnv(): ExtraEnv {
-  const envLineRegex = /^(\w+)=(.*)$/
+const ENV_LINE_REGEX = /^(\w+)=(.*)$/
 
+function listExtraEnv(): ExtraEnv {
   const extraEnv = core
     .getMultilineInput('setEnv')
     .map(line => line.trim())
-    .reduce((env, line) => {
-      const match = line.match(envLineRegex)
-      if (!match) {
+    .reduce(
+      (env, line) => {
+        const match = line.match(ENV_LINE_REGEX)
+        if (!match) {
+          return env
+        }
+        const key = match[1]!
+        const value = match[2]!
+        env[key] = value
         return env
-      }
-      const key = match[1]
-      const value = match[2]
-      env[key] = value
-      return env
-    }, {} as Record<string, string>)
+      },
+      {} as Record<string, string>
+    )
 
   if (Object.keys(extraEnv).length) {
     core.info('Setting extra environment variables:')
@@ -137,12 +143,13 @@ export default async function run({
 
     // If there are environment variables to pass to the application,
     // set them before deployment so the new instance can use them.
-    for (const envName of Object.keys(extraEnv)) {
+    for (const [envName, envValue] of Object.entries(extraEnv)) {
       const args = ['env', 'set']
       if (alias) {
         args.push('--alias', alias)
       }
-      args.push(envName, extraEnv[envName])
+      args.push(envName, envValue)
+      core.info(`Setting environment variable ${envName}`)
       await exec(cleverCLI, args, execOptions)
     }
 

@@ -1,13 +1,11 @@
 # Deploy to Clever Cloud
 
 [![Marketplace](https://img.shields.io/github/v/release/47ng/actions-clever-cloud?label=Marketplace)](https://github.com/marketplace/actions/deploy-to-clever-cloud)
-[![MIT License](https://img.shields.io/github/license/47ng/actions-clever-cloud.svg?color=blue)](https://github.com/47ng/actions-clever-cloud/blob/master/LICENSE)
+[![MIT License](https://img.shields.io/github/license/47ng/actions-clever-cloud.svg?color=blue&label=License)](https://github.com/47ng/actions-clever-cloud/blob/master/LICENSE)
 [![CI/CD](https://github.com/47ng/actions-clever-cloud/workflows/CI/CD/badge.svg)](https://github.com/47ng/actions-clever-cloud/actions)
-[![Average issue resolution time](https://isitmaintained.com/badge/resolution/47ng/actions-clever-cloud.svg)](https://isitmaintained.com/project/47ng/actions-clever-cloud)
-[![Number of open issues](https://isitmaintained.com/badge/open/47ng/actions-clever-cloud.svg)](https://isitmaintained.com/project/47ng/actions-clever-cloud)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/franky47?color=%23db61a2&label=Sponsors)](https://github.com/sponsors/franky47)
 
-GitHub action to deploy your application to
-[Clever Cloud](https://clever-cloud.com).
+GitHub action to deploy your application to [Clever Cloud](https://clever-cloud.com).
 
 ## Prerequisite
 
@@ -42,7 +40,7 @@ steps:
       fetch-depth: 0
 
   # Deploy your application
-  - uses: 47ng/actions-clever-cloud@v1.3.1
+  - uses: 47ng/actions-clever-cloud@v2.0.0
     env:
       CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
       CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
@@ -62,7 +60,7 @@ If you have committed the `.clever.json` file, you only need to specify
 the alias of the application to deploy:
 
 ```yml
-- uses: 47ng/actions-clever-cloud@v1.3.1
+- uses: 47ng/actions-clever-cloud@v2.0.0
   with:
     alias: my-app-alias
   env:
@@ -74,7 +72,7 @@ If you don't have this `.clever.json` file or you want to explicly
 deploy to another application, you can pass its ID:
 
 ```yml
-- uses: 47ng/actions-clever-cloud@v1.3.1
+- uses: 47ng/actions-clever-cloud@v2.0.0
   with:
     appID: app_facade42-cafe-babe-cafe-deadf00dbaad
   env:
@@ -116,7 +114,7 @@ You can set extra environment variables on the deployed application under the
 key=value).
 
 ```yml
-- uses: 47ng/actions-clever-cloud@v1.3.1
+- uses: 47ng/actions-clever-cloud@v2.0.0
   with:
     setEnv: | # <- note the pipe here..
       FOO=bar
@@ -156,7 +154,7 @@ you can specify a timeout in seconds after which the workflow will move on,
 regardless of the deployment status:
 
 ```yml
-- uses: 47ng/actions-clever-cloud@v1.3.1
+- uses: 47ng/actions-clever-cloud@v2.0.0
   with:
     timeout: 1800 # wait at maximum 30 minutes before moving on
   env:
@@ -171,7 +169,7 @@ regardless of the deployment status:
 Clever Cloud uses a Git remote to perform deploys. By default, if the commit you want to deploy is not a fast-forward from the commit currently deployed, the deploy will be rejected. You can pass `force: true` to force the deploy anyway:
 
 ```yml
-- uses: 47ng/actions-clever-cloud@v1.3.1
+- uses: 47ng/actions-clever-cloud@v2.0.0
   with:
     appID: app_facade42-cafe-babe-cafe-deadf00dbaad
     force: true
@@ -187,7 +185,7 @@ Clever Cloud uses a Git remote to perform deploys. By default, if the commit you
 You can write the deployment logs to a file for archiving:
 
 ```yml
-- uses: 47ng/actions-clever-cloud@v1.3.1
+- uses: 47ng/actions-clever-cloud@v2.0.0
   with:
     logFile: ./clever-cloud-deploy.log
   env:
@@ -206,7 +204,7 @@ If your deployment process is susceptible to log secrets or PII, you can also
 disable it from printing onto the console, using the `quiet` option:
 
 ```yml
-- uses: 47ng/actions-clever-cloud@v1.3.1
+- uses: 47ng/actions-clever-cloud@v2.0.0
   with:
     quiet: true
   env:
@@ -227,7 +225,7 @@ _Note: this behaviour will be disabled if the `quiet` option is used._
 This action follows [SemVer](https://semver.org/).
 
 To specify the version of the action to use:
-- `uses: 47ng/actions-clever-cloud@v1.3.1`: latest stable version
+- `uses: 47ng/actions-clever-cloud@v2.0.0`: latest stable version
 - `uses: 47ng/actions-clever-cloud@3e5402496b8d6492401ebb3134acfeccc25c3fce`: pinned to a specific Git SHA-1 (check out the [releases](https://github.com/47ng/actions-clever-cloud/releases))
 - `uses: docker://ghcr.io/47ng/actions-clever-cloud:latest`: latest code from master (not recommended, as it may break: hic sunt dracones.)
 
@@ -237,9 +235,13 @@ To specify the version of the action to use:
 >
 > If you wish to test unreleased features, go through Docker directly.
 
-> **Note**: as of 2023-03-24, Docker images have been moved from Docker Hub
+> **Note**: as of 2023-03-24, Docker images have been copied from Docker Hub
 > (`47ng/actions-clever-cloud`) to GitHub Container Registry (`ghcr.io/47ng/actions-clever-cloud`),
 > in response to Docker's plan to delete open source organisations on free plans.
+>
+> Although they backtracked on this decision, the images are now dual-published
+> on both platforms, and default to being downloaded from GitHub Container Registry
+> for (seemingly) better performance.
 
 ## Why ?
 

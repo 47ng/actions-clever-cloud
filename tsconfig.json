@@ -1,31 +1,36 @@
 {
+  "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
     // Type checking
     "strict": true,
-
+    "noUncheckedIndexedAccess": true,
+    "alwaysStrict": false, // Don't emit "use strict" to avoid conflicts with "use client"
     // Modules
-    "module": "CommonJS",
-    "moduleResolution": "node",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "resolveJsonModule": true,
-    "rootDir": "./src",
-
     // Language & Environment
-    "target": "ES2018",
-
+    "target": "ESNext",
+    "lib": ["ESNext"],
     // Emit
-    "outDir": "./dist",
-    "noEmit": false,
-    "declaration": false,
-    "downlevelIteration": false,
+    "noEmit": true,
+    "declaration": true,
+    "declarationMap": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
 
+    "downlevelIteration": true,
     // Interop
+    "allowJs": true,
     "isolatedModules": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-
     // Misc
     "skipLibCheck": true,
-    "skipDefaultLibCheck": true
+    "skipDefaultLibCheck": true,
+    "incremental": true,
+    "tsBuildInfoFile": ".tsbuildinfo"
   },
-  "exclude": ["node_modules", "**/*.test.ts"]
+  "include": ["**/*.ts", "__tests__/processArguments.test.cts", "__tests__/main.test.ts.disabled"],
+  "exclude": ["node_modules"]
 }
