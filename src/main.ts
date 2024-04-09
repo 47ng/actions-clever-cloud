@@ -18,7 +18,13 @@ async function main(): Promise<void> {
 
 // https://www.kenmuse.com/blog/avoiding-dubious-ownership-in-dev-containers/
 function fixGitDubiousOwnership() {
-  return exec('git', ['config', '--global', '--add', 'safe.directory', '/github/workspace'])
+  return exec('git', [
+    'config',
+    '--global',
+    '--add',
+    'safe.directory',
+    '/github/workspace'
+  ])
 }
 
 main()

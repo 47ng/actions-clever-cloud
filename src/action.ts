@@ -37,16 +37,19 @@ function listExtraEnv(): ExtraEnv {
   const extraEnv = core
     .getMultilineInput('setEnv')
     .map(line => line.trim())
-    .reduce((env, line) => {
-      const match = line.match(ENV_LINE_REGEX)
-      if (!match) {
+    .reduce(
+      (env, line) => {
+        const match = line.match(ENV_LINE_REGEX)
+        if (!match) {
+          return env
+        }
+        const key = match[1]!
+        const value = match[2]!
+        env[key] = value
         return env
-      }
-      const key = match[1]!
-      const value = match[2]!
-      env[key] = value
-      return env
-    }, {} as Record<string, string>)
+      },
+      {} as Record<string, string>
+    )
 
   if (Object.keys(extraEnv).length) {
     core.info('Setting extra environment variables:')
