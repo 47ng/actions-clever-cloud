@@ -65,10 +65,10 @@ jobs:
           echo 'tags<<__TAGS_EOF__' >> $GITHUB_OUTPUT
           echo "47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}" >> $GITHUB_OUTPUT
           echo "47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
-          echo "47ng/actions-clever-cloud:git-${{ github.ref_name }}-${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "47ng/actions-clever-cloud:git-${{ github.sha }}" >> $GITHUB_OUTPUT
           echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}" >> $GITHUB_OUTPUT
           echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
-          echo "ghcr.io/47ng/actions-clever-cloud:git-${{ github.ref_name }}-${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "ghcr.io/47ng/actions-clever-cloud:git-${{ github.sha }}" >> $GITHUB_OUTPUT
           echo '__TAGS_EOF__' >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
