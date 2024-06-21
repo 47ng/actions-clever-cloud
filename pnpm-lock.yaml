@@ -61,7 +61,7 @@ packages:
     resolution: {integrity: sha512-wi9JjgKLYS7U/z8PPbco+PvTb/nRWjeoFlJ1Qer83k/3C5PHQi28hiVdeE2kHXmIL99mQFawx8qt/JPjZilJ8Q==}
     dev: false
 
-  /@clevercloud/client@8.2.0(baconjs@0.7.95)(eventsource@1.1.2)(superagent@6.1.0)(ws@7.5.9):
+  /@clevercloud/client@8.2.0(baconjs@0.7.95)(eventsource@1.1.2)(superagent@6.1.0)(ws@7.5.10):
     resolution: {integrity: sha512-nPOShepm52mY4ddcMiDpFfJUi9CjByuuQH8vAiFVn3r9Y0+BL3aXV/40SxT0qZDgt6bkyQB75tAEPMozIho4WQ==}
     peerDependencies:
       baconjs: ^0.7.83
@@ -74,7 +74,7 @@ packages:
       eventsource: 1.1.2
       oauth-1.0a: 2.2.6
       superagent: 6.1.0
-      ws: 7.5.9
+      ws: 7.5.10
     dev: false
 
   /@curlconverter/tree-sitter-bash@0.0.3:
@@ -1031,7 +1031,7 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
     dependencies:
-      '@clevercloud/client': 8.2.0(baconjs@0.7.95)(eventsource@1.1.2)(superagent@6.1.0)(ws@7.5.9)
+      '@clevercloud/client': 8.2.0(baconjs@0.7.95)(eventsource@1.1.2)(superagent@6.1.0)(ws@7.5.10)
       clf-date: 0.2.1
       cliparse: 0.3.4
       colors: 1.4.0
@@ -1052,7 +1052,7 @@ packages:
       text-table: 0.2.0
       update-notifier: 5.1.0
       uuid: 8.3.2
-      ws: 7.5.9
+      ws: 7.5.10
       xdg: 0.1.1
     transitivePeerDependencies:
       - baconjs
@@ -3040,8 +3040,8 @@ packages:
       typedarray-to-buffer: 3.1.5
     dev: false
 
-  /ws@7.5.9:
-    resolution: {integrity: sha512-F+P9Jil7UiSKSkppIiD94dN07AwvFixvLIj1Og1Rl9GGMuNipJnV9JzjD6XuqmAeiswGvUmNLjr5cFuXwNS77Q==}
+  /ws@7.5.10:
+    resolution: {integrity: sha512-+dbF1tHwZpXcbOJdVOkzLDxZP1ailvSxM6ZweXTegylPny803bFhA+vqBYw4s31NSAk4S2Qz+AKXK9a4wkdjcQ==}
     engines: {node: '>=8.3.0'}
     peerDependencies:
       bufferutil: ^4.0.1
