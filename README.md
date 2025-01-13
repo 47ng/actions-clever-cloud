@@ -255,3 +255,20 @@ being published, or after a CI run.
 [MIT](https://github.com/47ng/actions-clever-cloud/blob/master/LICENSE) - Made with ❤️ by [François Best](https://francoisbest.com)
 
 Using this action at work ? [Sponsor me](https://github.com/sponsors/franky47) to help with support and maintenance.
+
+## Deploying a Specific Directory
+
+If you want to deploy only a specific directory instead of the entire project, you can use the `deployPath` option:
+
+```yml
+- uses: 47ng/actions-clever-cloud@v2.0.0
+  with:
+    deployPath: ./directory  # Path relative to repository root
+  env:
+    CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+    CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+```
+
+This is particularly useful for monorepos or projects where you only want to deploy a subset of your codebase.
+
+Note: The path must be relative to the repository root and must exist.
