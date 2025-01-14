@@ -258,17 +258,29 @@ Using this action at work ? [Sponsor me](https://github.com/sponsors/franky47) t
 
 ## Deploying a Specific Directory
 
-If you want to deploy only a specific directory instead of the entire project, you can use the `deployPath` option:
+> ⚠️ Important note about the difference between `working-directory` and `deployPath`:
+>
+> - `working-directory` (GitHub Actions option) : Only changes the directory where the action runs. All files remain available, only the execution context changes.
+> 
+> - `deployPath` (this action's option) : Specifies exactly which files will be sent to Clever Cloud. Allows deploying only a subset of files, like a `dist` or `build` folder.
+
+### Example
 
 ```yml
+# This will NOT deploy only the build folder:
 - uses: 47ng/actions-clever-cloud@v2.0.0
   with:
-    deployPath: ./directory  # Path relative to repository root
-  env:
-    CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
-    CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+    working-directory: ./build    # ❌ Only changes where the action runs
+
+# This will deploy only the build folder:
+- uses: 47ng/actions-clever-cloud@v2.0.0
+  with:
+    deployPath: ./build          # ✅ Only sends these files to Clever Cloud
 ```
 
-This is particularly useful for monorepos or projects where you only want to deploy a subset of your codebase.
+This option is particularly useful for:
+- Monorepos where you want to deploy a single package
+- Projects where you only want to deploy built/compiled files
+- Filtering which files are sent to Clever Cloud
 
 Note: The path must be relative to the repository root and must exist.
