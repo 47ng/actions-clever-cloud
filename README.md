@@ -255,3 +255,32 @@ being published, or after a CI run.
 [MIT](https://github.com/47ng/actions-clever-cloud/blob/master/LICENSE) - Made with ❤️ by [François Best](https://francoisbest.com)
 
 Using this action at work ? [Sponsor me](https://github.com/sponsors/franky47) to help with support and maintenance.
+
+## Deploying a Specific Directory
+
+> ⚠️ Important note about the difference between `working-directory` and `deployPath`:
+>
+> - `working-directory` (GitHub Actions option) : Only changes the directory where the action runs. All files remain available, only the execution context changes.
+> 
+> - `deployPath` (this action's option) : Specifies exactly which files will be sent to Clever Cloud. Allows deploying only a subset of files, like a `dist` or `build` folder.
+
+### Example
+
+```yml
+# This will NOT deploy only the build folder:
+- uses: 47ng/actions-clever-cloud@v2.0.0
+  with:
+    working-directory: ./build    # ❌ Only changes where the action runs
+
+# This will deploy only the build folder:
+- uses: 47ng/actions-clever-cloud@v2.0.0
+  with:
+    deployPath: ./build          # ✅ Only sends these files to Clever Cloud
+```
+
+This option is particularly useful for:
+- Monorepos where you want to deploy a single package
+- Projects where you only want to deploy built/compiled files
+- Filtering which files are sent to Clever Cloud
+
+Note: The path must be relative to the repository root and must exist.

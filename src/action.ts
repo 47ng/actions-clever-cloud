@@ -21,6 +21,7 @@ export interface Arguments {
   timeout?: number
   cleverCLI: string
   extraEnv?: ExtraEnv
+  deployPath?: string
   logFile?: string
   quiet?: boolean
 }
@@ -76,6 +77,8 @@ export function processArguments(): Arguments {
   const timeout = parseInt(core.getInput('timeout')) || undefined
   const logFile = core.getInput('logFile') || undefined
   const quiet = core.getBooleanInput('quiet', { required: false })
+  const deployPath = core.getInput('deployPath') || undefined
+
   return {
     token,
     secret,
@@ -83,6 +86,7 @@ export function processArguments(): Arguments {
     force,
     appID,
     timeout,
+    deployPath,
     cleverCLI: path.resolve(__dirname, '../node_modules/.bin/clever'),
     extraEnv: listExtraEnv(),
     logFile,
@@ -115,6 +119,7 @@ export default async function run({
   force = false,
   cleverCLI,
   timeout,
+  deployPath,
   logFile,
   quiet = false,
   extraEnv = {}
@@ -124,6 +129,16 @@ export default async function run({
 
     const execOptions: ExecOptions = {
       outStream: await getOutputStream(quiet, logFile)
+    }
+
+    if (deployPath) {
+      try {
+        await fs.access(deployPath)
+        execOptions.cwd = deployPath
+        core.info(`Deploying from directory: ${deployPath}`)
+      } catch (error) {
+        throw new Error(`Deploy path does not exist: ${deployPath}`)
+      }
     }
 
     core.debug(`Clever CLI path: ${cleverCLI}`)

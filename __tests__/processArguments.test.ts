@@ -136,3 +136,18 @@ test('quiet', () => {
   const args = processArguments()
   expect(args.quiet).toBe(true)
 })
+
+test('deployPath is unset by default', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  const args = processArguments()
+  expect(args.deployPath).toBeUndefined()
+})
+
+test('deployPath is set from input', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_DEPLOYPATH = './packages/backend'
+  const args = processArguments()
+  expect(args.deployPath).toBe('./packages/backend')
+})

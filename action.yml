@@ -33,6 +33,11 @@ inputs:
       Values are separated by a newline character (\n), use a YAML literal block
       scalar `|` to preserve newlines and separate multiple variables definitions.
       (see https://github.com/47ng/actions-clever-cloud#extra-environment-variables)
+  deployPath:
+    required: false
+    description: |
+      Specific directory to deploy instead of the entire project.
+      Path must be relative to the repository root.
   logFile:
     required: false
     description: |
