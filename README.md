@@ -178,6 +178,23 @@ Clever Cloud uses a Git remote to perform deploys. By default, if the commit you
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
 
+## Same Commit Policy
+
+When the local and remote commits are identical, you can control what happens using the `sameCommitPolicy` option. Possible values are:
+- `error` (default): Fail the deployment
+- `ignore`: Skip the deployment silently
+- `restart`: Restart the application without redeploying
+- `rebuild`: Rebuild and redeploy the application
+
+```yml
+- uses: 47ng/actions-clever-cloud@v2.0.0
+  with:
+    sameCommitPolicy: restart
+  env:
+    CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+    CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+```
+
 ## Logs
 
 > Support: introduced in v1.3.1

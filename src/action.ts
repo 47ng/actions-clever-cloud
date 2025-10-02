@@ -24,6 +24,7 @@ export interface Arguments {
   deployPath?: string
   logFile?: string
   quiet?: boolean
+  sameCommitPolicy?: string
 }
 
 function throwMissingEnvVar(name: string): never {
@@ -78,6 +79,7 @@ export function processArguments(): Arguments {
   const logFile = core.getInput('logFile') || undefined
   const quiet = core.getBooleanInput('quiet', { required: false })
   const deployPath = core.getInput('deployPath') || undefined
+  const sameCommitPolicy = core.getInput('sameCommitPolicy') || undefined
 
   return {
     token,
@@ -90,7 +92,8 @@ export function processArguments(): Arguments {
     cleverCLI: path.resolve(__dirname, '../node_modules/.bin/clever'),
     extraEnv: listExtraEnv(),
     logFile,
-    quiet
+    quiet,
+    sameCommitPolicy
   }
 }
 
@@ -122,7 +125,8 @@ export default async function run({
   deployPath,
   logFile,
   quiet = false,
-  extraEnv = {}
+  extraEnv = {},
+  sameCommitPolicy
 }: Arguments): Promise<void> {
   try {
     await checkForShallowCopy()
@@ -177,6 +181,10 @@ export default async function run({
 
     if (force) {
       args.push('--force')
+    }
+
+    if (sameCommitPolicy) {
+      args.push('--same-commit-policy', sameCommitPolicy)
     }
 
     if (timeout) {
