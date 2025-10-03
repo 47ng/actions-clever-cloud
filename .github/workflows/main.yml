@@ -37,7 +37,7 @@ jobs:
           ' package.json 2>&1)
 
           if [ $? -ne 0 ]; then
-            echo "::error::$VERSION" # Expand the error into an annotation
+            echo "::error::$PACKAGE_VERSION" # Expand the error into an annotation
             exit 2
           fi
 
