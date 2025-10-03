@@ -1,6 +1,6 @@
 {
   "name": "@47ng/actions-clever-cloud",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "private": true,
   "description": "GitHub Action to deploy to Clever Cloud",
   "license": "MIT",
@@ -23,21 +23,27 @@
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsup ./src/main.ts --format esm",
-    "test": "vitest"
+    "dev": "node --env-file=.env.local --watch ./src/main.ts",
+    "build": "tsdown src/main.ts --outDir dist",
+    "test": "vitest --typecheck",
+    "knip": "knip"
   },
+  "engines": {
+    "node": "^24.9.0"
+  },
+  "packageManager": "pnpm@10.15.0",
   "dependencies": {
-    "@actions/core": "^1.10.1",
+    "@actions/core": "^1.11.1",
     "@actions/exec": "^1.1.1",
-    "clever-tools": "^3.5.0"
+    "clever-tools": "^4.1.0"
   },
   "devDependencies": {
-    "@types/node": "^20.12.6",
-    "@vitest/spy": "^1.4.0",
+    "@types/node": "^24.6.2",
+    "knip": "^5.64.1",
     "prettier": "^3.2.5",
-    "tsup": "^8.0.2",
-    "typescript": "^5.4.4",
-    "vitest": "^1.4.0"
+    "tsdown": "^0.15.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
   },
   "prettier": {
     "printWidth": 80,
