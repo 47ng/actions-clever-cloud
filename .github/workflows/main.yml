@@ -147,7 +147,19 @@ jobs:
         with:
           script: |
             const body = `<!-- docker-build-comment -->
-            ## 🐳 &nbsp;Docker image
+            ## Docker image preview
+
+            Use this to preview this PR in your workflows:
+
+            \`\`\`yaml
+            # Use the PR number to follow changes in this PR
+            - uses: docker://ghcr.io/47ng/actions-clever-cloud@${{ steps.docker-tag.outputs.tag }}
+            # Use the git SHA for pinning to a specific commit
+            - uses: docker://ghcr.io/47ng/actions-clever-cloud@git-${{ github.sha }}
+            \`\`\`
+
+            <details>
+            <summary>🐳 &nbsp;Docker image metadata</summary>
 
             Digest: \`${{ steps.docker-build-push.outputs.digest }}\`
 
@@ -161,8 +173,10 @@ jobs:
             ${{ steps.docker-labels-tags.outputs.labels }}
             \`\`\`
 
+            </details>
+
             ---
-            <sub>🤖 This comment is automatically updated on each push</sub>`;
+            <sub>🤖 This comment is updated on every push</sub>`;
 
             // Find existing comment by marker
             const { data: comments } = await github.rest.issues.listComments({
