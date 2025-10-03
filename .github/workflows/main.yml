@@ -160,6 +160,7 @@ jobs:
             <details>
             <summary>Image metadata</summary>
             <br/>
+
             Digest: \`${{ steps.docker-build-push.outputs.digest }}\`
 
             ### 📌 &nbsp;Tags
