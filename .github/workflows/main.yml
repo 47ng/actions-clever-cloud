@@ -91,7 +91,7 @@ jobs:
           echo "org.opencontainers.image.version=${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.revision=${{ github.sha }}" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.licenses=MIT" >> $GITHUB_OUTPUT
-          echo "org.opencontainers.image.source=https//github.com/${{github.repository}}/tree/${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "org.opencontainers.image.source=https://github.com/${{github.repository}}/tree/${{ github.sha }}" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.documentation=https://github.com/${{github.repository}}/blob/master/packages/server/README.md" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.url=https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}" >> $GITHUB_OUTPUT
           echo '__LABELS_EOF__' >> $GITHUB_OUTPUT
