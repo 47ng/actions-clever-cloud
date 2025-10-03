@@ -5,8 +5,11 @@ WORKDIR /action
 COPY package.json pnpm-lock.yaml  ./
 
 RUN corepack enable
-RUN pnpm install --frozen-lockfile --production
+RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY src ./src
+RUN pnpm run build
+RUN rm -rf node_modules
+RUN pnpm install --frozen-lockfile --ignore-scripts --production
 
 # ---
 
@@ -20,6 +23,6 @@ ENV INPUT_FORCE=false
 
 COPY --from=builder /action/package.json /action/package.json
 COPY --from=builder /action/node_modules /action/node_modules
-COPY --from=builder /action/src /action/src
+COPY --from=builder /action/dist /action/dist
 
-CMD ["node", "/action/src/main.ts"]
+CMD ["node", "/action/dist/main.js"]

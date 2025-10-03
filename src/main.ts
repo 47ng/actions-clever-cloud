@@ -28,6 +28,4 @@ function fixGitDubiousOwnership() {
   ])
 }
 
-if (require.main === module) {
-  main()
-}
+main()

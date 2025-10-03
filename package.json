@@ -24,6 +24,7 @@
   "main": "src/main.ts",
   "scripts": {
     "dev": "node --env-file=.env.local --watch ./src/main.ts",
+    "build": "tsdown src/main.ts --outDir dist",
     "test": "vitest --typecheck",
     "knip": "knip"
   },
@@ -40,6 +41,7 @@
     "@types/node": "^24.6.2",
     "knip": "^5.64.1",
     "prettier": "^3.2.5",
+    "tsdown": "^0.15.6",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   },
