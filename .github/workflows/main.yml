@@ -85,17 +85,25 @@ jobs:
           echo "org.opencontainers.image.url=https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}" >> $GITHUB_OUTPUT
           echo '__LABELS_EOF__' >> $GITHUB_OUTPUT
           echo 'tags<<__TAGS_EOF__' >> $GITHUB_OUTPUT
-          echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}" >> $GITHUB_OUTPUT
           if [ "${{ github.ref_name }}" == "master" ]; then
             echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
+            echo "47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
           fi
+          echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}" >> $GITHUB_OUTPUT
           echo "ghcr.io/47ng/actions-clever-cloud:git-${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}" >> $GITHUB_OUTPUT
+          echo "47ng/actions-clever-cloud:git-${{ github.sha }}" >> $GITHUB_OUTPUT
           echo '__TAGS_EOF__' >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - name: Login to Docker Hub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          username: ${{ secrets.DOCKER_HUB_USER }}
+          password: ${{ secrets.DOCKER_HUB_PASSWORD }}
       - name: Login to GitHub Container Registry
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
