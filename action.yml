@@ -49,5 +49,5 @@ inputs:
       Don't print deployment output to the console. Use this in case your deployment
       may reveal secrets or PII.
 runs:
-  using: node24
-  main: src/main.ts
+  using: docker
+  image: docker://ghcr.io/47ng/actions-clever-cloud:v2.0.0
