@@ -58,8 +58,8 @@ jobs:
 
   pr-preview:
     name: PR Preview
-    # Only run for pull_request_target
-    if: github.event_name == 'pull_request_target'
+    # Only run for pull_request_target or if author is a member of the org
+    if: github.event_name == 'pull_request_target' || contains(github.event.pull_request.author_association, 'MEMBER')
     runs-on: ubuntu-latest
     permissions:
       contents: read
