@@ -57,7 +57,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-      - id: docker-tag
+      - name: Get Git SHA
+        id: sha
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            echo "sha=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
+          else
+            echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+          fi
+      - name: Get Docker tag
+        id: docker-tag
         run: |
           ref="${{ github.ref_name }}"
           # Handle pull requests
@@ -89,9 +98,9 @@ jobs:
           echo "org.opencontainers.image.title=47ng/actions-clever-cloud" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.description=GitHub action to deploy to Clever Cloud" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.version=${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
-          echo "org.opencontainers.image.revision=${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "org.opencontainers.image.revision=${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.licenses=MIT" >> $GITHUB_OUTPUT
-          echo "org.opencontainers.image.source=https://github.com/${{github.repository}}/tree/${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "org.opencontainers.image.source=https://github.com/${{github.repository}}/tree/${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.documentation=https://github.com/${{github.repository}}/blob/master/packages/server/README.md" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.url=https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}" >> $GITHUB_OUTPUT
           echo '__LABELS_EOF__' >> $GITHUB_OUTPUT
@@ -101,9 +110,9 @@ jobs:
             echo "47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
           fi
           echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}" >> $GITHUB_OUTPUT
-          echo "ghcr.io/47ng/actions-clever-cloud:git-${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "ghcr.io/47ng/actions-clever-cloud:git-${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
           echo "47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}" >> $GITHUB_OUTPUT
-          echo "47ng/actions-clever-cloud:git-${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "47ng/actions-clever-cloud:git-${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
           echo '__TAGS_EOF__' >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
@@ -153,10 +162,10 @@ jobs:
 
             \`\`\`yaml
             # Use the PR number to follow changes in this PR
-            - uses: docker://ghcr.io/47ng/actions-clever-cloud@${{ steps.docker-tag.outputs.tag }}
+            - uses: docker://ghcr.io/47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}
 
             # Use the git SHA for pinning to a specific commit
-            - uses: docker://ghcr.io/47ng/actions-clever-cloud@git-${{ github.sha }}
+            - uses: docker://ghcr.io/47ng/actions-clever-cloud:git-${{ steps.sha.outputs.sha }}
             \`\`\`
 
             <details>
