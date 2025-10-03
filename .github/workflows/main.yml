@@ -141,3 +141,54 @@ jobs:
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.docker-labels-tags.outputs.labels }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const body = `<!-- docker-build-comment -->
+            ## 🐳 &nbsp;Docker image
+
+            Digest: \`${{ steps.docker-build-push.outputs.digest }}\`
+
+            ### 📌 &nbsp;Tags
+            \`\`\`
+            ${{ steps.docker-labels-tags.outputs.tags }}
+            \`\`\`
+
+            ### 🏷 &nbsp;Labels
+            \`\`\`
+            ${{ steps.docker-labels-tags.outputs.labels }}
+            \`\`\`
+
+            ---
+            <sub>🤖 This comment is automatically updated on each push</sub>`;
+
+            // Find existing comment by marker
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.body.startsWith('<!-- docker-build-comment -->')
+            );
+
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
