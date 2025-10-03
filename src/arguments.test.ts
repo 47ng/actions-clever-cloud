@@ -151,3 +151,18 @@ test('deployPath is set from input', () => {
   const args = processArguments()
   expect(args.deployPath).toBe('./packages/backend')
 })
+
+test('sameCommitPolicy is unset by default', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  const args = processArguments()
+  expect(args.sameCommitPolicy).toBeUndefined()
+})
+
+test('sameCommitPolicy is set from input', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_SAMECOMMITPOLICY = 'restart'
+  const args = processArguments()
+  expect(args.sameCommitPolicy).toBe('restart')
+})

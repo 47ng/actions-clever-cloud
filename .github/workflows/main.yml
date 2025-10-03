@@ -79,8 +79,10 @@ jobs:
 
   pr-preview:
     name: PR Preview
-    # Only run for pull_request_target or if author is a member of the org
-    if: github.event_name == 'pull_request_target' || contains(github.event.pull_request.author_association, 'MEMBER')
+    # Only run for pull_request_target OR pull_request from org members
+    if: |
+      github.event_name == 'pull_request_target' ||
+      (github.event_name == 'pull_request' && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association))
     needs: [ci, lint]
     runs-on: ubuntu-latest
     permissions:
