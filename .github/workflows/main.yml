@@ -22,6 +22,17 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --ignore-scripts
+      - name: Check version consistency
+        run: |
+          PACKAGE_VERSION=$(cat package.json | jq -r .version)
+          ACTION_TAG=$(cat action.yml | grep 'image: docker://ghcr.io' | sed 's/.*://g')
+
+          if [ "$PACKAGE_VERSION" != "$ACTION_TAG" ]; then
+            echo "::error::Version mismatch! package.json has $PACKAGE_VERSION but action.yml has $ACTION_TAG"
+            exit 1
+          fi
+
+          echo "✅ Versions match: $PACKAGE_VERSION"
       - name: Run knip
         run: pnpm run knip
 
