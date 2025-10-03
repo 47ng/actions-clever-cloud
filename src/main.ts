@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 import { exec } from '@actions/exec'
-import run, { processArguments } from './action'
+import { run } from './action'
+import { processArguments } from './arguments'
 
 async function main(): Promise<void> {
   try {
@@ -27,4 +28,6 @@ function fixGitDubiousOwnership() {
   ])
 }
 
-main()
+if (require.main === module) {
+  main()
+}

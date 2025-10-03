@@ -1,0 +1,8 @@
+{
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "githubPullRequests.ignoredPullRequestBranches": ["master"],
+  "typescript.preferences.autoImportSpecifierExcludeRegexes": [
+    "^node:test$" // We use Vitest
+  ]
+}
