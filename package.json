@@ -24,7 +24,8 @@
   "main": "src/main.ts",
   "scripts": {
     "dev": "node --env-file=.env.local --watch ./src/main.ts",
-    "test": "vitest --typecheck"
+    "test": "vitest --typecheck",
+    "knip": "knip"
   },
   "engines": {
     "node": "^24.9.0"
@@ -37,7 +38,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.6.2",
-    "@vitest/spy": "^3.2.4",
+    "knip": "^5.64.1",
     "prettier": "^3.2.5",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
