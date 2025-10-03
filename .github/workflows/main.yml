@@ -2,6 +2,8 @@ name: CI/CD
 
 on:
   pull_request:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
   release:
     types: [created, published, edited]
   push:
@@ -13,6 +15,8 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    # Only run on pull_request, not pull_request_target
+    if: github.event_name != 'pull_request_target'
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
@@ -39,6 +43,7 @@ jobs:
   ci:
     name: Integration
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request_target'
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
@@ -51,85 +56,84 @@ jobs:
       - name: Run integration tests
         run: pnpm run test
 
-  cd:
-    name: Deployment
-    needs: [ci, lint]
+  pr-preview:
+    name: PR Preview
+    # Only run for pull_request_target
+    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-      - name: Get Git SHA
+      # SECURITY: Checkout the base ref (trusted code) for the workflow
+      # This prevents untrusted PR code from accessing secrets
+      - name: Checkout base (trusted)
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: Get PR head SHA
         id: sha
-        run: |
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
-            echo "sha=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
-          else
-            echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
-          fi
+        run: echo "sha=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
+
       - name: Get Docker tag
         id: docker-tag
+        run: echo "tag=pr-${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+
+      - name: Get package version
+        id: package
+        run: echo "version=$(cat package.json | jq -r .version)" >> $GITHUB_OUTPUT
+
+      - name: Validate inputs (security check)
         run: |
-          ref="${{ github.ref_name }}"
-          # Handle pull requests
-          if [[ "$ref" =~ ^[0-9]+/merge$ ]]; then
-            pr_number=$(echo "$ref" | sed 's#/merge##')
-            tag="pr-$pr_number"
-          else
-            # Handle other refs
-            tag=$(                        \
-              echo "$ref"                 \
-              | sed 's#refs/heads/##g'    \
-              | sed 's#refs/tags/##g'     \
-              | sed 's#refs/pull/##g'     \
-              | tr '/' '_'                \
-              | tr -d '#'                 \
-            )
-            if [ "$tag" == "master" ]; then
-              tag="latest"
-            fi
+          # Ensure tag matches expected pattern
+          if [[ ! "${{ steps.docker-tag.outputs.tag }}" =~ ^pr-[0-9]+$ ]]; then
+            echo "::error::Security violation: Invalid PR tag pattern"
+            exit 1
+          fi
+          # Ensure version is a valid semver
+          if ! echo "${{ steps.package.outputs.version }}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'; then
+            echo "::error::Security violation: Invalid version format"
+            exit 1
           fi
 
-          echo "tag=$tag" >> $GITHUB_OUTPUT
-      - id: package
-        run: echo "version=$(cat package.json | jq -r .version)" >> $GITHUB_OUTPUT
       - name: Collect Docker labels & tags
         id: docker-labels-tags
         run: |
           echo 'labels<<__LABELS_EOF__' >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.title=47ng/actions-clever-cloud" >> $GITHUB_OUTPUT
-          echo "org.opencontainers.image.description=GitHub action to deploy to Clever Cloud" >> $GITHUB_OUTPUT
-          echo "org.opencontainers.image.version=${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
+          echo "org.opencontainers.image.description=GitHub action to deploy to Clever Cloud (PR preview)" >> $GITHUB_OUTPUT
+          echo "org.opencontainers.image.version=${{ steps.package.outputs.version }}-pr.${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.revision=${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.licenses=MIT" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.source=https://github.com/${{github.repository}}/tree/${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
-          echo "org.opencontainers.image.documentation=https://github.com/${{github.repository}}/blob/master/packages/server/README.md" >> $GITHUB_OUTPUT
+          echo "org.opencontainers.image.documentation=https://github.com/${{github.repository}}/pull/${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.url=https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}" >> $GITHUB_OUTPUT
           echo '__LABELS_EOF__' >> $GITHUB_OUTPUT
           echo 'tags<<__TAGS_EOF__' >> $GITHUB_OUTPUT
-          if [ "${{ github.ref_name }}" == "master" ]; then
-            echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
-            echo "47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
-          fi
           echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}" >> $GITHUB_OUTPUT
           echo "ghcr.io/47ng/actions-clever-cloud:git-${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
-          echo "47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}" >> $GITHUB_OUTPUT
-          echo "47ng/actions-clever-cloud:git-${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
           echo '__TAGS_EOF__' >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
-      - name: Login to Docker Hub
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
-        with:
-          username: ${{ secrets.DOCKER_HUB_USER }}
-          password: ${{ secrets.DOCKER_HUB_PASSWORD }}
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # SECURITY: Checkout the PR head for building
+      # We do this AFTER extracting all metadata to prevent tampering
+      - name: Checkout PR head (untrusted code)
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ steps.sha.outputs.sha }}
       - name: Build and push
         id: docker-build-push
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
@@ -151,7 +155,6 @@ jobs:
           echo "${{ steps.docker-labels-tags.outputs.labels }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
       - name: Comment on PR
-        if: github.event_name == 'pull_request'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
@@ -217,3 +220,91 @@ jobs:
                 body: body
               });
             }
+
+  cd:
+    name: Deployment
+    # Only run for push events (master, releases) and releases
+    if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
+    needs: [ci, lint]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Get Git SHA
+        id: sha
+        run: echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+      - name: Get Docker tag
+        id: docker-tag
+        run: |
+          ref="${{ github.ref_name }}"
+          tag=$(                        \
+            echo "$ref"                 \
+            | sed 's#refs/heads/##g'    \
+            | sed 's#refs/tags/##g'     \
+            | tr '/' '_'                \
+            | tr -d '#'                 \
+          )
+          if [ "$tag" == "master" ]; then
+            tag="latest"
+          fi
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+      - id: package
+        run: echo "version=$(cat package.json | jq -r .version)" >> $GITHUB_OUTPUT
+      - name: Collect Docker labels & tags
+        id: docker-labels-tags
+        run: |
+          echo 'labels<<__LABELS_EOF__' >> $GITHUB_OUTPUT
+          echo "org.opencontainers.image.title=47ng/actions-clever-cloud" >> $GITHUB_OUTPUT
+          echo "org.opencontainers.image.description=GitHub action to deploy to Clever Cloud" >> $GITHUB_OUTPUT
+          echo "org.opencontainers.image.version=${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
+          echo "org.opencontainers.image.revision=${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
+          echo "org.opencontainers.image.licenses=MIT" >> $GITHUB_OUTPUT
+          echo "org.opencontainers.image.source=https://github.com/${{github.repository}}/tree/${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
+          echo "org.opencontainers.image.documentation=https://github.com/${{github.repository}}/blob/master/packages/server/README.md" >> $GITHUB_OUTPUT
+          echo "org.opencontainers.image.url=https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}" >> $GITHUB_OUTPUT
+          echo '__LABELS_EOF__' >> $GITHUB_OUTPUT
+          echo 'tags<<__TAGS_EOF__' >> $GITHUB_OUTPUT
+          if [ "${{ github.ref_name }}" == "master" ]; then
+            echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
+            echo "47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
+          fi
+          echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}" >> $GITHUB_OUTPUT
+          echo "ghcr.io/47ng/actions-clever-cloud:git-${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
+          echo "47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}" >> $GITHUB_OUTPUT
+          echo "47ng/actions-clever-cloud:git-${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
+          echo '__TAGS_EOF__' >> $GITHUB_OUTPUT
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - name: Login to Docker Hub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          username: ${{ secrets.DOCKER_HUB_USER }}
+          password: ${{ secrets.DOCKER_HUB_PASSWORD }}
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        id: docker-build-push
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          labels: "${{ steps.docker-labels-tags.outputs.labels }}"
+          tags: "${{ steps.docker-labels-tags.outputs.tags }}"
+          push: true
+      - name: Generate step summary
+        run: |
+          echo "## 🐳 &nbsp;Docker image" >> $GITHUB_STEP_SUMMARY
+          echo "Digest: \`${{ steps.docker-build-push.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "### 📌 &nbsp;Tags" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.docker-labels-tags.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏷 &nbsp;Labels" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.docker-labels-tags.outputs.labels }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
