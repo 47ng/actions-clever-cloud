@@ -31,10 +31,6 @@
     "incremental": true,
     "tsBuildInfoFile": ".tsbuildinfo"
   },
-  "include": [
-    "**/*.ts",
-    "__tests__/processArguments.test.cts",
-    "__tests__/main.test.ts.disabled"
-  ],
+  "include": ["**/*.ts"],
   "exclude": ["node_modules"]
 }
