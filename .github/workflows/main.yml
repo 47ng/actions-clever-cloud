@@ -28,15 +28,18 @@ jobs:
         run: pnpm install --ignore-scripts
       - name: Check version consistency
         run: |
+          set +e # We want to handle errors ourselves to provide better messages
           PACKAGE_VERSION=$(jq -r '
             .version |
             if test("^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$")
             then .
-            else error()
+            else error("Invalid semver format in package.json")
             end
           ' package.json 2>&1)
+          JQ_EXIT_CODE=$?
+          set -e # Re-enable exit on error
 
-          if [ $? -ne 0 ]; then
+          if [ $JQ_EXIT_CODE -ne 0 ]; then
             echo "::error::Invalid semver version in package.json"
             exit 2
           fi
