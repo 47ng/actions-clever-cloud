@@ -38,19 +38,19 @@ jobs:
 
           if [ $? -ne 0 ]; then
             echo "::error::$VERSION" # Expand the error into an annotation
-            exit 1
+            exit 2
           fi
 
           ACTION_TAG=$(grep 'image: docker://ghcr.io' action.yml | sed 's/.*://g' | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$')
 
           if [ -z "$ACTION_TAG" ]; then
             echo "::error::Invalid or missing version format in action.yml"
-            exit 1
+            exit 3
           fi
 
           if [ "$PACKAGE_VERSION" != "$ACTION_TAG" ]; then
             echo "::error::Version mismatch! package.json has $PACKAGE_VERSION but action.yml has $ACTION_TAG"
-            exit 1
+            exit 4
           fi
 
           echo "✅ Versions match: $PACKAGE_VERSION"
