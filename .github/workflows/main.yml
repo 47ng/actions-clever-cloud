@@ -1,5 +1,6 @@
 name: CI/CD
-on: # rebuild any PRs and main branch changes
+
+on:
   pull_request:
   release:
     types: [created, published, edited]
@@ -9,17 +10,41 @@ on: # rebuild any PRs and main branch changes
       - "releases/*"
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --ignore-scripts
+      - name: Check version consistency
+        run: |
+          PACKAGE_VERSION=$(cat package.json | jq -r .version)
+          ACTION_TAG=$(cat action.yml | grep 'image: docker://ghcr.io' | sed 's/.*://g')
+
+          if [ "$PACKAGE_VERSION" != "$ACTION_TAG" ]; then
+            echo "::error::Version mismatch! package.json has $PACKAGE_VERSION but action.yml has $ACTION_TAG"
+            exit 1
+          fi
+
+          echo "✅ Versions match: $PACKAGE_VERSION"
+      - name: Run knip
+        run: pnpm run knip
+
   ci:
     name: Integration
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
-      - uses: pnpm/action-setup@a3252b78c470c02df07e9d59298aecedc3ccdd6d
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
-          version: 8
-      - uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8
-        with:
-          node-version: lts/*
+          node-version-file: .node-version
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --ignore-scripts
@@ -28,25 +53,42 @@ jobs:
 
   cd:
     name: Deployment
-    needs: ci
+    needs: [ci, lint]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
-      - id: docker-tag
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Get Git SHA
+        id: sha
         run: |
-          tag=$(                        \
-            echo ${{ github.ref_name }} \
-            | sed 's#refs/heads/##g'    \
-            | sed 's#refs/tags/##g'     \
-            | sed 's#refs/pull/##g'     \
-            | tr '/' '_'                \
-            | tr -d '#'                 \
-          )
-          if [ "$tag" == "master" ]; then
-            echo "tag=latest" >> $GITHUB_OUTPUT
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            echo "sha=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
           else
-            echo "tag=$tag" >> $GITHUB_OUTPUT
+            echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
           fi
+      - name: Get Docker tag
+        id: docker-tag
+        run: |
+          ref="${{ github.ref_name }}"
+          # Handle pull requests
+          if [[ "$ref" =~ ^[0-9]+/merge$ ]]; then
+            pr_number=$(echo "$ref" | sed 's#/merge##')
+            tag="pr-$pr_number"
+          else
+            # Handle other refs
+            tag=$(                        \
+              echo "$ref"                 \
+              | sed 's#refs/heads/##g'    \
+              | sed 's#refs/tags/##g'     \
+              | sed 's#refs/pull/##g'     \
+              | tr '/' '_'                \
+              | tr -d '#'                 \
+            )
+            if [ "$tag" == "master" ]; then
+              tag="latest"
+            fi
+          fi
+
+          echo "tag=$tag" >> $GITHUB_OUTPUT
       - id: package
         run: echo "version=$(cat package.json | jq -r .version)" >> $GITHUB_OUTPUT
       - name: Collect Docker labels & tags
@@ -56,43 +98,45 @@ jobs:
           echo "org.opencontainers.image.title=47ng/actions-clever-cloud" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.description=GitHub action to deploy to Clever Cloud" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.version=${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
-          echo "org.opencontainers.image.revision=${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "org.opencontainers.image.revision=${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.licenses=MIT" >> $GITHUB_OUTPUT
-          echo "org.opencontainers.image.source=https//github.com/${{github.repository}}/tree/${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "org.opencontainers.image.source=https://github.com/${{github.repository}}/tree/${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.documentation=https://github.com/${{github.repository}}/blob/master/packages/server/README.md" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.url=https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}" >> $GITHUB_OUTPUT
           echo '__LABELS_EOF__' >> $GITHUB_OUTPUT
           echo 'tags<<__TAGS_EOF__' >> $GITHUB_OUTPUT
-          echo "47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}" >> $GITHUB_OUTPUT
-          echo "47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
-          echo "47ng/actions-clever-cloud:git-${{ github.sha }}" >> $GITHUB_OUTPUT
+          if [ "${{ github.ref_name }}" == "master" ]; then
+            echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
+            echo "47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
+          fi
           echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}" >> $GITHUB_OUTPUT
-          echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
-          echo "ghcr.io/47ng/actions-clever-cloud:git-${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "ghcr.io/47ng/actions-clever-cloud:git-${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
+          echo "47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}" >> $GITHUB_OUTPUT
+          echo "47ng/actions-clever-cloud:git-${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
           echo '__TAGS_EOF__' >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           username: ${{ secrets.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_PASSWORD }}
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push
         id: docker-build-push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
-          labels: '${{ steps.docker-labels-tags.outputs.labels }}'
-          tags: '${{ steps.docker-labels-tags.outputs.tags }}'
+          labels: "${{ steps.docker-labels-tags.outputs.labels }}"
+          tags: "${{ steps.docker-labels-tags.outputs.tags }}"
           push: true
       - name: Generate step summary
         run: |
@@ -106,4 +150,70 @@ jobs:
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.docker-labels-tags.outputs.labels }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const body = `<!-- docker-build-comment -->
+            ## 🐳 &nbsp;Docker image preview
 
+            Preview this PR in your workflow:
+
+            \`\`\`yaml
+            # Use the PR number to follow changes in this PR
+            - uses: docker://ghcr.io/47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}
+
+            # Use the git SHA for pinning to a specific commit
+            - uses: docker://ghcr.io/47ng/actions-clever-cloud:git-${{ steps.sha.outputs.sha }}
+            \`\`\`
+
+            <details>
+            <summary>Image metadata</summary>
+            <br/>
+
+            Digest: \`${{ steps.docker-build-push.outputs.digest }}\`
+
+            ### 📌 &nbsp;Tags
+            \`\`\`
+            ${{ steps.docker-labels-tags.outputs.tags }}
+            \`\`\`
+
+            ### 🏷 &nbsp;Labels
+            \`\`\`
+            ${{ steps.docker-labels-tags.outputs.labels }}
+            \`\`\`
+
+            </details>
+
+            ---
+            <sub>🤖 This comment is updated on every push</sub>`;
+
+            // Find existing comment by marker
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.body.startsWith('<!-- docker-build-comment -->')
+            );
+
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }

@@ -1,9 +1,31 @@
-// @ts-check
+import { beforeEach, expect, test, vi } from 'vitest'
 
-import * as core from '@actions/core'
-import * as exec from '@actions/exec'
-import { expect, test, vi } from 'vitest'
-import run from '../src/action'
+// Mock must be defined before imports that use it
+vi.mock('@actions/exec', () => ({
+  exec: vi.fn(() => Promise.resolve(0))
+}))
+
+vi.mock('@actions/core', () => ({
+  debug: vi.fn(),
+  info: vi.fn(),
+  setFailed: vi.fn()
+}))
+
+import { setFailed } from '@actions/core'
+import { exec } from '@actions/exec'
+import { run } from './action'
+
+// --
+
+const CLEVER_CLI = 'clever-mocked'
+
+const execMock = exec as ReturnType<typeof vi.fn>
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  // Reset to default success behavior
+  execMock.mockResolvedValue(0)
+})
 
 // --
 
@@ -11,23 +33,21 @@ function expectCleverCLICallWithArgs(
   callIndex: number,
   ...expectedArgs: any[]
 ) {
-  const _exec = vi.spyOn(exec, 'exec')
-  const cli = _exec.mock.calls[callIndex]?.[0]
-  const args = _exec.mock.calls[callIndex]?.[1]
-  expect(cli).toEqual('clever')
-  expectedArgs.map((arg, i) => {
+  const calls = execMock.mock.calls
+  expect(calls.length).toBeGreaterThanOrEqual(callIndex + 1)
+  const cli = calls[callIndex]?.[0]
+  const args = calls[callIndex]?.[1]
+  expect(cli).toEqual(CLEVER_CLI)
+  expectedArgs.forEach((arg, i) => {
     expect(args?.[i]).toEqual(arg)
   })
 }
 
 test('deploy default application (no arguments)', async () => {
-  vi.mock('@actions/exec', () => ({
-    exec: () => Promise.resolve(0)
-  }))
   await run({
     token: 'token',
     secret: 'secret',
-    cleverCLI: 'clever'
+    cleverCLI: CLEVER_CLI
   })
   expectCleverCLICallWithArgs(
     1,
@@ -38,7 +58,7 @@ test('deploy default application (no arguments)', async () => {
     'secret'
   )
   expectCleverCLICallWithArgs(2, 'deploy')
-  expect(core.setFailed).not.toHaveBeenCalled()
+  expect(setFailed).not.toHaveBeenCalled()
 })
 
 test('deploy application with alias', async () => {
@@ -46,10 +66,10 @@ test('deploy application with alias', async () => {
     token: 'token',
     secret: 'secret',
     alias: 'app-alias',
-    cleverCLI: 'clever'
+    cleverCLI: CLEVER_CLI
   })
   expectCleverCLICallWithArgs(2, 'deploy', '--alias', 'app-alias')
-  expect(core.setFailed).not.toHaveBeenCalled()
+  expect(setFailed).not.toHaveBeenCalled()
 })
 
 test('deploy application with app ID', async () => {
@@ -57,7 +77,7 @@ test('deploy application with app ID', async () => {
     token: 'token',
     secret: 'secret',
     appID: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
-    cleverCLI: 'clever'
+    cleverCLI: CLEVER_CLI
   })
   expectCleverCLICallWithArgs(
     2,
@@ -80,7 +100,7 @@ test('when both app ID and alias are provided, appID takes precedence', async ()
     secret: 'secret',
     alias: 'foo',
     appID: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
-    cleverCLI: 'clever'
+    cleverCLI: CLEVER_CLI
   })
   expectCleverCLICallWithArgs(
     2,
@@ -101,7 +121,7 @@ test('passing extra env variables, using no input args', async () => {
   await run({
     token: 'token',
     secret: 'secret',
-    cleverCLI: 'clever',
+    cleverCLI: CLEVER_CLI,
     extraEnv: {
       foo: 'bar',
       egg: 'spam'
@@ -117,7 +137,7 @@ test('passing extra env variables, using appID', async () => {
     token: 'token',
     secret: 'secret',
     appID: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
-    cleverCLI: 'clever',
+    cleverCLI: CLEVER_CLI,
     extraEnv: {
       foo: 'bar',
       egg: 'spam'
@@ -161,7 +181,7 @@ test('passing extra env variables, using alias only', async () => {
     token: 'token',
     secret: 'secret',
     alias: 'foo',
-    cleverCLI: 'clever',
+    cleverCLI: CLEVER_CLI,
     extraEnv: {
       foo: 'bar',
       egg: 'spam'
@@ -173,28 +193,24 @@ test('passing extra env variables, using alias only', async () => {
 })
 
 test('deployment failure fails the workflow', async () => {
-  vi.mock('@actions/exec', () => ({
-    exec: () => Promise.resolve(42)
-  }))
+  execMock.mockResolvedValue(42)
   await run({
     token: 'token',
     secret: 'secret',
-    cleverCLI: 'clever'
+    cleverCLI: CLEVER_CLI
   })
-  expect(core.setFailed).toHaveBeenCalledWith('Deployment failed with code 42')
+  expect(setFailed).toHaveBeenCalledWith('Deployment failed with code 42')
 })
 
 test('deployment failure with timeout fails the workflow', async () => {
-  vi.mock('@actions/exec', () => ({
-    exec: () => Promise.resolve(42)
-  }))
+  execMock.mockResolvedValue(42)
   await run({
     token: 'token',
     secret: 'secret',
-    cleverCLI: 'clever',
+    cleverCLI: CLEVER_CLI,
     timeout: 10_000
   })
-  expect(core.setFailed).toHaveBeenCalledWith('Deployment failed with code 42')
+  expect(setFailed).toHaveBeenCalledWith('Deployment failed with code 42')
 })
 
 test('force deploy application', async () => {
@@ -202,7 +218,7 @@ test('force deploy application', async () => {
     token: 'token',
     secret: 'secret',
     appID: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
-    cleverCLI: 'clever',
+    cleverCLI: CLEVER_CLI,
     force: true
   })
   expectCleverCLICallWithArgs(

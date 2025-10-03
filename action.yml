@@ -50,4 +50,4 @@ inputs:
       may reveal secrets or PII.
 runs:
   using: docker
-  image: docker://ghcr.io/47ng/actions-clever-cloud:v2.0.0
+  image: docker://ghcr.io/47ng/actions-clever-cloud:2.0.1

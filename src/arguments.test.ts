@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, expect, test, vitest, } from 'vitest'
-import { processArguments } from '../src/action'
+import { afterEach, beforeEach, expect, test, vitest } from 'vitest'
+import { processArguments } from './arguments'
 
 // --
 
