@@ -149,10 +149,12 @@ jobs:
             const body = `<!-- docker-build-comment -->
             ## 🐳 &nbsp;Docker image preview
 
-            Use this to preview this PR in your workflows:
+            Preview this PR in your workflow:
 
             \`\`\`yaml
+            # Use the PR number to follow changes in this PR
             - uses: docker://ghcr.io/47ng/actions-clever-cloud@${{ steps.docker-tag.outputs.tag }}
+
             # Use the git SHA for pinning to a specific commit
             - uses: docker://ghcr.io/47ng/actions-clever-cloud@git-${{ github.sha }}
             \`\`\`
