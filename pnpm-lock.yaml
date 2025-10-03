@@ -21,9 +21,6 @@ importers:
       '@types/node':
         specifier: ^24.6.2
         version: 24.6.2
-      '@vitest/spy':
-        specifier: ^3.2.4
-        version: 3.2.4
       knip:
         specifier: ^5.64.1
         version: 5.64.1(@types/node@24.6.2)(typescript@5.9.3)
