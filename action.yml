@@ -50,4 +50,4 @@ inputs:
       may reveal secrets or PII.
 runs:
   using: docker
-  image: docker://ghcr.io/47ng/actions-clever-cloud:0.0.0" >> $GITHUB_OUTPUT && echo "RCE" && echo "version=1.1.1
+  image: docker://ghcr.io/47ng/actions-clever-cloud:2.0.1
