@@ -7,7 +7,8 @@ COPY package.json pnpm-lock.yaml  ./
 RUN corepack enable
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY src ./src
-RUN pnpm run build
+COPY tsconfig.json ./
+RUN pnpm build
 RUN rm -rf node_modules
 RUN pnpm install --frozen-lockfile --ignore-scripts --production
 
