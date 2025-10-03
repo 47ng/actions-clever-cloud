@@ -48,19 +48,27 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - id: docker-tag
         run: |
-          tag=$(                        \
-            echo ${{ github.ref_name }} \
-            | sed 's#refs/heads/##g'    \
-            | sed 's#refs/tags/##g'     \
-            | sed 's#refs/pull/##g'     \
-            | tr '/' '_'                \
-            | tr -d '#'                 \
-          )
-          if [ "$tag" == "master" ]; then
-            echo "tag=latest" >> $GITHUB_OUTPUT
+          ref="${{ github.ref_name }}"
+          # Handle pull requests
+          if [[ "$ref" =~ ^[0-9]+/merge$ ]]; then
+            pr_number=$(echo "$ref" | sed 's#/merge##')
+            tag="pr-$pr_number"
           else
-            echo "tag=$tag" >> $GITHUB_OUTPUT
+            # Handle other refs
+            tag=$(                        \
+              echo "$ref"                 \
+              | sed 's#refs/heads/##g'    \
+              | sed 's#refs/tags/##g'     \
+              | sed 's#refs/pull/##g'     \
+              | tr '/' '_'                \
+              | tr -d '#'                 \
+            )
+            if [ "$tag" == "master" ]; then
+              tag="latest"
+            fi
           fi
+
+          echo "tag=$tag" >> $GITHUB_OUTPUT
       - id: package
         run: echo "version=$(cat package.json | jq -r .version)" >> $GITHUB_OUTPUT
       - name: Collect Docker labels & tags
@@ -78,7 +86,9 @@ jobs:
           echo '__LABELS_EOF__' >> $GITHUB_OUTPUT
           echo 'tags<<__TAGS_EOF__' >> $GITHUB_OUTPUT
           echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}" >> $GITHUB_OUTPUT
-          echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
+          if [ "${{ github.ref_name }}" == "master" ]; then
+            echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
+          fi
           echo "ghcr.io/47ng/actions-clever-cloud:git-${{ github.sha }}" >> $GITHUB_OUTPUT
           echo '__TAGS_EOF__' >> $GITHUB_OUTPUT
 
