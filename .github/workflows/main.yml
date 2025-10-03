@@ -32,12 +32,12 @@ jobs:
             .version |
             if test("^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$")
             then .
-            else error("Invalid semver format in package.json")
+            else error()
             end
           ' package.json 2>&1)
 
           if [ $? -ne 0 ]; then
-            echo "::error::$PACKAGE_VERSION" # Expand the error into an annotation
+            echo "::error::Invalid semver version in package.json"
             exit 2
           fi
 
