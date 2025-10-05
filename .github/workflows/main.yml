@@ -82,8 +82,7 @@ jobs:
     # Only run for pull_request_target OR pull_request from org members
     if: |
       github.event_name == 'pull_request_target' ||
-      (github.event_name == 'pull_request' && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association))
-    needs: [ci, lint]
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.author_association, 'MEMBER'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
