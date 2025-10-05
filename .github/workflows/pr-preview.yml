@@ -5,9 +5,52 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
+  request-approval:
+    name: Request Approval
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Comment requesting approval
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            // Check if approval comment already exists
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const approvalComment = comments.find(comment =>
+              comment.body.includes('<!-- approval-request-comment -->')
+            );
+
+            // Only create comment if it doesn't exist
+            if (!approvalComment) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `<!-- approval-request-comment -->
+                ## ⚠️ &nbsp;Manual approval required
+
+                A repository owner must approve the Docker preview deployment for this PR.
+
+                **PR Author:** @${{ github.event.pull_request.user.login }}
+                **Head SHA:** \`${{ github.event.pull_request.head.sha }}\`
+
+                [Review and approve in Actions →](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+              });
+            }
+
   pr-preview:
     name: Deploy on Docker
     runs-on: ubuntu-latest
+    needs: request-approval
+    environment:
+      name: "PR Preview"
+      url: https://github.com/${{ github.repository }}/pkgs/container/actions-clever-cloud
     permissions:
       contents: read
       packages: write
