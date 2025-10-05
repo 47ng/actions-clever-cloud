@@ -48,6 +48,12 @@ inputs:
     description: |
       Don't print deployment output to the console. Use this in case your deployment
       may reveal secrets or PII.
+  sameCommitPolicy:
+    required: false
+    description: |
+      What to do when local and remote commit are identical.
+      Possible values: error, ignore, restart, rebuild.
+      If not set, the Clever Cloud CLI default (error) will be used.
 runs:
   using: docker
-  image: docker://ghcr.io/47ng/actions-clever-cloud:2.0.1
+  image: docker://ghcr.io/47ng/actions-clever-cloud:2.1.0

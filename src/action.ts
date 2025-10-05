@@ -33,7 +33,8 @@ export async function run({
   deployPath,
   logFile,
   quiet = false,
-  extraEnv = {}
+  extraEnv = {},
+  sameCommitPolicy
 }: Arguments): Promise<void> {
   try {
     await checkForShallowCopy()
@@ -88,6 +89,10 @@ export async function run({
 
     if (force) {
       args.push('--force')
+    }
+
+    if (sameCommitPolicy) {
+      args.push('--same-commit-policy', sameCommitPolicy)
     }
 
     if (timeout) {

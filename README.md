@@ -10,20 +10,20 @@ GitHub action to deploy your application to [Clever Cloud](https://clever-cloud.
 ## Prerequisite
 
 ⚠️ When creating an application on Clever Cloud, you have to choose
-between deploying "*from a local repository*" (using Clever CLI, Git
-or SFTP) or "*from a Github repository*" (using a webhook setup
+between deploying "_from a local repository_" (using Clever CLI, Git
+or SFTP) or "_from a Github repository_" (using a webhook setup
 automatically by Clever Cloud). Only the first type of applications
 can be deployed using this Github action.
 
 In your project's `.clever.json`, if the `deploy_url` value starts
 with `https://github.com/`, your application is meant to be deployed
-"*from a Github repository*" only.
+"_from a Github repository_" only.
 If you try deploying it with this Github action, you will get the
 following message in your logs: `[ERROR] HTTP Error: 401 Authorization
 Required`.
 
 Currently (early 2023), the only workaround is to create a new
-application on Clever Cloud, that deploys "*from a local repository*",
+application on Clever Cloud, that deploys "_from a local repository_",
 then remove the Clever Cloud webhook that has been created on your
 Github repository.
 
@@ -102,8 +102,9 @@ $ cat ~/.config/clever-cloud/clever-tools.json
 ```
 
 4. In your repository settings, [add the following secrets](https://help.github.com/en/actions/automating-your-workflow-with-github-actions/creating-and-using-encrypted-secrets):
-  - `CLEVER_TOKEN`: the `token` value in the credentials
-  - `CLEVER_SECRET`: the `secret` value in the credentials
+
+- `CLEVER_TOKEN`: the `token` value in the credentials
+- `CLEVER_SECRET`: the `secret` value in the credentials
 
 ## Extra Environment Variables
 
@@ -121,7 +122,7 @@ key=value).
       EGG=spam
     # ^-- ..and the indentation here
   env:
-    CLEVER_TOKEN:  ${{ secrets.CLEVER_TOKEN }}
+    CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
 
@@ -158,7 +159,7 @@ regardless of the deployment status:
   with:
     timeout: 1800 # wait at maximum 30 minutes before moving on
   env:
-    CLEVER_TOKEN:  ${{ secrets.CLEVER_TOKEN }}
+    CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
 
@@ -173,6 +174,26 @@ Clever Cloud uses a Git remote to perform deploys. By default, if the commit you
   with:
     appID: app_facade42-cafe-babe-cafe-deadf00dbaad
     force: true
+  env:
+    CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+    CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+```
+
+## Same Commit Policy
+
+> Support: introduced in v2.1.0
+
+When the local and remote commits are identical, you can control what happens using the `sameCommitPolicy` option. Possible values are:
+
+- `error` (default): Fail the deployment
+- `ignore`: Skip the deployment silently
+- `restart`: Restart the application without redeploying
+- `rebuild`: Rebuild and redeploy the application
+
+```yml
+- uses: 47ng/actions-clever-cloud@v2.0.0
+  with:
+    sameCommitPolicy: restart
   env:
     CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
@@ -225,6 +246,7 @@ _Note: this behaviour will be disabled if the `quiet` option is used._
 This action follows [SemVer](https://semver.org/).
 
 To specify the version of the action to use:
+
 - `uses: 47ng/actions-clever-cloud@v2.0.0`: latest stable version
 - `uses: 47ng/actions-clever-cloud@3e5402496b8d6492401ebb3134acfeccc25c3fce`: pinned to a specific Git SHA-1 (check out the [releases](https://github.com/47ng/actions-clever-cloud/releases))
 - `uses: docker://ghcr.io/47ng/actions-clever-cloud:latest`: latest code from master (not recommended, as it may break: hic sunt dracones.)
@@ -258,10 +280,11 @@ Using this action at work ? [Sponsor me](https://github.com/sponsors/franky47) t
 
 ## Deploying a Specific Directory
 
+> Support: introduced in v2.1.0
+
 > ⚠️ Important note about the difference between `working-directory` and `deployPath`:
 >
 > - `working-directory` (GitHub Actions option) : Only changes the directory where the action runs. All files remain available, only the execution context changes.
-> 
 > - `deployPath` (this action's option) : Specifies exactly which files will be sent to Clever Cloud. Allows deploying only a subset of files, like a `dist` or `build` folder.
 
 ### Example
@@ -270,15 +293,16 @@ Using this action at work ? [Sponsor me](https://github.com/sponsors/franky47) t
 # This will NOT deploy only the build folder:
 - uses: 47ng/actions-clever-cloud@v2.0.0
   with:
-    working-directory: ./build    # ❌ Only changes where the action runs
+    working-directory: ./build # ❌ Only changes where the action runs
 
 # This will deploy only the build folder:
 - uses: 47ng/actions-clever-cloud@v2.0.0
   with:
-    deployPath: ./build          # ✅ Only sends these files to Clever Cloud
+    deployPath: ./build # ✅ Only sends these files to Clever Cloud
 ```
 
 This option is particularly useful for:
+
 - Monorepos where you want to deploy a single package
 - Projects where you only want to deploy built/compiled files
 - Filtering which files are sent to Clever Cloud
