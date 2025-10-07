@@ -3,6 +3,13 @@ name: PR Preview
 on:
   pull_request_target:
     types: [opened, synchronize, reopened]
+    paths:
+      - "src/**/*.ts"
+      - "!src/**/*.test.ts"
+      - "Dockerfile"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "tsconfig.json"
 
 jobs:
   request-approval:
