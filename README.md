@@ -248,7 +248,7 @@ This action follows [SemVer](https://semver.org/).
 To specify the version of the action to use:
 
 - `uses: 47ng/actions-clever-cloud@v2.1.0`: latest stable version
-- `uses: 47ng/actions-clever-cloud@3e5402496b8d6492401ebb3134acfeccc25c3fce`: pinned to a specific Git SHA-1 (check out the [releases](https://github.com/47ng/actions-clever-cloud/releases))
+- `uses: 47ng/actions-clever-cloud@f496297399b2351f4459d10f556e1c4eff2566b7`: pinned to a specific Git SHA-1 (check out the [releases](https://github.com/47ng/actions-clever-cloud/releases))
 - `uses: docker://ghcr.io/47ng/actions-clever-cloud:latest`: latest code from master (not recommended, as it may break: hic sunt dracones.)
 
 > **Note**: `uses: 47ng/actions-clever-cloud@master` will not use the latest code on the `master` branch,
