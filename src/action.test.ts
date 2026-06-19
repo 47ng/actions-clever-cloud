@@ -1,4 +1,6 @@
-import { beforeEach, expect, test, vi } from 'vitest'
+import { EventEmitter } from 'node:events'
+import { PassThrough } from 'node:stream'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 // Mock must be defined before imports that use it
 vi.mock('@actions/exec', () => ({
@@ -11,8 +13,14 @@ vi.mock('@actions/core', () => ({
   setFailed: vi.fn()
 }))
 
+// The timeout path spawns the deploy itself so it can kill it on timeout.
+vi.mock('node:child_process', () => ({
+  spawn: vi.fn()
+}))
+
 import { setFailed } from '@actions/core'
 import { exec } from '@actions/exec'
+import { spawn } from 'node:child_process'
 import { run } from './action'
 
 // --
@@ -20,11 +28,36 @@ import { run } from './action'
 const CLEVER_CLI = 'clever-mocked'
 
 const execMock = exec as ReturnType<typeof vi.fn>
+const spawnMock = spawn as ReturnType<typeof vi.fn>
+
+/**
+ * Minimal stand-in for a spawned deploy process: real stdout/stderr streams so
+ * piping works, an EventEmitter for `error`/`close`, and a `kill` spy that
+ * settles the process the way SIGTERM would.
+ */
+function makeFakeChild() {
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: PassThrough
+    stderr: PassThrough
+    kill: ReturnType<typeof vi.fn>
+  }
+  child.stdout = new PassThrough()
+  child.stderr = new PassThrough()
+  child.kill = vi.fn(() => {
+    child.emit('close', null)
+    return true
+  })
+  return child
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
   // Reset to default success behavior
   execMock.mockResolvedValue(0)
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 // --
@@ -202,15 +235,93 @@ test('deployment failure fails the workflow', async () => {
   expect(setFailed).toHaveBeenCalledWith('Deployment failed with code 42')
 })
 
-test('deployment failure with timeout fails the workflow', async () => {
-  execMock.mockResolvedValue(42)
-  await run({
+test('timeout is interpreted in seconds, not milliseconds', async () => {
+  vi.useFakeTimers()
+  const child = makeFakeChild()
+  spawnMock.mockReturnValue(child)
+  const finished = run({
     token: 'token',
     secret: 'secret',
     cleverCLI: CLEVER_CLI,
-    timeout: 10_000
+    timeout: 1800 // 30 minutes, per action.yml
   })
+  // One millisecond before the 30-minute mark: still waiting.
+  await vi.advanceTimersByTimeAsync(1800 * 1000 - 1)
+  expect(child.kill).not.toHaveBeenCalled()
+  // Crossing 1800s (not 1800ms) is what triggers the timeout.
+  await vi.advanceTimersByTimeAsync(1)
+  expect(child.kill).toHaveBeenCalledWith('SIGTERM')
+  await finished
+})
+
+test('timeout fires: kills the deploy and moves on without failing', async () => {
+  vi.useFakeTimers()
+  const child = makeFakeChild()
+  spawnMock.mockReturnValue(child)
+  const finished = run({
+    token: 'token',
+    secret: 'secret',
+    cleverCLI: CLEVER_CLI,
+    timeout: 1800
+  })
+  await vi.advanceTimersByTimeAsync(1800 * 1000)
+  await finished
+  expect(child.kill).toHaveBeenCalledWith('SIGTERM')
+  expect(setFailed).not.toHaveBeenCalled()
+})
+
+test('deploy completes before timeout: success, no kill', async () => {
+  vi.useFakeTimers()
+  const child = makeFakeChild()
+  spawnMock.mockReturnValue(child)
+  const finished = run({
+    token: 'token',
+    secret: 'secret',
+    cleverCLI: CLEVER_CLI,
+    timeout: 1800
+  })
+  // Let the pre-deploy steps run and the deploy spawn, then succeed.
+  await vi.advanceTimersByTimeAsync(1000)
+  child.emit('close', 0)
+  await finished
+  expect(child.kill).not.toHaveBeenCalled()
+  expect(setFailed).not.toHaveBeenCalled()
+})
+
+test('deploy fails before timeout: fails the workflow', async () => {
+  vi.useFakeTimers()
+  const child = makeFakeChild()
+  spawnMock.mockReturnValue(child)
+  const finished = run({
+    token: 'token',
+    secret: 'secret',
+    cleverCLI: CLEVER_CLI,
+    timeout: 1800
+  })
+  await vi.advanceTimersByTimeAsync(1000)
+  child.emit('close', 42)
+  await finished
+  expect(child.kill).not.toHaveBeenCalled()
   expect(setFailed).toHaveBeenCalledWith('Deployment failed with code 42')
+})
+
+test('spawn error: fails the workflow and leaves no pending timer', async () => {
+  vi.useFakeTimers()
+  const child = makeFakeChild()
+  spawnMock.mockReturnValue(child)
+  const finished = run({
+    token: 'token',
+    secret: 'secret',
+    cleverCLI: CLEVER_CLI,
+    timeout: 1800
+  })
+  await vi.advanceTimersByTimeAsync(1000)
+  child.emit('error', new Error('spawn ENOENT'))
+  await finished
+  expect(setFailed).toHaveBeenCalledWith('spawn ENOENT')
+  // The timeout must be cleared even when the deploy errors out, otherwise the
+  // event loop stays pinned until it fires.
+  expect(vi.getTimerCount()).toBe(0)
 })
 
 test('force deploy application', async () => {
