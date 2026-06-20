@@ -6,15 +6,42 @@ on:
     paths:
       - "src/**/*.ts"
       - "!src/**/*.test.ts"
-      - "Dockerfile"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "tsconfig.json"
 
 jobs:
+  guard:
+    name: Guard sensitive paths
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      safe: ${{ steps.check.outputs.safe }}
+    steps:
+      - name: Check changed files
+        id: check
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const pr = context.payload.pull_request
+            const trusted = pr.head.repo?.full_name === pr.base.repo.full_name
+            if (trusted) {
+              core.setOutput('safe', 'true')
+              return
+            }
+            const allowed = /^src\/.+\.ts$/
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 100
+            })
+            const unsafe = files.length >= 3000 || files.some(f => !allowed.test(f.filename))
+            core.setOutput('safe', unsafe ? 'false' : 'true')
+
   request-approval:
     name: Request Approval
     runs-on: ubuntu-latest
+    needs: guard
+    if: needs.guard.outputs.safe == 'true'
     permissions:
       pull-requests: write
     steps:
@@ -56,7 +83,8 @@ jobs:
   pr-preview:
     name: Deploy on Docker
     runs-on: ubuntu-latest
-    needs: request-approval
+    needs: [guard, request-approval]
+    if: needs.guard.outputs.safe == 'true'
     environment:
       name: "PR Preview"
       url: https://github.com/${{ github.repository }}/pkgs/container/actions-clever-cloud
