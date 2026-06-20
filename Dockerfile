@@ -1,8 +1,8 @@
 FROM node:24.9.0-slim AS builder
 
-# Note: the PR preview workflow (.github/workflows/pr-preview.yml) only auto-builds
-# fork PRs that touch `src/**` (see the guard job). Fork PRs changing this Dockerfile
-# or dependencies are skipped; same-repo PRs (yours) always build.
+# Note: when updating things that go into this Docker image (with COPY or RUN),
+# make sure to update the allow-list in the .github/workflows/pr-preview.yml
+# workflow `on.pull_request.paths` section, so it gets rebuilt when needed.
 
 WORKDIR /action
 
