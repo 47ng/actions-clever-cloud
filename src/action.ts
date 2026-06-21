@@ -1,8 +1,8 @@
 import * as core from '@actions/core'
 import { exec, type ExecOptions } from '@actions/exec'
+import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import { PassThrough, Transform, Writable } from 'node:stream'
-import { clearTimeout, setTimeout } from 'node:timers'
 import type { Arguments } from './arguments'
 
 async function checkForShallowCopy(): Promise<void> {
@@ -96,23 +96,40 @@ export async function run({
     }
 
     if (timeout) {
+      // We manage the deploy process ourselves (rather than via @actions/exec)
+      // so we can terminate it when the timeout fires: @actions/exec offers no
+      // cancellation, and a live child process keeps the Node event loop alive,
+      // which would pin the workflow until the deploy finishes anyway.
+      const { child, exited } = spawnDeploy(cleverCLI, args, execOptions)
       let timeoutID: NodeJS.Timeout | undefined
       let timedOut = false
       const timeoutPromise = new Promise<void>(resolve => {
+        // `timeout` is expressed in seconds (see action.yml), setTimeout is in ms.
         timeoutID = setTimeout(() => {
           timedOut = true
           resolve()
-        }, timeout)
+        }, timeout * 1000)
       })
-      const result = await Promise.race([
-        exec(cleverCLI, args, execOptions),
-        timeoutPromise
-      ])
-      if (timeoutID) {
-        clearTimeout(timeoutID)
+      let result: number | void
+      try {
+        result = await Promise.race([exited, timeoutPromise])
+      } finally {
+        // Always clear the timer, even if `exited` rejects (e.g. spawn error),
+        // otherwise the pending timeout keeps the event loop alive until it fires.
+        if (timeoutID) {
+          clearTimeout(timeoutID)
+        }
       }
       if (timedOut) {
+        // Stop waiting and let the workflow move on. Killing the child releases
+        // the event loop so the action can exit promptly (the documented
+        // tradeoff: we lose any deployment failure information).
+        child.kill('SIGTERM')
+        // The killed process settles `exited` later; swallow it so it doesn't
+        // surface as an unhandled rejection after we've moved on.
+        exited.catch(() => {})
         core.info('Deployment timed out, moving on with workflow run')
+        return
       }
       core.info(`result: ${result}`)
       if (typeof result === 'number' && result !== 0) {
@@ -135,6 +152,35 @@ export async function run({
 }
 
 // --
+
+/**
+ * Spawn the Clever CLI deploy ourselves so we keep a handle on the child
+ * process and can terminate it when the deployment timeout fires.
+ *
+ * Output is piped into the same tee stream used by @actions/exec (via
+ * `options.outStream`) so console logging, log files and annotation injection
+ * keep working identically to the non-timeout path.
+ */
+function spawnDeploy(
+  cleverCLI: string,
+  args: string[],
+  options: ExecOptions
+): { child: ReturnType<typeof spawn>; exited: Promise<number> } {
+  const child = spawn(cleverCLI, args, {
+    cwd: options.cwd,
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+  if (options.outStream) {
+    // `end: false` keeps the shared tee open when either stream closes.
+    child.stdout.pipe(options.outStream, { end: false })
+    child.stderr.pipe(options.outStream, { end: false })
+  }
+  const exited = new Promise<number>((resolve, reject) => {
+    child.once('error', reject)
+    child.once('close', code => resolve(code ?? 0))
+  })
+  return { child, exited }
+}
 
 async function getOutputStream(
   quiet: boolean,
