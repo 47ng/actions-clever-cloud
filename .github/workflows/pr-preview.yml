@@ -14,7 +14,7 @@ on:
 permissions: {}
 
 jobs:
-  pr-preview:
+  build:
     name: Deploy on Docker
     # Previews only run on this repo's own branches, never forks. Fork PRs use the
     # `pull_request` trigger with a read-only token and no secrets, so they cannot
@@ -24,7 +24,12 @@ jobs:
     permissions:
       contents: read
       packages: write
-      pull-requests: write
+    outputs:
+      tag: ${{ steps.docker-tag.outputs.tag }}
+      sha: ${{ steps.sha.outputs.sha }}
+      digest: ${{ steps.docker-build-push.outputs.digest }}
+      tags: ${{ steps.docker-labels-tags.outputs.tags }}
+      labels: ${{ steps.docker-labels-tags.outputs.labels }}
     steps:
       - name: Checkout PR head
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -111,43 +116,67 @@ jobs:
           echo "${{ steps.docker-labels-tags.outputs.labels }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
+  # Isolated so the only `pull-requests: write` token in the workflow lives in a
+  # job that runs no untrusted code (it never checks out the PR). All values are
+  # passed via env, never interpolated into the script.
+  comment:
+    name: Comment on PR
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
       - name: Comment on PR
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+          SHA: ${{ needs.build.outputs.sha }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+          TAGS: ${{ needs.build.outputs.tags }}
+          LABELS: ${{ needs.build.outputs.labels }}
         with:
           script: |
-            const body = `<!-- docker-build-comment -->
-            ## 🐳 &nbsp;Docker image preview
+            const tag = process.env.TAG;
+            const sha = process.env.SHA;
+            const digest = process.env.DIGEST;
+            const tags = process.env.TAGS;
+            const labels = process.env.LABELS;
+            const marker = "<!-- docker-build-comment -->";
 
-            Preview this PR in your workflow:
-
-            \`\`\`yaml
-            # Use the PR number to follow changes in this PR
-            - uses: docker://ghcr.io/47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}
-
-            # Use the git SHA for pinning to a specific commit
-            - uses: docker://ghcr.io/47ng/actions-clever-cloud:git-${{ steps.sha.outputs.sha }}
-            \`\`\`
-
-            <details>
-            <summary>Image metadata</summary>
-            <br/>
-
-            Digest: \`${{ steps.docker-build-push.outputs.digest }}\`
-
-            ### 📌 &nbsp;Tags
-            \`\`\`
-            ${{ steps.docker-labels-tags.outputs.tags }}
-            \`\`\`
-
-            ### 🏷 &nbsp;Labels
-            \`\`\`
-            ${{ steps.docker-labels-tags.outputs.labels }}
-            \`\`\`
-
-            </details>
-
-            ---
-            <sub>🤖 This comment is updated on every push</sub>`;
+            const body = [
+              marker,
+              "## 🐳 &nbsp;Docker image preview",
+              "",
+              "Preview this PR in your workflow:",
+              "",
+              "```yaml",
+              "# Use the PR number to follow changes in this PR",
+              `- uses: docker://ghcr.io/47ng/actions-clever-cloud:${tag}`,
+              "",
+              "# Use the git SHA for pinning to a specific commit",
+              `- uses: docker://ghcr.io/47ng/actions-clever-cloud:git-${sha}`,
+              "```",
+              "",
+              "<details>",
+              "<summary>Image metadata</summary>",
+              "",
+              `Digest: \`${digest}\``,
+              "",
+              "### 📌 &nbsp;Tags",
+              "```",
+              tags,
+              "```",
+              "",
+              "### 🏷 &nbsp;Labels",
+              "```",
+              labels,
+              "```",
+              "",
+              "</details>",
+              "",
+              "---",
+              "<sub>🤖 This comment is updated on every push</sub>",
+            ].join("\n");
 
             // Find existing comment by marker
             const { data: comments } = await github.rest.issues.listComments({
@@ -156,24 +185,22 @@ jobs:
               issue_number: context.issue.number,
             });
 
-            const botComment = comments.find(comment =>
-              comment.body.startsWith('<!-- docker-build-comment -->')
+            const botComment = comments.find(
+              (comment) => comment.body && comment.body.startsWith(marker),
             );
 
             if (botComment) {
-              // Update existing comment
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 comment_id: botComment.id,
-                body: body
+                body,
               });
             } else {
-              // Create new comment
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body: body
+                body,
               });
             }
