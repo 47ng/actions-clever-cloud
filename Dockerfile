@@ -2,7 +2,7 @@ FROM node:24.9.0-slim AS builder
 
 # Note: when updating things that go into this Docker image (with COPY or RUN),
 # make sure to update the allow-list in the .github/workflows/pr-preview.yml
-# workflow `on.pull_request_target.paths` section, so it gets rebuilt when needed.
+# workflow `on.pull_request.paths` section, so it gets rebuilt when needed.
 
 WORKDIR /action
 

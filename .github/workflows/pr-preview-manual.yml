@@ -1,0 +1,324 @@
+name: PR Preview (manual)
+
+# Manually build & publish a Docker preview image for a *vetted* external/fork PR.
+#
+# This is the controlled replacement for fork previews, which were removed when
+# `pull_request_target` was dropped (see pr-preview.yml, which now only runs on
+# this repo's own branches). A maintainer reviews the fork's code, then dispatches
+# this workflow with the exact commit SHA they vetted.
+#
+# Security model:
+#   - The build ref is the immutable `head_sha` input (never a branch / live head),
+#     so a force-push after dispatch cannot swap in different code (no TOCTOU).
+#   - The untrusted build runs in an isolated job with ONLY `contents: read` +
+#     `packages: write` — no deploy secrets, no `id-token`, no `pull-requests:write`.
+#   - Images go to a SEPARATE `…-preview` GHCR package, never the release namespace,
+#     and only ever get `pr-<n>` / `git-<sha>` tags (never `:latest` / `:x.y.z`).
+#   - No PR-controlled string (title / body / branch) is ever interpolated.
+
+on:
+  workflow_dispatch:
+    inputs:
+      head_sha:
+        description: "Full 40-char commit SHA of the vetted PR head (the exact code you reviewed)"
+        required: true
+        type: string
+      pr_number:
+        description: "Optional: PR number, used only for tags/comment (cross-checked against the resolved PR)"
+        required: false
+        type: number
+
+# Top-level deny; each job opts into the minimum it needs.
+permissions: {}
+
+# Serialize dispatches for the same commit so concurrent runs don't fight over tags.
+concurrency:
+  group: pr-preview-manual-${{ inputs.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Resolve & assert the dispatch targets a real, open PR head. Runs NO untrusted
+  # code (API reads only), so it is safe to give it read scopes the build must not
+  # have. Closes TOCTOU: it confirms `head_sha` IS the current head of exactly one
+  # open PR in THIS repo, and the build then pins that same immutable SHA.
+  # ---------------------------------------------------------------------------
+  resolve:
+    name: Resolve & verify PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # read commit metadata to confirm the SHA
+      pull-requests: read # list/inspect the PR associated with the SHA
+    outputs:
+      fork_full_name: ${{ steps.resolve.outputs.fork_full_name }}
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+    steps:
+      - name: Validate head_sha format
+        env:
+          HEAD_SHA: ${{ inputs.head_sha }}
+        run: |
+          if [[ ! "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::head_sha must be a full 40-character lowercase hex commit SHA."
+            exit 1
+          fi
+
+      - name: Resolve PR from commit SHA
+        id: resolve
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          HEAD_SHA: ${{ inputs.head_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        with:
+          script: |
+            const headSha = process.env.HEAD_SHA;
+
+            // Defense in depth: re-validate before trusting the value at all.
+            if (!/^[0-9a-f]{40}$/.test(headSha)) {
+              core.setFailed("head_sha must be a full 40-character lowercase hex commit SHA.");
+              return;
+            }
+
+            const thisRepo = `${context.repo.owner}/${context.repo.repo}`;
+
+            // Resolve PRs from the immutable SHA (not from a PR number / branch).
+            const { data: pulls } =
+              await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: headSha,
+              });
+
+            // Require exactly one OPEN PR, targeting THIS repo, whose CURRENT head
+            // is this exact SHA. This is the TOCTOU gate: we only ever build a SHA
+            // that is the live head of a reviewable PR at resolve time, and the
+            // build job then checks out that same immutable SHA.
+            const matches = pulls.filter(
+              (pr) =>
+                pr.state === "open" &&
+                pr.base.repo.full_name === thisRepo &&
+                pr.head.sha === headSha,
+            );
+
+            if (matches.length !== 1) {
+              core.setFailed(
+                `Expected exactly one open PR in ${thisRepo} whose head is ${headSha}, ` +
+                  `but found ${matches.length}. Re-review and dispatch with the current head SHA.`,
+              );
+              return;
+            }
+
+            const pr = matches[0];
+            const forkFullName = pr.head.repo?.full_name;
+            const prNumber = pr.number;
+
+            if (!forkFullName) {
+              core.setFailed("Could not determine the source (fork) repository for the PR head.");
+              return;
+            }
+
+            // Optional cross-check: if the maintainer passed a pr_number, it must agree.
+            const provided = process.env.PR_NUMBER;
+            if (provided && Number(provided) !== prNumber) {
+              core.setFailed(
+                `Provided pr_number (${provided}) does not match the PR resolved from ${headSha} (#${prNumber}).`,
+              );
+              return;
+            }
+
+            // Echo the commit subject so the maintainer can confirm in the run log
+            // that the resolved commit is the one they reviewed. Informational only.
+            try {
+              const { data: commit } = await github.rest.repos.getCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: headSha,
+              });
+              const subject = commit.commit.message.split("\n")[0];
+              core.info(`Commit subject: ${subject}`);
+            } catch (err) {
+              core.warning(`Could not fetch commit subject (non-fatal): ${err.message}`);
+            }
+
+            core.info(`Resolved PR #${prNumber} from fork ${forkFullName} at ${headSha}`);
+            core.setOutput("fork_full_name", forkFullName);
+            core.setOutput("pr_number", String(prNumber));
+
+  # ---------------------------------------------------------------------------
+  # Build the UNTRUSTED fork code. Least privilege: contents:read + packages:write
+  # only. No deploy secrets, no id-token, no pull-requests:write. No build secrets,
+  # build-args, or mounts are passed in, so the fork's Dockerfile cannot read the
+  # registry credentials or anything from the runner.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build & push preview image
+    needs: resolve
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout the fork at the vetted SHA
+      packages: write # push the preview image to the …-preview GHCR package
+    outputs:
+      digest: ${{ steps.docker-build-push.outputs.digest }}
+      tags: ${{ steps.meta.outputs.tags }}
+    steps:
+      - name: Checkout fork at the vetted, immutable SHA
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ needs.resolve.outputs.fork_full_name }}
+          ref: ${{ inputs.head_sha }}
+          persist-credentials: false
+
+      - name: Compute Docker tags & labels
+        id: meta
+        env:
+          HEAD_SHA: ${{ inputs.head_sha }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          FORK: ${{ needs.resolve.outputs.fork_full_name }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          IMAGE="ghcr.io/47ng/actions-clever-cloud"
+          {
+            echo "tags<<__TAGS_EOF__"
+            echo "${IMAGE}:pr-${PR_NUMBER}"
+            echo "${IMAGE}:git-${HEAD_SHA}"
+            echo "__TAGS_EOF__"
+            echo "labels<<__LABELS_EOF__"
+            echo "org.opencontainers.image.title=${REPO} (PR preview, unreviewed)"
+            echo "org.opencontainers.image.description=Manual fork PR preview build of unreviewed third-party code. Do not use in trusted contexts."
+            echo "org.opencontainers.image.revision=${HEAD_SHA}"
+            echo "org.opencontainers.image.source=https://github.com/${FORK}/tree/${HEAD_SHA}"
+            echo "org.opencontainers.image.documentation=https://github.com/${REPO}/pull/${PR_NUMBER}"
+            echo "org.opencontainers.image.url=https://github.com/${REPO}/actions/runs/${RUN_ID}"
+            echo "org.opencontainers.image.licenses=MIT"
+            echo "__LABELS_EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: docker-build-push
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          labels: "${{ steps.meta.outputs.labels }}"
+          tags: "${{ steps.meta.outputs.tags }}"
+          push: true
+
+      - name: Generate step summary
+        env:
+          DIGEST: ${{ steps.docker-build-push.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+          LABELS: ${{ steps.meta.outputs.labels }}
+        run: |
+          {
+            echo "## 🐳 &nbsp;Docker preview image (unreviewed fork code)"
+            echo "Digest: \`${DIGEST}\`"
+            echo "### 📌 &nbsp;Tags"
+            echo '```'
+            echo "${TAGS}"
+            echo '```'
+            echo "### 🏷 &nbsp;Labels"
+            echo '```'
+            echo "${LABELS}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Comment on the PR. Isolated so the only `pull-requests: write` token in the
+  # whole workflow lives in a job that runs NO untrusted code (it never checks out
+  # the fork). All values are passed via env, never interpolated into the script.
+  # ---------------------------------------------------------------------------
+  comment:
+    name: Comment on PR
+    needs: [resolve, build]
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write # post/update the preview comment on the PR
+    steps:
+      - name: Post preview comment
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          FORK: ${{ needs.resolve.outputs.fork_full_name }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+          TAGS: ${{ needs.build.outputs.tags }}
+        with:
+          script: |
+            const prNumber = Number(process.env.PR_NUMBER);
+            const headSha = process.env.HEAD_SHA;
+            const fork = process.env.FORK;
+            const digest = process.env.DIGEST;
+            const tags = process.env.TAGS;
+            const image = "ghcr.io/47ng/actions-clever-cloud";
+            const marker = "<!-- docker-preview-manual-comment -->";
+
+            const body = [
+              marker,
+              "## 🐳 &nbsp;Manual Docker preview image",
+              "",
+              "> [!WARNING]",
+              "> This image was built from **unreviewed third-party code** on a fork " +
+                `(\`${fork}\` @ \`${headSha}\`). Pulling or running it executes that code. ` +
+                "Only use it if you have reviewed the PR diff and trust the contents.",
+              "",
+              "Preview this PR in a workflow:",
+              "",
+              "```yaml",
+              "# Follows this PR (re-dispatch the preview to update)",
+              `- uses: docker://${image}:pr-${prNumber}`,
+              "",
+              "# Pin to this exact reviewed commit",
+              `- uses: docker://${image}:git-${headSha}`,
+              "```",
+              "",
+              "<details>",
+              "<summary>Image metadata</summary>",
+              "",
+              `Digest: \`${digest}\``,
+              "",
+              "### 📌 &nbsp;Tags",
+              "```",
+              tags,
+              "```",
+              "",
+              "</details>",
+              "",
+              "---",
+              "<sub>🤖 Built manually by a maintainer via the PR Preview (manual) workflow.</sub>",
+            ].join("\n");
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+            });
+
+            const existing = comments.find((c) => c.body && c.body.startsWith(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body,
+              });
+            }
