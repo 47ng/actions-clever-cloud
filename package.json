@@ -24,26 +24,26 @@
   "main": "dist/main.js",
   "scripts": {
     "dev": "node --env-file=.env.local --watch ./src/main.ts",
-    "build": "tsdown src/main.ts --outDir dist",
+    "build": "tsdown src/main.ts --outDir dist --no-fixed-extension",
     "test": "vitest --typecheck",
     "knip": "knip"
   },
   "engines": {
     "node": "^24.9.0"
   },
-  "packageManager": "pnpm@10.15.0",
+  "packageManager": "pnpm@11.10.0",
   "dependencies": {
-    "@actions/core": "^1.11.1",
-    "@actions/exec": "^1.1.1",
-    "clever-tools": "^4.1.0"
+    "@actions/core": "^3.0.1",
+    "@actions/exec": "^3.0.0",
+    "clever-tools": "^4.11.0"
   },
   "devDependencies": {
-    "@types/node": "^24.6.2",
-    "knip": "^5.64.1",
-    "prettier": "^3.2.5",
-    "tsdown": "^0.15.6",
-    "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "@types/node": "^24.13.2",
+    "knip": "^6.25.0",
+    "prettier": "^3.9.4",
+    "tsdown": "^0.22.3",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
   },
   "prettier": {
     "printWidth": 80,

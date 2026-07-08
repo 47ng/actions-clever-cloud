@@ -23,6 +23,11 @@ import { exec } from '@actions/exec'
 import { spawn } from 'node:child_process'
 import { run } from './action'
 
+// Every non-quiet run() tees output into the shared process.stdout. The real
+// action does this once per process; this suite does it dozens of times, which
+// trips Node's 10-listener leak warning. Lift the cap for the test process.
+process.stdout.setMaxListeners(0)
+
 // --
 
 const CLEVER_CLI = 'clever-mocked'
