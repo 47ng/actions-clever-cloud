@@ -31,6 +31,14 @@ function throwMissingEnvVar(name: string): never {
 
 const ENV_LINE_REGEX = /^(\w+)=(.*)$/
 
+function redactValue(line: string): string {
+  const equalsIndex = line.indexOf('=')
+  if (equalsIndex === -1) {
+    return line
+  }
+  return `${line.slice(0, equalsIndex)}=***`
+}
+
 function listExtraEnv(): ExtraEnv {
   const extraEnv = core
     .getMultilineInput('setEnv')
@@ -39,6 +47,11 @@ function listExtraEnv(): ExtraEnv {
       (env, line) => {
         const match = line.match(ENV_LINE_REGEX)
         if (!match) {
+          if (!line.startsWith('#')) {
+            core.warning(
+              `Ignoring setEnv line that is not KEY=value (keys are [A-Za-z0-9_]): ${redactValue(line)}`
+            )
+          }
           return env
         }
         const key = match[1]!
@@ -71,7 +84,17 @@ export function processArguments(): Arguments {
   const appID = core.getInput('appID')
   const alias = core.getInput('alias')
   const force = core.getBooleanInput('force', { required: false })
-  const timeout = parseInt(core.getInput('timeout')) || undefined
+  const timeoutInput = core.getInput('timeout')
+  let timeout: number | undefined = undefined
+  if (timeoutInput) {
+    const parsed = Number(timeoutInput)
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+      throw new Error(
+        `Invalid timeout value: ${timeoutInput} (expected a positive integer number of seconds)`
+      )
+    }
+    timeout = parsed
+  }
   const logFile = core.getInput('logFile') || undefined
   const quiet = core.getBooleanInput('quiet', { required: false })
   const deployPath = core.getInput('deployPath') || undefined
