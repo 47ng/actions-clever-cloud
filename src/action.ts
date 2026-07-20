@@ -186,6 +186,9 @@ function spawnDeploy(
   return { child, exited }
 }
 
+const TIMESTAMP_PREFIX_REGEX =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:\d{2}|Z) /
+
 export async function getOutputStream(
   quiet: boolean,
   logFile?: string
@@ -196,15 +199,21 @@ export async function getOutputStream(
     async function* splitNewlines(
       input: AsyncIterable<Buffer>
     ): AsyncGenerator<string> {
+      let carry = ''
       for await (const chunk of input) {
-        const str = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : chunk
+        const str =
+          carry + (Buffer.isBuffer(chunk) ? chunk.toString('utf8') : chunk)
         if (str.includes('\r\n')) {
           lineSeparator = '\r\n'
         }
         const lines = str.split(/\r?\n/)
+        carry = lines.pop() ?? ''
         for (const line of lines) {
           yield line
         }
+      }
+      if (carry.length > 0) {
+        yield carry
       }
     }
     async function* injectAnnotations(
@@ -212,8 +221,8 @@ export async function getOutputStream(
     ): AsyncGenerator<string> {
       for await (const line of lines) {
         yield line + lineSeparator
-        // Remove timestamp
-        const message = line.slice('xxxx-xx-xxTxx:xx:xx+xx:xx '.length)
+        // Remove timestamp, if present
+        const message = line.replace(TIMESTAMP_PREFIX_REGEX, '')
         if (
           message.startsWith('::notice ') ||
           message.startsWith('::error ') ||

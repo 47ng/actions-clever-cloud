@@ -132,26 +132,48 @@ test('non-quiet: adopts \\r\\n as the line separator once seen', async () => {
   expect(out).toContain('::notice ::x\r\n')
 })
 
-// BUG (pinned): fixed in plan 007 — flip this assertion then.
-test('non-quiet: annotation split across a chunk boundary is NOT detected', async () => {
+test('non-quiet: annotation split across a chunk boundary IS detected', async () => {
   const tee = await getOutputStream(false)
   tee.write(TS + '::err')
   tee.write('or ::boom\n')
   tee.end()
   await drain()
   const out = capturedStdout()
-  expect(out).not.toContain('::error ::boom')
+  expect(out).toContain('::error ::boom')
 })
 
-// BUG (pinned): fixed in plan 007 — flip this assertion then.
-test('non-quiet: a line without a timestamp prefix loses its annotation', async () => {
+test('non-quiet: a line without a timestamp prefix keeps its annotation', async () => {
   const tee = await getOutputStream(false)
   tee.write('::error ::no-timestamp\n')
   tee.end()
   await drain()
   const out = capturedStdout()
-  // The raw line is always echoed once; a properly-detected annotation would
-  // add a second, identical occurrence (no timestamp to strip here). Only one
-  // occurrence means the annotation was NOT injected.
-  expect(out.split('::error ::no-timestamp').length - 1).toBe(1)
+  // The raw line is echoed once, and the detected annotation adds a second,
+  // identical occurrence (no timestamp to strip here).
+  expect(out.split('::error ::no-timestamp').length - 1).toBe(2)
+})
+
+test('non-quiet: a Z-suffixed timestamp is stripped before annotation detection', async () => {
+  const tee = await getOutputStream(false)
+  tee.write('2026-07-20T12:00:00Z ::error ::zulu\n')
+  tee.end()
+  await drain()
+  const out = capturedStdout()
+  expect(out.split('::error ::zulu').length - 1).toBe(2)
+})
+
+test('non-quiet: a chunk ending exactly on \\n produces no phantom empty line', async () => {
+  const tee = await getOutputStream(false)
+  tee.write(TS + 'a\n')
+  tee.end()
+  await drain()
+  expect(capturedStdout()).toBe(TS + 'a\n')
+})
+
+test('non-quiet: an unterminated final line is still emitted after end()', async () => {
+  const tee = await getOutputStream(false)
+  tee.write(TS + 'no-trailing-newline')
+  tee.end()
+  await drain()
+  expect(capturedStdout()).toContain('no-trailing-newline')
 })
