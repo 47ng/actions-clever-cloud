@@ -89,9 +89,7 @@ test('deploy default application (no arguments)', async () => {
     secret: 'secret',
     cleverCLI: CLEVER_CLI
   })
-  expect(execMock.mock.calls.some(call => call[1]?.[0] === 'login')).toBe(
-    false
-  )
+  expect(execMock.mock.calls.some(call => call[1]?.[0] === 'login')).toBe(false)
   expectCleverCLICallWithArgs(1, 'deploy')
   expect(setFailed).not.toHaveBeenCalled()
 })
@@ -365,13 +363,22 @@ test('force deploy application', async () => {
   )
 })
 
-test('env-set failure fails the workflow without leaking the value', async () => {
-  execMock.mockImplementation((_cli: string, args: string[]) => {
-    if (args[0] === 'env' && args[1] === 'set') {
-      return Promise.resolve(1)
+test('env-set failure fails the workflow with stderr, without leaking the value, and never deploys', async () => {
+  execMock.mockImplementation(
+    (
+      _cli: string,
+      args: string[],
+      options?: { listeners?: { stderr?: (data: Buffer) => void } }
+    ) => {
+      if (args[0] === 'env' && args[1] === 'set') {
+        options?.listeners?.stderr?.(
+          Buffer.from('Error: environment variable rejected\n')
+        )
+        return Promise.resolve(1)
+      }
+      return Promise.resolve(0)
     }
-    return Promise.resolve(0)
-  })
+  )
   await run({
     token: 'token',
     secret: 'secret',
@@ -381,9 +388,42 @@ test('env-set failure fails the workflow without leaking the value', async () =>
     }
   })
   expect(setFailed).toHaveBeenCalledWith(
-    'Failed to set environment variable foo (exit code 1)'
+    'Failed to set environment variable foo (exit code 1): ' +
+      'Error: environment variable rejected'
   )
   const failureMessage = (setFailed as ReturnType<typeof vi.fn>).mock
     .calls[0]?.[0]
   expect(failureMessage).not.toContain('bar')
+  expect(execMock.mock.calls.some(call => call[1]?.[0] === 'deploy')).toBe(
+    false
+  )
+})
+
+test('spawnDeploy pipes child stderr through the tee (annotations still reach stdout)', async () => {
+  const stdoutSpy = vi
+    .spyOn(process.stdout, 'write')
+    .mockImplementation(() => true)
+  try {
+    vi.useFakeTimers()
+    const child = makeFakeChild()
+    spawnMock.mockReturnValue(child)
+    const finishedRun = run({
+      token: 'token',
+      secret: 'secret',
+      cleverCLI: CLEVER_CLI,
+      timeout: 1800
+    })
+    // Let the pre-deploy steps run and the deploy spawn before touching the
+    // child's streams, same as the other timeout-path tests.
+    await vi.advanceTimersByTimeAsync(1000)
+    child.stderr.write('::error ::deploy failed\n')
+    child.emit('close', 1)
+    await finishedRun
+    const out = stdoutSpy.mock.calls
+      .map((call: unknown[]) => String(call[0]))
+      .join('')
+    expect(out).toContain('::error ::deploy failed')
+  } finally {
+    stdoutSpy.mockRestore()
+  }
 })

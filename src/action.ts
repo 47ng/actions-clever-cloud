@@ -3,6 +3,7 @@ import { exec, type ExecOptions } from '@actions/exec'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import { PassThrough, Transform, Writable } from 'node:stream'
+import { finished } from 'node:stream/promises'
 import type { Arguments } from './arguments'
 
 async function checkForShallowCopy(): Promise<void> {
@@ -23,8 +24,6 @@ async function checkForShallowCopy(): Promise<void> {
 }
 
 export async function run({
-  token,
-  secret,
   appID,
   alias,
   force = false,
@@ -36,11 +35,13 @@ export async function run({
   extraEnv = {},
   sameCommitPolicy
 }: Arguments): Promise<void> {
+  let outputStream: OutputStream | undefined
   try {
     await checkForShallowCopy()
 
+    outputStream = await getOutputStream(quiet, logFile)
     const execOptions: ExecOptions = {
-      outStream: await getOutputStream(quiet, logFile)
+      outStream: outputStream.stream
     }
 
     if (deployPath) {
@@ -84,14 +85,21 @@ export async function run({
         core.setSecret(envValue)
       }
       core.info(`Setting environment variable ${envName}`)
+      let stderr = ''
       const code = await exec(cleverCLI, args, {
         ...execOptions,
         silent: true,
-        ignoreReturnCode: true
+        ignoreReturnCode: true,
+        listeners: {
+          stderr: (data: Buffer) => (stderr += data.toString())
+        }
       })
       if (code !== 0) {
+        // stderr may echo the value back (e.g. a rejected value in the CLI's
+        // own error message); safe to surface because setSecret() above
+        // already registered it with the runner's log masking.
         throw new Error(
-          `Failed to set environment variable ${envName} (exit code ${code})`
+          `Failed to set environment variable ${envName} (exit code ${code}): ${stderr.trim()}`
         )
       }
     }
@@ -164,6 +172,14 @@ export async function run({
     } else {
       core.setFailed(String(error))
     }
+  } finally {
+    // Close the tee we opened above so its buffered carry-over line (if any)
+    // and the log file get flushed, even when the timeout path returns early
+    // or the deploy throws.
+    if (outputStream) {
+      outputStream.stream.end()
+      await outputStream.done()
+    }
   }
 }
 
@@ -201,11 +217,24 @@ function spawnDeploy(
 const TIMESTAMP_PREFIX_REGEX =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:\d{2}|Z) /
 
+export type OutputStream = {
+  stream: Writable
+  /**
+   * Resolves once every sink fed by `stream` (the console pipeline, the log
+   * file) has finished processing whatever was written before `stream.end()`
+   * was called. A sink failing (e.g. ENOSPC, EPIPE) is reported via
+   * `core.warning` rather than rejecting — losing log output must never
+   * override the deploy's real outcome.
+   */
+  done: () => Promise<void>
+}
+
 export async function getOutputStream(
   quiet: boolean,
   logFile?: string
-): Promise<Writable> {
+): Promise<OutputStream> {
   const tee = new PassThrough()
+  const completions: Promise<void>[] = []
   if (!quiet) {
     let lineSeparator = '\n'
     async function* splitNewlines(
@@ -244,14 +273,27 @@ export async function getOutputStream(
         }
       }
     }
-    tee
+    const lastTransform = tee
       .pipe(Transform.from(splitNewlines))
       .pipe(Transform.from(injectAnnotations))
-      .pipe(process.stdout)
+    // `end: false`: process.stdout is shared for the whole action process
+    // lifetime — this tee ending must not close it.
+    lastTransform.pipe(process.stdout, { end: false })
+    completions.push(finished(lastTransform))
   }
   if (logFile) {
     const logFileStream = (await fs.open(logFile, 'w')).createWriteStream()
     tee.pipe(logFileStream)
+    completions.push(finished(logFileStream))
   }
-  return tee
+  const done = async (): Promise<void> => {
+    try {
+      await Promise.all(completions)
+    } catch (error) {
+      core.warning(
+        `deploy log output degraded: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+  }
+  return { stream: tee, done }
 }

@@ -31,27 +31,7 @@ afterEach(() => {
 })
 
 function capturedStdout(): string {
-  return stdoutSpy.mock.calls.map(call => String(call[0])).join('')
-}
-
-// The pipeline is a chain of async generators/streams; give it a couple of
-// ticks to drain after the source ends before asserting on its output.
-async function drain(): Promise<void> {
-  await new Promise(resolve => setImmediate(resolve))
-  await new Promise(resolve => setImmediate(resolve))
-}
-
-async function waitForFileContent(
-  filePath: string,
-  expected: string
-): Promise<void> {
-  await vi.waitFor(
-    async () => {
-      const content = await fs.readFile(filePath, 'utf8').catch(() => '')
-      expect(content).toBe(expected)
-    },
-    { timeout: 2000, interval: 20 }
-  )
+  return stdoutSpy.mock.calls.map((call: unknown[]) => String(call[0])).join('')
 }
 
 function tempLogFilePath(name: string): string {
@@ -64,20 +44,20 @@ function tempLogFilePath(name: string): string {
 // --
 
 test('non-quiet: a plain line passes through to stdout', async () => {
-  const tee = await getOutputStream(false)
-  tee.write(TS + 'hello\n')
-  tee.end()
-  await drain()
+  const { stream, done } = await getOutputStream(false)
+  stream.write(TS + 'hello\n')
+  stream.end()
+  await done()
   expect(capturedStdout()).toContain('hello')
 })
 
 test.each(['notice', 'error', 'warning'])(
   'non-quiet: ::%s lines are re-emitted without their timestamp',
   async kind => {
-    const tee = await getOutputStream(false)
-    tee.write(`${TS}::${kind} ::Deployed!\n`)
-    tee.end()
-    await drain()
+    const { stream, done } = await getOutputStream(false)
+    stream.write(`${TS}::${kind} ::Deployed!\n`)
+    stream.end()
+    await done()
     const out = capturedStdout()
     // Once as the original (timestamped) line, once as the injected
     // annotation (timestamp stripped).
@@ -87,66 +67,76 @@ test.each(['notice', 'error', 'warning'])(
 )
 
 test('non-quiet: non-annotation lines are not re-emitted', async () => {
-  const tee = await getOutputStream(false)
-  tee.write(TS + 'plain\n')
-  tee.end()
-  await drain()
+  const { stream, done } = await getOutputStream(false)
+  stream.write(TS + 'plain\n')
+  stream.end()
+  await done()
   const out = capturedStdout()
   expect(out.split('plain').length - 1).toBe(1)
 })
 
 test('quiet: true suppresses stdout entirely', async () => {
-  const tee = await getOutputStream(true)
-  tee.write(TS + 'hello\n')
-  tee.end()
-  await drain()
+  const { stream, done } = await getOutputStream(true)
+  stream.write(TS + 'hello\n')
+  stream.end()
+  await done()
   expect(stdoutSpy).not.toHaveBeenCalled()
 })
 
-test('logFile: receives the raw stream, untouched by annotation injection', async () => {
+test('logFile + non-quiet: the file gets the raw stream AND stdout gets the processed stream', async () => {
   const logFile = tempLogFilePath('raw')
-  const tee = await getOutputStream(false, logFile)
-  tee.write(TS + '::notice ::Deployed!\n')
-  tee.end()
-  await waitForFileContent(logFile, TS + '::notice ::Deployed!\n')
+  const { stream, done } = await getOutputStream(false, logFile)
+  stream.write(TS + '::notice ::Deployed!\n')
+  stream.end()
+  await done()
+  const content = await fs.readFile(logFile, 'utf8')
+  // The log file receives the tee's raw input, untouched by annotation
+  // injection: exactly the one line that was written, timestamp intact.
+  expect(content).toBe(TS + '::notice ::Deployed!\n')
+  // stdout receives the processed stream: the original line plus the
+  // injected (timestamp-stripped) annotation — two occurrences pin that
+  // both sinks actually fed off the same tee, not just one or the other.
+  expect(capturedStdout().split('::notice ::Deployed!').length - 1).toBe(2)
   await fs.unlink(logFile)
 })
 
 test('quiet + logFile: file gets content, stdout gets nothing', async () => {
   const logFile = tempLogFilePath('quiet')
-  const tee = await getOutputStream(true, logFile)
-  tee.write(TS + 'hello\n')
-  tee.end()
-  await waitForFileContent(logFile, TS + 'hello\n')
+  const { stream, done } = await getOutputStream(true, logFile)
+  stream.write(TS + 'hello\n')
+  stream.end()
+  await done()
+  const content = await fs.readFile(logFile, 'utf8')
+  expect(content).toBe(TS + 'hello\n')
   expect(stdoutSpy).not.toHaveBeenCalled()
   await fs.unlink(logFile)
 })
 
 test('non-quiet: adopts \\r\\n as the line separator once seen', async () => {
-  const tee = await getOutputStream(false)
-  tee.write(TS + 'a\r\n')
-  tee.write(TS + '::notice ::x\r\n')
-  tee.end()
-  await drain()
+  const { stream, done } = await getOutputStream(false)
+  stream.write(TS + 'a\r\n')
+  stream.write(TS + '::notice ::x\r\n')
+  stream.end()
+  await done()
   const out = capturedStdout()
   expect(out).toContain('::notice ::x\r\n')
 })
 
 test('non-quiet: annotation split across a chunk boundary IS detected', async () => {
-  const tee = await getOutputStream(false)
-  tee.write(TS + '::err')
-  tee.write('or ::boom\n')
-  tee.end()
-  await drain()
+  const { stream, done } = await getOutputStream(false)
+  stream.write(TS + '::err')
+  stream.write('or ::boom\n')
+  stream.end()
+  await done()
   const out = capturedStdout()
   expect(out).toContain('::error ::boom')
 })
 
 test('non-quiet: a line without a timestamp prefix keeps its annotation', async () => {
-  const tee = await getOutputStream(false)
-  tee.write('::error ::no-timestamp\n')
-  tee.end()
-  await drain()
+  const { stream, done } = await getOutputStream(false)
+  stream.write('::error ::no-timestamp\n')
+  stream.end()
+  await done()
   const out = capturedStdout()
   // The raw line is echoed once, and the detected annotation adds a second,
   // identical occurrence (no timestamp to strip here).
@@ -154,26 +144,26 @@ test('non-quiet: a line without a timestamp prefix keeps its annotation', async 
 })
 
 test('non-quiet: a Z-suffixed timestamp is stripped before annotation detection', async () => {
-  const tee = await getOutputStream(false)
-  tee.write('2026-07-20T12:00:00Z ::error ::zulu\n')
-  tee.end()
-  await drain()
+  const { stream, done } = await getOutputStream(false)
+  stream.write('2026-07-20T12:00:00Z ::error ::zulu\n')
+  stream.end()
+  await done()
   const out = capturedStdout()
   expect(out.split('::error ::zulu').length - 1).toBe(2)
 })
 
 test('non-quiet: a chunk ending exactly on \\n produces no phantom empty line', async () => {
-  const tee = await getOutputStream(false)
-  tee.write(TS + 'a\n')
-  tee.end()
-  await drain()
+  const { stream, done } = await getOutputStream(false)
+  stream.write(TS + 'a\n')
+  stream.end()
+  await done()
   expect(capturedStdout()).toBe(TS + 'a\n')
 })
 
-test('non-quiet: an unterminated final line is still emitted after end()', async () => {
-  const tee = await getOutputStream(false)
-  tee.write(TS + 'no-trailing-newline')
-  tee.end()
-  await drain()
+test('non-quiet: an unterminated final line is still emitted after end() — reflects production, where run() always ends the stream', async () => {
+  const { stream, done } = await getOutputStream(false)
+  stream.write(TS + 'no-trailing-newline')
+  stream.end()
+  await done()
   expect(capturedStdout()).toContain('no-trailing-newline')
 })
