@@ -87,15 +87,10 @@ test('deploy default application (no arguments)', async () => {
     secret: 'secret',
     cleverCLI: CLEVER_CLI
   })
-  expectCleverCLICallWithArgs(
-    1,
-    'login',
-    '--token',
-    'token',
-    '--secret',
-    'secret'
+  expect(execMock.mock.calls.some(call => call[1]?.[0] === 'login')).toBe(
+    false
   )
-  expectCleverCLICallWithArgs(2, 'deploy')
+  expectCleverCLICallWithArgs(1, 'deploy')
   expect(setFailed).not.toHaveBeenCalled()
 })
 
@@ -106,7 +101,7 @@ test('deploy application with alias', async () => {
     alias: 'app-alias',
     cleverCLI: CLEVER_CLI
   })
-  expectCleverCLICallWithArgs(2, 'deploy', '--alias', 'app-alias')
+  expectCleverCLICallWithArgs(1, 'deploy', '--alias', 'app-alias')
   expect(setFailed).not.toHaveBeenCalled()
 })
 
@@ -118,14 +113,14 @@ test('deploy application with app ID', async () => {
     cleverCLI: CLEVER_CLI
   })
   expectCleverCLICallWithArgs(
-    2,
+    1,
     'link',
     'app_facade42-cafe-babe-cafe-deadf00dbaad',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
   )
   expectCleverCLICallWithArgs(
-    3,
+    2,
     'deploy',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
@@ -141,14 +136,14 @@ test('when both app ID and alias are provided, appID takes precedence', async ()
     cleverCLI: CLEVER_CLI
   })
   expectCleverCLICallWithArgs(
-    2,
+    1,
     'link',
     'app_facade42-cafe-babe-cafe-deadf00dbaad',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
   )
   expectCleverCLICallWithArgs(
-    3,
+    2,
     'deploy',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
@@ -165,9 +160,9 @@ test('passing extra env variables, using no input args', async () => {
       egg: 'spam'
     }
   })
-  expectCleverCLICallWithArgs(2, 'env', 'set', 'foo', 'bar')
-  expectCleverCLICallWithArgs(3, 'env', 'set', 'egg', 'spam')
-  expectCleverCLICallWithArgs(4, 'deploy')
+  expectCleverCLICallWithArgs(1, 'env', 'set', 'foo', 'bar')
+  expectCleverCLICallWithArgs(2, 'env', 'set', 'egg', 'spam')
+  expectCleverCLICallWithArgs(3, 'deploy')
 })
 
 test('passing extra env variables, using appID', async () => {
@@ -182,14 +177,14 @@ test('passing extra env variables, using appID', async () => {
     }
   })
   expectCleverCLICallWithArgs(
-    2,
+    1,
     'link',
     'app_facade42-cafe-babe-cafe-deadf00dbaad',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
   )
   expectCleverCLICallWithArgs(
-    3,
+    2,
     'env',
     'set',
     '--alias',
@@ -198,7 +193,7 @@ test('passing extra env variables, using appID', async () => {
     'bar'
   )
   expectCleverCLICallWithArgs(
-    4,
+    3,
     'env',
     'set',
     '--alias',
@@ -207,7 +202,7 @@ test('passing extra env variables, using appID', async () => {
     'spam'
   )
   expectCleverCLICallWithArgs(
-    5,
+    4,
     'deploy',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
@@ -225,9 +220,9 @@ test('passing extra env variables, using alias only', async () => {
       egg: 'spam'
     }
   })
-  expectCleverCLICallWithArgs(2, 'env', 'set', '--alias', 'foo', 'foo', 'bar')
-  expectCleverCLICallWithArgs(3, 'env', 'set', '--alias', 'foo', 'egg', 'spam')
-  expectCleverCLICallWithArgs(4, 'deploy', '--alias', 'foo')
+  expectCleverCLICallWithArgs(1, 'env', 'set', '--alias', 'foo', 'foo', 'bar')
+  expectCleverCLICallWithArgs(2, 'env', 'set', '--alias', 'foo', 'egg', 'spam')
+  expectCleverCLICallWithArgs(3, 'deploy', '--alias', 'foo')
 })
 
 test('deployment failure fails the workflow', async () => {
@@ -338,14 +333,14 @@ test('force deploy application', async () => {
     force: true
   })
   expectCleverCLICallWithArgs(
-    2,
+    1,
     'link',
     'app_facade42-cafe-babe-cafe-deadf00dbaad',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
   )
   expectCleverCLICallWithArgs(
-    3,
+    2,
     'deploy',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad',

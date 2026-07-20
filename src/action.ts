@@ -55,8 +55,8 @@ export async function run({
 
     core.debug(`Clever CLI path: ${cleverCLI}`)
 
-    // Authenticate (this will only store the credentials at a known location)
-    await exec(cleverCLI, ['login', '--token', token, '--secret', secret])
+    // clever-tools authenticates via the CLEVER_TOKEN / CLEVER_SECRET
+    // environment variables (virtual "$env" profile); no login call needed.
 
     // There is an issue when there is a .clever.json file present
     // and only the appID is passed: link will work, but deploy will need
