@@ -34,7 +34,7 @@ const ENV_LINE_REGEX = /^(\w+)=(.*)$/
 function redactValue(line: string): string {
   const equalsIndex = line.indexOf('=')
   if (equalsIndex === -1) {
-    return line
+    return `(content hidden, no '=' found)`
   }
   return `${line.slice(0, equalsIndex)}=***`
 }
@@ -45,6 +45,9 @@ function listExtraEnv(): ExtraEnv {
     .map(line => line.trim())
     .reduce(
       (env, line) => {
+        if (line === '') {
+          return env
+        }
         const match = line.match(ENV_LINE_REGEX)
         if (!match) {
           if (!line.startsWith('#')) {

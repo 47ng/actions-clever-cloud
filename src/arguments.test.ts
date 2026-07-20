@@ -81,6 +81,27 @@ test('extra env, dash key is dropped with a warning that redacts the value', () 
   expect(warn).toHaveBeenCalledTimes(1)
   const message = warn.mock.calls[0]![0] as string
   expect(message).not.toContain('super-secret')
+  expect(message).toContain('MY-VAR=***')
+})
+
+test('extra env, line without = never echoes its content', () => {
+  process.env.INPUT_SETENV = 'sk_live_totallyASecretToken'
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  processArguments()
+  expect(warn).toHaveBeenCalledTimes(1)
+  const message = warn.mock.calls[0]![0] as string
+  expect(message).not.toContain('sk_live_totallyASecretToken')
+})
+
+test('extra env, whitespace-only line between valid vars is skipped without a warning', () => {
+  process.env.INPUT_SETENV = 'FOO=foo\n   \nBAR=bar'
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  const args = processArguments()
+  expect(args.extraEnv!.FOO).toEqual('foo')
+  expect(args.extraEnv!.BAR).toEqual('bar')
+  expect(warn).not.toHaveBeenCalled()
 })
 
 test('timeout, default value is undefined', () => {
@@ -111,6 +132,14 @@ test('timeout, negative value throws', () => {
   process.env.CLEVER_TOKEN = 'token'
   process.env.CLEVER_SECRET = 'secret'
   process.env.INPUT_TIMEOUT = '-5'
+  const run = () => processArguments()
+  expect(run).toThrow()
+})
+
+test('timeout, zero throws', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_TIMEOUT = '0'
   const run = () => processArguments()
   expect(run).toThrow()
 })
