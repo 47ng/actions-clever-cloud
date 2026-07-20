@@ -186,7 +186,7 @@ function spawnDeploy(
   return { child, exited }
 }
 
-async function getOutputStream(
+export async function getOutputStream(
   quiet: boolean,
   logFile?: string
 ): Promise<Writable> {
