@@ -101,19 +101,14 @@ jobs:
         run: echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
       - name: Get Docker tag
         id: docker-tag
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          ref="${{ github.ref_name }}"
-          tag=$(                        \
-            echo "$ref"                 \
-            | sed 's#refs/heads/##g'    \
-            | sed 's#refs/tags/##g'     \
-            | tr '/' '_'                \
-            | tr -d '#'                 \
-          )
+          tag=$(echo "$REF_NAME" | tr '/' '_' | tr -d '#')
           if [ "$tag" == "master" ]; then
             tag="latest"
           fi
-          echo "tag=$tag" >> $GITHUB_OUTPUT
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - id: package
         run: |
           VERSION=$(jq -r '
@@ -140,7 +135,7 @@ jobs:
           echo "org.opencontainers.image.revision=${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.licenses=MIT" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.source=https://github.com/${{github.repository}}/tree/${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
-          echo "org.opencontainers.image.documentation=https://github.com/${{github.repository}}/blob/master/packages/server/README.md" >> $GITHUB_OUTPUT
+          echo "org.opencontainers.image.documentation=https://github.com/${{github.repository}}/blob/master/README.md" >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.url=https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}" >> $GITHUB_OUTPUT
           echo '__LABELS_EOF__' >> $GITHUB_OUTPUT
           echo 'tags<<__TAGS_EOF__' >> $GITHUB_OUTPUT
