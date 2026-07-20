@@ -6,7 +6,7 @@ FROM node:24.9.0-slim AS builder
 
 WORKDIR /action
 
-COPY package.json pnpm-lock.yaml  ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
 RUN corepack enable
 RUN pnpm install --frozen-lockfile --ignore-scripts
