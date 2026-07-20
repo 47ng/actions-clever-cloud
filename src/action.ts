@@ -47,7 +47,11 @@ export async function run({
       try {
         await fs.access(deployPath)
         execOptions.cwd = deployPath
-        core.info(`Deploying from directory: ${deployPath}`)
+        core.info(`Running Clever CLI from directory: ${deployPath}`)
+        core.warning(
+          'deployPath changes the CLI working directory only. ' +
+            'The deployed payload is the git repository HEAD, not a subset of files.'
+        )
       } catch (error) {
         throw new Error(`Deploy path does not exist: ${deployPath}`)
       }

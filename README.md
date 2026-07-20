@@ -278,33 +278,36 @@ being published, or after a CI run.
 
 Using this action at work ? [Sponsor me](https://github.com/sponsors/franky47) to help with support and maintenance.
 
-## Deploying a Specific Directory
+## Running the Clever CLI From a Specific Directory
 
 > Support: introduced in v2.1.0
 
-> ⚠️ Important note about the difference between `working-directory` and `deployPath`:
+> ⚠️ `deployPath` changes the CLI's working directory only. It does NOT
+> restrict which files get deployed: `clever deploy` always pushes the git
+> HEAD of the repository containing that directory. The Clever CLI locates
+> the repository by walking up from the working directory until it finds a
+> `.git` folder, so a subdirectory of a normal checkout resolves back to the
+> repository root and the entire repository is deployed regardless of this
+> setting.
 >
-> - `working-directory` (GitHub Actions option) : Only changes the directory where the action runs. All files remain available, only the execution context changes.
-> - `deployPath` (this action's option) : Specifies exactly which files will be sent to Clever Cloud. Allows deploying only a subset of files, like a `dist` or `build` folder.
+> `working-directory` (a GitHub Actions option, not specific to this action)
+> only changes where the action runs — it has the same limitation.
+>
+> `deployPath` is useful when the target directory has its own
+> `.clever.json`, or is itself a separate git repository (e.g. a git
+> submodule).
 
-### Example
+### Deploying a Subfolder of a Monorepo
+
+Neither option subsets the deployed files. To tell Clever Cloud which
+subfolder of the repository to build and run, use the `APP_FOLDER`
+environment variable, set via `setEnv`:
 
 ```yml
-# This will NOT deploy only the build folder:
 - uses: 47ng/actions-clever-cloud@v2.1.1
   with:
-    working-directory: ./build # ❌ Only changes where the action runs
-
-# This will deploy only the build folder:
-- uses: 47ng/actions-clever-cloud@v2.1.1
-  with:
-    deployPath: ./build # ✅ Only sends these files to Clever Cloud
+    setEnv: |
+      APP_FOLDER=packages/backend
 ```
 
-This option is particularly useful for:
-
-- Monorepos where you want to deploy a single package
-- Projects where you only want to deploy built/compiled files
-- Filtering which files are sent to Clever Cloud
-
-Note: The path must be relative to the repository root and must exist.
+Note: `deployPath`, when set, must be relative to the repository root and must exist.

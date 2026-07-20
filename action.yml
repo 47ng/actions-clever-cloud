@@ -36,8 +36,9 @@ inputs:
   deployPath:
     required: false
     description: |
-      Specific directory to deploy instead of the entire project.
-      Path must be relative to the repository root.
+      Directory to run the Clever CLI from. This changes which .clever.json
+      is picked up; it does NOT restrict which files are deployed — the CLI
+      always pushes the git repository's HEAD.
   logFile:
     required: false
     description: |
