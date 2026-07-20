@@ -80,8 +80,20 @@ export async function run({
         args.push('--alias', alias)
       }
       args.push(envName, envValue)
+      if (envValue) {
+        core.setSecret(envValue)
+      }
       core.info(`Setting environment variable ${envName}`)
-      await exec(cleverCLI, args, execOptions)
+      const code = await exec(cleverCLI, args, {
+        ...execOptions,
+        silent: true,
+        ignoreReturnCode: true
+      })
+      if (code !== 0) {
+        throw new Error(
+          `Failed to set environment variable ${envName} (exit code ${code})`
+        )
+      }
     }
 
     const args = ['deploy']

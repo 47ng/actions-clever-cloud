@@ -11,6 +11,7 @@ vi.mock('@actions/core', () => ({
   debug: vi.fn(),
   info: vi.fn(),
   warning: vi.fn(),
+  setSecret: vi.fn(),
   setFailed: vi.fn()
 }))
 
@@ -19,7 +20,7 @@ vi.mock('node:child_process', () => ({
   spawn: vi.fn()
 }))
 
-import { setFailed, warning } from '@actions/core'
+import { setFailed, setSecret, warning } from '@actions/core'
 import { exec } from '@actions/exec'
 import { spawn } from 'node:child_process'
 import { run } from './action'
@@ -175,6 +176,10 @@ test('passing extra env variables, using no input args', async () => {
   expectCleverCLICallWithArgs(1, 'env', 'set', 'foo', 'bar')
   expectCleverCLICallWithArgs(2, 'env', 'set', 'egg', 'spam')
   expectCleverCLICallWithArgs(3, 'deploy')
+  expect(setSecret).toHaveBeenCalledWith('bar')
+  expect(setSecret).toHaveBeenCalledWith('spam')
+  expect(execMock.mock.calls[1]?.[2]).toMatchObject({ silent: true })
+  expect(execMock.mock.calls[2]?.[2]).toMatchObject({ silent: true })
 })
 
 test('passing extra env variables, using appID', async () => {
@@ -358,4 +363,27 @@ test('force deploy application', async () => {
     'app_facade42-cafe-babe-cafe-deadf00dbaad',
     '--force'
   )
+})
+
+test('env-set failure fails the workflow without leaking the value', async () => {
+  execMock.mockImplementation((_cli: string, args: string[]) => {
+    if (args[0] === 'env' && args[1] === 'set') {
+      return Promise.resolve(1)
+    }
+    return Promise.resolve(0)
+  })
+  await run({
+    token: 'token',
+    secret: 'secret',
+    cleverCLI: CLEVER_CLI,
+    extraEnv: {
+      foo: 'bar'
+    }
+  })
+  expect(setFailed).toHaveBeenCalledWith(
+    'Failed to set environment variable foo (exit code 1)'
+  )
+  const failureMessage = (setFailed as ReturnType<typeof vi.fn>).mock
+    .calls[0]?.[0]
+  expect(failureMessage).not.toContain('bar')
 })
