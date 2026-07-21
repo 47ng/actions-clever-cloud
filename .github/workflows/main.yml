@@ -127,6 +127,8 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
       - name: Collect Docker labels & tags
         id: docker-labels-tags
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
           echo 'labels<<__LABELS_EOF__' >> $GITHUB_OUTPUT
           echo "org.opencontainers.image.title=47ng/actions-clever-cloud" >> $GITHUB_OUTPUT
@@ -139,7 +141,7 @@ jobs:
           echo "org.opencontainers.image.url=https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}" >> $GITHUB_OUTPUT
           echo '__LABELS_EOF__' >> $GITHUB_OUTPUT
           echo 'tags<<__TAGS_EOF__' >> $GITHUB_OUTPUT
-          if [ "${{ github.ref_name }}" == "master" ]; then
+          if [ "$REF_NAME" = "master" ]; then
             echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
             echo "47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
           fi
