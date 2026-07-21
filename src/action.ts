@@ -8,6 +8,7 @@ import { StringDecoder } from 'node:string_decoder'
 import type { Arguments } from './arguments'
 
 const DEPLOY_TERMINATION_GRACE_PERIOD_MS = 5000
+const DEPLOY_FORCE_KILL_WAIT_MS = 5000
 
 async function checkForShallowCopy(): Promise<void> {
   let output = ''
@@ -167,7 +168,29 @@ export async function run({
           clearTimeout(forceKillTimeoutID)
         }
         if (forced) {
-          await settledExit
+          let forceKillWaitTimeoutID: NodeJS.Timeout | undefined
+          const forceKillWaitPromise = new Promise<boolean>(resolve => {
+            forceKillWaitTimeoutID = setTimeout(
+              () => resolve(false),
+              DEPLOY_FORCE_KILL_WAIT_MS
+            )
+          })
+          const exitedAfterForceKill = await Promise.race([
+            settledExit.then(() => true),
+            forceKillWaitPromise
+          ])
+          if (forceKillWaitTimeoutID) {
+            clearTimeout(forceKillWaitTimeoutID)
+          }
+          if (!exitedAfterForceKill) {
+            if (execOptions.outStream) {
+              child.stdout.unpipe(execOptions.outStream)
+              child.stderr.unpipe(execOptions.outStream)
+            }
+            child.stdout.destroy()
+            child.stderr.destroy()
+            child.unref()
+          }
         }
         core.info('Deployment timed out, moving on with workflow run')
         return
@@ -232,7 +255,7 @@ function spawnDeploy(
 }
 
 const TIMESTAMP_PREFIX_REGEX =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:\d{2}|Z) /
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z):? /
 
 export type OutputStream = {
   stream: Writable
@@ -252,6 +275,14 @@ export async function getOutputStream(
 ): Promise<OutputStream> {
   const tee = new PassThrough()
   const completions: Promise<void>[] = []
+  const completionErrors: unknown[] = []
+  const monitor = (completion: Promise<void>): void => {
+    completions.push(
+      completion.catch(error => {
+        completionErrors.push(error)
+      })
+    )
+  }
   if (!quiet) {
     let lineSeparator = '\n'
     async function* splitNewlines(
@@ -303,17 +334,17 @@ export async function getOutputStream(
     // `end: false`: process.stdout is shared for the whole action process
     // lifetime — this tee ending must not close it.
     lastTransform.pipe(process.stdout, { end: false })
-    completions.push(finished(lastTransform))
+    monitor(finished(lastTransform))
   }
   if (logFile) {
     const logFileStream = (await fs.open(logFile, 'w')).createWriteStream()
     tee.pipe(logFileStream)
-    completions.push(finished(logFileStream))
+    monitor(finished(logFileStream))
   }
   const done = async (): Promise<void> => {
-    try {
-      await Promise.all(completions)
-    } catch (error) {
+    await Promise.all(completions)
+    if (completionErrors.length > 0) {
+      const error = completionErrors[0]
       core.warning(
         `deploy log output degraded: ${error instanceof Error ? error.message : String(error)}`
       )

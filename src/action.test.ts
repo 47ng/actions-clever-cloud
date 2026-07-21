@@ -47,6 +47,7 @@ function makeFakeChild() {
     stdout: PassThrough
     stderr: PassThrough
     kill: ReturnType<typeof vi.fn>
+    unref: ReturnType<typeof vi.fn>
   }
   child.stdout = new PassThrough()
   child.stderr = new PassThrough()
@@ -54,6 +55,7 @@ function makeFakeChild() {
     child.emit('close', null)
     return true
   })
+  child.unref = vi.fn()
   return child
 }
 
@@ -337,6 +339,43 @@ test('timeout escalates to SIGKILL after the termination grace period', async ()
   await finishedRun
   expect(child.kill).toHaveBeenCalledWith('SIGKILL')
   expect(setFailed).not.toHaveBeenCalled()
+})
+
+test('timeout stops waiting when the child stays open after SIGKILL', async () => {
+  vi.useFakeTimers()
+  const child = makeFakeChild()
+  child.kill.mockReturnValue(true)
+  spawnMock.mockReturnValue(child)
+
+  const finishedRun = run({
+    token: 'token',
+    secret: 'secret',
+    cleverCLI: CLEVER_CLI,
+    timeout: 1800
+  })
+  let completed = false
+  void finishedRun.then(() => {
+    completed = true
+  })
+
+  await vi.advanceTimersByTimeAsync(1800 * 1000)
+  await vi.advanceTimersByTimeAsync(5000)
+  expect(child.kill).toHaveBeenCalledWith('SIGKILL')
+  await vi.advanceTimersByTimeAsync(5000)
+
+  try {
+    expect(completed).toBe(true)
+    expect(child.stdout.destroyed).toBe(true)
+    expect(child.stderr.destroyed).toBe(true)
+    expect(child.unref).toHaveBeenCalled()
+  } finally {
+    if (!completed) {
+      child.stdout.end()
+      child.stderr.end()
+      child.emit('close', null)
+      await finishedRun
+    }
+  }
 })
 
 test('deploy completes before timeout: success, no kill', async () => {

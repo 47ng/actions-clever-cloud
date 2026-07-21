@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { Writable } from 'node:stream'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { getOutputStream } from './action'
 
@@ -112,6 +113,25 @@ test('quiet + logFile: file gets content, stdout gets nothing', async () => {
   await fs.unlink(logFile)
 })
 
+test('log sink failure is handled before done is called', async () => {
+  const sink = new Writable({
+    write(_chunk, _encoding, callback) {
+      callback(new Error('disk full'))
+    }
+  })
+  const openSpy = vi.spyOn(fs, 'open').mockResolvedValue({
+    createWriteStream: () => sink
+  } as never)
+  try {
+    const { stream, done } = await getOutputStream(true, 'deploy.log')
+    stream.end('deploy output')
+    await new Promise(resolve => setImmediate(resolve))
+    await expect(done()).resolves.toBeUndefined()
+  } finally {
+    openSpy.mockRestore()
+  }
+})
+
 test('non-quiet: adopts \\r\\n as the line separator once seen', async () => {
   const { stream, done } = await getOutputStream(false)
   stream.write(TS + 'a\r\n')
@@ -157,9 +177,9 @@ test('non-quiet: a line without a timestamp prefix is not duplicated', async () 
   expect(out.split('::error ::no-timestamp').length - 1).toBe(1)
 })
 
-test('non-quiet: a Z-suffixed timestamp is stripped before annotation detection', async () => {
+test('non-quiet: a Clever CLI timestamp is stripped before annotation detection', async () => {
   const { stream, done } = await getOutputStream(false)
-  stream.write('2026-07-20T12:00:00Z ::error ::zulu\n')
+  stream.write('2026-07-20T12:00:00.000Z: ::error ::zulu\n')
   stream.end()
   await done()
   const out = capturedStdout()
