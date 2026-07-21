@@ -10,14 +10,6 @@ Docker action: users run a prebuilt image, NOT the code on master.
 - Build: `pnpm build` (`tsdown` -> `dist/`, gitignored — never commit `dist`)
 - Dead code: `pnpm knip`
 
-## Layout
-
-- `src/main.ts` entry: `git safe.directory` fix, arg parsing, `run()`
-- `src/arguments.ts` inputs from `INPUT_*` env + `CLEVER_TOKEN`/`CLEVER_SECRET`
-- `src/action.ts` `run()`: clever-tools calls; output tee (annotations, quiet, `logFile`)
-- `*.test.ts` co-located vitest; `action.test.ts` mocks `@actions/*`,
-  `arguments.test.ts` deliberately drives the real `@actions/core` via `INPUT_*` env vars — don't add mocks there
-
 ## Auth
 
 No `clever login` call. `CLEVER_TOKEN`/`CLEVER_SECRET` are read directly from
