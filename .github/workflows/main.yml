@@ -45,8 +45,14 @@ jobs:
           JQ_EXIT_CODE=$?
 
           if [ $JQ_EXIT_CODE -ne 0 ]; then
-            echo "::error::Invalid semver version in package.json"
+            echo "::error::Invalid semver version in package.json: $PACKAGE_VERSION"
             exit 2
+          fi
+
+          MANIFEST_VERSION=$(jq -r '."."' .release-please-manifest.json)
+          if [ "$PACKAGE_VERSION" != "$MANIFEST_VERSION" ]; then
+            echo "::error::Version mismatch! package.json has $PACKAGE_VERSION but .release-please-manifest.json has $MANIFEST_VERSION"
+            exit 5
           fi
 
           ACTION_TAG=$(grep 'image: docker://ghcr.io' action.yml | sed -E 's/^.*actions-clever-cloud:([^ ]+).*$/\1/' | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$')
@@ -146,7 +152,7 @@ jobs:
             digest=$(echo "$output" | tr -d '[:space:]')
             echo "Canonical image $canonical already exists with digest $digest, skipping rebuild"
             echo "digest=$digest" >> "$GITHUB_OUTPUT"
-          elif echo "$output" | grep -qiE 'not found|manifest unknown|no such'; then
+          elif echo "$output" | grep -qiE 'not found|manifest unknown|name unknown'; then
             echo "Canonical image $canonical does not exist yet, building"
           else
             echo "::error::Failed to inspect $canonical, refusing to rebuild over a possibly existing canonical tag: $output"
@@ -218,6 +224,10 @@ jobs:
       RELEASE_VERSION: ${{ needs.release.outputs.version }}
       DIGEST: ${{ needs.build.outputs.digest }}
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          persist-credentials: false
       - name: Login to registries
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -232,31 +242,10 @@ jobs:
           skopeo login docker.io --username "$DOCKER_HUB_USER" --password-stdin <<< "$DOCKER_HUB_PASSWORD"
       - name: Promote immutable tags
         run: |
-          promote() {
-            local dest="$1"
-            local output existing inspect_exit_code
-            set +e
-            output=$(skopeo inspect --format '{{.Digest}}' "docker://${dest}" 2>&1)
-            inspect_exit_code=$?
-            set -e
-            if [ $inspect_exit_code -eq 0 ]; then
-              existing=$(echo "$output" | tr -d '[:space:]')
-              if [ "$existing" = "$DIGEST" ]; then
-                echo "$dest already points at $DIGEST, skipping"
-                return 0
-              fi
-              echo "::error::$dest exists with digest $existing, refusing to overwrite an immutable tag with $DIGEST"
-              return 1
-            elif echo "$output" | grep -qiE 'not found|manifest unknown|name unknown|no such'; then
-              skopeo copy --all --preserve-digests "docker://${GHCR_IMAGE}@${DIGEST}" "docker://${dest}"
-            else
-              echo "::error::Failed to inspect $dest: $output"
-              return 1
-            fi
-          }
-          promote "${GHCR_IMAGE}:${RELEASE_VERSION}"
-          promote "${HUB_IMAGE}:${RELEASE_VERSION}"
-          promote "${HUB_IMAGE}:git-${RELEASE_SHA}"
+          .github/scripts/promote-image.sh "${GHCR_IMAGE}@${DIGEST}" \
+            "${GHCR_IMAGE}:${RELEASE_VERSION}" \
+            "${HUB_IMAGE}:${RELEASE_VERSION}" \
+            "${HUB_IMAGE}:git-${RELEASE_SHA}"
       - name: Generate step summary
         run: |
           {
@@ -289,6 +278,10 @@ jobs:
       RELEASE_VERSION: ${{ needs.release.outputs.version }}
       DIGEST: ${{ needs.build.outputs.digest }}
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          persist-credentials: false
       - name: Login to registries
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -303,35 +296,6 @@ jobs:
           skopeo login docker.io --username "$DOCKER_HUB_USER" --password-stdin <<< "$DOCKER_HUB_PASSWORD"
       - name: Move latest tags
         run: |
-          inspect_latest() {
-            local dest="$1"
-            local output inspect_exit_code
-            set +e
-            output=$(skopeo inspect --format '{{index .Labels "org.opencontainers.image.version"}}' "docker://${dest}" 2>&1)
-            inspect_exit_code=$?
-            set -e
-            if [ $inspect_exit_code -eq 0 ]; then
-              CURRENT=$(echo "$output" | tr -d '[:space:]')
-            elif echo "$output" | grep -qiE 'not found|manifest unknown|name unknown|no such'; then
-              CURRENT=""
-            else
-              echo "::error::Failed to inspect $dest: $output"
-              return 1
-            fi
-          }
-          move=true
-          for dest in "${GHCR_IMAGE}:latest" "${HUB_IMAGE}:latest"; do
-            inspect_latest "$dest"
-            if [ -n "$CURRENT" ]; then
-              newest=$(printf '%s\n%s\n' "$CURRENT" "$RELEASE_VERSION" | sort -V | tail -n1)
-              if [ "$newest" != "$RELEASE_VERSION" ]; then
-                echo "Existing $dest (${CURRENT}) is newer than ${RELEASE_VERSION}, not moving latest"
-                move=false
-              fi
-            fi
-          done
-          if [ "$move" = "true" ]; then
-            skopeo copy --all --preserve-digests "docker://${GHCR_IMAGE}@${DIGEST}" "docker://${GHCR_IMAGE}:latest"
-            skopeo copy --all --preserve-digests "docker://${GHCR_IMAGE}@${DIGEST}" "docker://${HUB_IMAGE}:latest"
-            echo "Moved latest tags to ${RELEASE_VERSION} (${DIGEST})"
-          fi
+          .github/scripts/move-latest.sh "${GHCR_IMAGE}@${DIGEST}" \
+            "${GHCR_IMAGE}:latest" \
+            "${HUB_IMAGE}:latest"

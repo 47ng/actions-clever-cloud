@@ -32,5 +32,9 @@ env by clever-tools (its virtual `$env` profile) — set them as job secrets.
 
 ## Conventions
 
-- Conventional commits (fix:/feat:/chore:/docs:).
+- Conventional commits; PR titles are validated by .github/scripts/validate-pr-title.sh
+  (types: build/chore/ci/doc/docs/feat/fix/perf/ref/refactor/revert/style/test).
+  fix/perf/revert bump patch, feat bumps minor, ! bumps major (Release Please).
+- The action.yml image tag is rewritten by Release Please through the
+  x-release-please-version marker; do not remove it.
 - Prettier config in package.json; no semicolons, single quotes.

@@ -13,8 +13,11 @@ function validate(title: string): boolean {
       stdio: 'pipe'
     })
     return true
-  } catch {
-    return false
+  } catch (error) {
+    if (error instanceof Error && 'status' in error && error.status === 1) {
+      return false
+    }
+    throw error
   }
 }
 
@@ -37,7 +40,8 @@ describe('pull request title validation', () => {
     'build: update Dockerfile',
     'style: format sources',
     'test: cover output streams',
-    'fix(scope.with_all-allowed/chars0): description'
+    'fix(scope.with_all-allowed/chars0): description',
+    'fix: 🚀 emoji in description'
   ])('accepts %s', title => {
     expect(validate(title)).toBe(true)
   })
@@ -56,9 +60,24 @@ describe('pull request title validation', () => {
     'fix(-dash): scope starting with dash',
     'fix(sco pe): scope with space',
     'feat!!: double breaking marker',
+    'fix!(scope): marker before scope',
+    'fix(é): accented scope',
+    'fix: valid first line\nsmuggled second line',
     'handle timeout', // no type at all
     '' // empty title
   ])('rejects %s', title => {
     expect(validate(title)).toBe(false)
+  })
+
+  test('fails with a distinct exit code when PR_TITLE is not set', () => {
+    const env = { ...process.env }
+    delete env.PR_TITLE
+    try {
+      execFileSync(script, { env, stdio: 'pipe' })
+      expect.unreachable('script should fail when PR_TITLE is not set')
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error & { status: number }).status).toBe(2)
+    }
   })
 })
