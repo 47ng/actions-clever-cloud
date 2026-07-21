@@ -145,15 +145,16 @@ test('non-quiet: a multi-byte character split across chunks is decoded intact', 
   expect(out).not.toContain('\ufffd')
 })
 
-test('non-quiet: a line without a timestamp prefix keeps its annotation', async () => {
+test('non-quiet: a line without a timestamp prefix is not duplicated', async () => {
   const { stream, done } = await getOutputStream(false)
   stream.write('::error ::no-timestamp\n')
   stream.end()
   await done()
   const out = capturedStdout()
-  // The raw line is echoed once, and the detected annotation adds a second,
-  // identical occurrence (no timestamp to strip here).
-  expect(out.split('::error ::no-timestamp').length - 1).toBe(2)
+  // No timestamp was stripped, so no annotation is injected: the runner
+  // already parses this workflow command from the raw, column-0 line.
+  // Re-emitting it here would duplicate the annotation.
+  expect(out.split('::error ::no-timestamp').length - 1).toBe(1)
 })
 
 test('non-quiet: a Z-suffixed timestamp is stripped before annotation detection', async () => {

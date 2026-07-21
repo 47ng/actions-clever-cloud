@@ -282,10 +282,16 @@ export async function getOutputStream(
         yield line + lineSeparator
         // Remove timestamp, if present
         const message = line.replace(TIMESTAMP_PREFIX_REGEX, '')
+        // Only re-emit when a timestamp was actually stripped: a line that
+        // already starts with ::notice/::error/::warning at column 0 (no
+        // timestamp) is echoed above as-is, and the runner parses workflow
+        // commands at line start on its own — re-emitting it here would
+        // duplicate the annotation.
         if (
-          message.startsWith('::notice ') ||
-          message.startsWith('::error ') ||
-          message.startsWith('::warning ')
+          message !== line &&
+          (message.startsWith('::notice ') ||
+            message.startsWith('::error ') ||
+            message.startsWith('::warning '))
         ) {
           yield message + lineSeparator
         }
