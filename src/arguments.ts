@@ -30,6 +30,7 @@ function throwMissingEnvVar(name: string): never {
 }
 
 const ENV_LINE_REGEX = /^(\w+)=(.*)$/
+const MAX_TIMEOUT_SECONDS = 24 * 60 * 60
 
 function redactValue(line: string): string {
   const equalsIndex = line.indexOf('=')
@@ -91,9 +92,13 @@ export function processArguments(): Arguments {
   let timeout: number | undefined = undefined
   if (timeoutInput) {
     const parsed = Number(timeoutInput)
-    if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    if (
+      !Number.isSafeInteger(parsed) ||
+      parsed <= 0 ||
+      parsed > MAX_TIMEOUT_SECONDS
+    ) {
       throw new Error(
-        `Invalid timeout value: ${timeoutInput} (expected a positive integer number of seconds)`
+        `Invalid timeout value: ${timeoutInput} (expected an integer number of seconds between 1 and ${MAX_TIMEOUT_SECONDS})`
       )
     }
     timeout = parsed

@@ -152,6 +152,22 @@ test('timeout, garbage value throws', () => {
   expect(run).toThrow()
 })
 
+test('timeout, 24 hours is accepted', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_TIMEOUT = '86400'
+  const args = processArguments()
+  expect(args.timeout).toEqual(86400)
+})
+
+test('timeout, first value above 24 hours throws', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_TIMEOUT = '86401'
+  const run = () => processArguments()
+  expect(run).toThrow()
+})
+
 test('force, default value is false', () => {
   process.env.CLEVER_TOKEN = 'token'
   process.env.CLEVER_SECRET = 'secret'
