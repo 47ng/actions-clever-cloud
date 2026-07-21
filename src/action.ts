@@ -276,10 +276,16 @@ export async function getOutputStream(
   const tee = new PassThrough()
   const completions: Promise<void>[] = []
   const completionErrors: unknown[] = []
+  let liveSinkCount = 0
   const monitor = (completion: Promise<void>): void => {
+    liveSinkCount += 1
     completions.push(
       completion.catch(error => {
         completionErrors.push(error)
+        liveSinkCount -= 1
+        if (liveSinkCount === 0) {
+          tee.resume()
+        }
       })
     )
   }
@@ -340,6 +346,9 @@ export async function getOutputStream(
     const logFileStream = (await fs.open(logFile, 'w')).createWriteStream()
     tee.pipe(logFileStream)
     monitor(finished(logFileStream))
+  }
+  if (liveSinkCount === 0) {
+    tee.resume()
   }
   const done = async (): Promise<void> => {
     await Promise.all(completions)

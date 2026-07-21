@@ -113,7 +113,7 @@ test('quiet + logFile: file gets content, stdout gets nothing', async () => {
   await fs.unlink(logFile)
 })
 
-test('log sink failure is handled before done is called', async () => {
+test('log sink failure is handled early and later output keeps draining', async () => {
   const sink = new Writable({
     write(_chunk, _encoding, callback) {
       callback(new Error('disk full'))
@@ -124,8 +124,16 @@ test('log sink failure is handled before done is called', async () => {
   } as never)
   try {
     const { stream, done } = await getOutputStream(true, 'deploy.log')
-    stream.end('deploy output')
+    stream.write('first output')
     await new Promise(resolve => setImmediate(resolve))
+
+    for (let index = 0; index < 256; index += 1) {
+      stream.write(Buffer.alloc(1024))
+    }
+    await new Promise(resolve => setImmediate(resolve))
+    expect(stream.writableLength).toBe(0)
+
+    stream.end()
     await expect(done()).resolves.toBeUndefined()
   } finally {
     openSpy.mockRestore()
