@@ -20,7 +20,7 @@ vi.mock('node:child_process', () => ({
   spawn: vi.fn()
 }))
 
-import { setFailed, setSecret, warning } from '@actions/core'
+import { setFailed, setSecret } from '@actions/core'
 import { exec } from '@actions/exec'
 import { spawn } from 'node:child_process'
 import { run } from './action'
@@ -102,17 +102,6 @@ test('deploy application with alias', async () => {
     cleverCLI: CLEVER_CLI
   })
   expectCleverCLICallWithArgs(1, 'deploy', '--alias', 'app-alias')
-  expect(setFailed).not.toHaveBeenCalled()
-})
-
-test('deployPath warns that it does not subset deployed files', async () => {
-  await run({
-    token: 'token',
-    secret: 'secret',
-    cleverCLI: CLEVER_CLI,
-    deployPath: '.'
-  })
-  expect(warning).toHaveBeenCalledTimes(1)
   expect(setFailed).not.toHaveBeenCalled()
 })
 
