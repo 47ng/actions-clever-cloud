@@ -179,6 +179,40 @@ Clever Cloud uses a Git remote to perform deploys. By default, if the commit you
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
 
+## Deploying a Specific Directory
+
+> Support: introduced in v2.1.0
+
+> ⚠️ `deployPath` changes the CLI's working directory only. It does NOT
+> restrict which files get deployed: `clever deploy` always pushes the git
+> HEAD of the repository containing that directory. The Clever CLI locates
+> the repository by walking up from the working directory until it finds a
+> `.git` folder, so a subdirectory of a normal checkout resolves back to the
+> repository root and the entire repository is deployed regardless of this
+> setting.
+>
+> `working-directory` (a GitHub Actions option, not specific to this action)
+> only changes where the action runs — it has the same limitation.
+>
+> `deployPath` is useful when the target directory has its own
+> `.clever.json`, or is itself a separate git repository (e.g. a git
+> submodule).
+
+### Deploying a Subfolder of a Monorepo
+
+Neither option subsets the deployed files. To tell Clever Cloud which
+subfolder of the repository to build and run, use the `APP_FOLDER`
+environment variable, set via `setEnv`:
+
+```yml
+- uses: 47ng/actions-clever-cloud@v2.1.1
+  with:
+    setEnv: |
+      APP_FOLDER=packages/backend
+```
+
+Note: `deployPath`, when set, must be relative to the repository root and must exist.
+
 ## Same Commit Policy
 
 > Support: introduced in v2.1.0
@@ -277,37 +311,3 @@ being published, or after a CI run.
 [MIT](https://github.com/47ng/actions-clever-cloud/blob/master/LICENSE) - Made with ❤️ by [François Best](https://francoisbest.com)
 
 Using this action at work ? [Sponsor me](https://github.com/sponsors/franky47) to help with support and maintenance.
-
-## Running the Clever CLI From a Specific Directory
-
-> Support: introduced in v2.1.0
-
-> ⚠️ `deployPath` changes the CLI's working directory only. It does NOT
-> restrict which files get deployed: `clever deploy` always pushes the git
-> HEAD of the repository containing that directory. The Clever CLI locates
-> the repository by walking up from the working directory until it finds a
-> `.git` folder, so a subdirectory of a normal checkout resolves back to the
-> repository root and the entire repository is deployed regardless of this
-> setting.
->
-> `working-directory` (a GitHub Actions option, not specific to this action)
-> only changes where the action runs — it has the same limitation.
->
-> `deployPath` is useful when the target directory has its own
-> `.clever.json`, or is itself a separate git repository (e.g. a git
-> submodule).
-
-### Deploying a Subfolder of a Monorepo
-
-Neither option subsets the deployed files. To tell Clever Cloud which
-subfolder of the repository to build and run, use the `APP_FOLDER`
-environment variable, set via `setEnv`:
-
-```yml
-- uses: 47ng/actions-clever-cloud@v2.1.1
-  with:
-    setEnv: |
-      APP_FOLDER=packages/backend
-```
-
-Note: `deployPath`, when set, must be relative to the repository root and must exist.
