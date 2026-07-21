@@ -136,18 +136,42 @@ test('timeout, negative value throws', () => {
   expect(run).toThrow()
 })
 
-test('timeout, zero throws', () => {
+test('timeout, zero means no timeout', () => {
   process.env.CLEVER_TOKEN = 'token'
   process.env.CLEVER_SECRET = 'secret'
   process.env.INPUT_TIMEOUT = '0'
-  const run = () => processArguments()
-  expect(run).toThrow()
+  const args = processArguments()
+  expect(args.timeout).toBeUndefined()
 })
 
 test('timeout, garbage value throws', () => {
   process.env.CLEVER_TOKEN = 'token'
   process.env.CLEVER_SECRET = 'secret'
   process.env.INPUT_TIMEOUT = '12abc'
+  const run = () => processArguments()
+  expect(run).toThrow()
+})
+
+test('timeout, scientific notation throws', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_TIMEOUT = '1e3'
+  const run = () => processArguments()
+  expect(run).toThrow()
+})
+
+test('timeout, hexadecimal notation throws', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_TIMEOUT = '0x10'
+  const run = () => processArguments()
+  expect(run).toThrow()
+})
+
+test('timeout, leading plus sign throws', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_TIMEOUT = '+5'
   const run = () => processArguments()
   expect(run).toThrow()
 })

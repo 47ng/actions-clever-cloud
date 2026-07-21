@@ -30,7 +30,14 @@ function throwMissingEnvVar(name: string): never {
 }
 
 const ENV_LINE_REGEX = /^(\w+)=(.*)$/
+const TIMEOUT_INPUT_REGEX = /^\d+$/
 const MAX_TIMEOUT_SECONDS = 24 * 60 * 60
+
+function invalidTimeoutError(input: string): Error {
+  return new Error(
+    `Invalid timeout value: ${input} (expected an integer number of seconds between 1 and ${MAX_TIMEOUT_SECONDS}, or 0 to disable)`
+  )
+}
 
 function redactValue(line: string): string {
   const equalsIndex = line.indexOf('=')
@@ -91,17 +98,18 @@ export function processArguments(): Arguments {
   const timeoutInput = core.getInput('timeout')
   let timeout: number | undefined = undefined
   if (timeoutInput) {
-    const parsed = Number(timeoutInput)
-    if (
-      !Number.isSafeInteger(parsed) ||
-      parsed <= 0 ||
-      parsed > MAX_TIMEOUT_SECONDS
-    ) {
-      throw new Error(
-        `Invalid timeout value: ${timeoutInput} (expected an integer number of seconds between 1 and ${MAX_TIMEOUT_SECONDS})`
-      )
+    if (!TIMEOUT_INPUT_REGEX.test(timeoutInput.trim())) {
+      throw invalidTimeoutError(timeoutInput)
     }
-    timeout = parsed
+    const parsed = Number(timeoutInput)
+    if (parsed === 0) {
+      // 0 means "no timeout", for backwards compatibility with v2.
+      timeout = undefined
+    } else if (!Number.isSafeInteger(parsed) || parsed > MAX_TIMEOUT_SECONDS) {
+      throw invalidTimeoutError(timeoutInput)
+    } else {
+      timeout = parsed
+    }
   }
   const logFile = core.getInput('logFile') || undefined
   const quiet = core.getBooleanInput('quiet', { required: false })
