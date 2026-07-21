@@ -132,6 +132,19 @@ test('non-quiet: annotation split across a chunk boundary IS detected', async ()
   expect(out).toContain('::error ::boom')
 })
 
+test('non-quiet: a multi-byte character split across chunks is decoded intact', async () => {
+  const { stream, done } = await getOutputStream(false)
+  const line = Buffer.from(TS + '::error ::d\u00e9ploy\n')
+  const splitAt = line.indexOf(Buffer.from('\u00e9')) + 1
+  stream.write(line.subarray(0, splitAt))
+  stream.write(line.subarray(splitAt))
+  stream.end()
+  await done()
+  const out = capturedStdout()
+  expect(out.split('::error ::d\u00e9ploy').length - 1).toBe(2)
+  expect(out).not.toContain('\ufffd')
+})
+
 test('non-quiet: a line without a timestamp prefix keeps its annotation', async () => {
   const { stream, done } = await getOutputStream(false)
   stream.write('::error ::no-timestamp\n')

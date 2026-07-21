@@ -4,7 +4,10 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import { PassThrough, Transform, Writable } from 'node:stream'
 import { finished } from 'node:stream/promises'
+import { StringDecoder } from 'node:string_decoder'
 import type { Arguments } from './arguments'
+
+const DEPLOY_TERMINATION_GRACE_PERIOD_MS = 5000
 
 async function checkForShallowCopy(): Promise<void> {
   let output = ''
@@ -145,13 +148,31 @@ export async function run({
         }
       }
       if (timedOut) {
-        // Stop waiting and let the workflow move on. Killing the child releases
-        // the event loop so the action can exit promptly (the documented
-        // tradeoff: we lose any deployment failure information).
+        // Let the child finish handling SIGTERM and drain its output before the
+        // shared tee is closed in `finally`. Escalate if graceful termination
+        // takes too long.
         child.kill('SIGTERM')
-        // The killed process settles `exited` later; swallow it so it doesn't
-        // surface as an unhandled rejection after we've moved on.
-        exited.catch(() => {})
+        let forceKillTimeoutID: NodeJS.Timeout | undefined
+        const forceKillPromise = new Promise<void>(resolve => {
+          forceKillTimeoutID = setTimeout(() => {
+            child.kill('SIGKILL')
+            resolve()
+          }, DEPLOY_TERMINATION_GRACE_PERIOD_MS)
+        })
+        const settledExit = exited.then(
+          () => undefined,
+          () => undefined
+        )
+        const forced = (await Promise.race([
+          settledExit.then(() => false),
+          forceKillPromise.then(() => true)
+        ])) as boolean
+        if (forceKillTimeoutID) {
+          clearTimeout(forceKillTimeoutID)
+        }
+        if (forced) {
+          await settledExit
+        }
         core.info('Deployment timed out, moving on with workflow run')
         return
       }
@@ -241,9 +262,9 @@ export async function getOutputStream(
       input: AsyncIterable<Buffer>
     ): AsyncGenerator<string> {
       let carry = ''
+      const decoder = new StringDecoder('utf8')
       for await (const chunk of input) {
-        const str =
-          carry + (Buffer.isBuffer(chunk) ? chunk.toString('utf8') : chunk)
+        const str = carry + decoder.write(chunk)
         if (str.includes('\r\n')) {
           lineSeparator = '\r\n'
         }
@@ -253,6 +274,7 @@ export async function getOutputStream(
           yield line
         }
       }
+      carry += decoder.end()
       if (carry.length > 0) {
         yield carry
       }

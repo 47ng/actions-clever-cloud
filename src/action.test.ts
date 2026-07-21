@@ -285,6 +285,71 @@ test('timeout fires: kills the deploy and moves on without failing', async () =>
   expect(setFailed).not.toHaveBeenCalled()
 })
 
+test('timeout waits for asynchronous final output before closing the tee', async () => {
+  const stdoutSpy = vi
+    .spyOn(process.stdout, 'write')
+    .mockImplementation(() => true)
+  try {
+    vi.useFakeTimers()
+    const child = makeFakeChild()
+    child.kill.mockImplementation(() => {
+      setTimeout(() => {
+        child.stdout.end()
+        child.stderr.end('::error ::final timeout detail')
+        child.emit('close', null)
+      }, 50)
+      return true
+    })
+    spawnMock.mockReturnValue(child)
+
+    const finishedRun = run({
+      token: 'token',
+      secret: 'secret',
+      cleverCLI: CLEVER_CLI,
+      timeout: 1800
+    })
+    await vi.advanceTimersByTimeAsync(1800 * 1000)
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM')
+    await vi.advanceTimersByTimeAsync(50)
+    await finishedRun
+
+    const out = stdoutSpy.mock.calls
+      .map((call: unknown[]) => String(call[0]))
+      .join('')
+    expect(out).toContain('::error ::final timeout detail')
+    expect(out).not.toContain('\ufffd')
+  } finally {
+    stdoutSpy.mockRestore()
+  }
+})
+
+test('timeout escalates to SIGKILL after the termination grace period', async () => {
+  vi.useFakeTimers()
+  const child = makeFakeChild()
+  child.kill.mockImplementation((signal: NodeJS.Signals) => {
+    if (signal === 'SIGKILL') {
+      child.stdout.end()
+      child.stderr.end()
+      child.emit('close', null)
+    }
+    return true
+  })
+  spawnMock.mockReturnValue(child)
+
+  const finishedRun = run({
+    token: 'token',
+    secret: 'secret',
+    cleverCLI: CLEVER_CLI,
+    timeout: 1800
+  })
+  await vi.advanceTimersByTimeAsync(1800 * 1000)
+  expect(child.kill).toHaveBeenCalledWith('SIGTERM')
+  await vi.advanceTimersByTimeAsync(5000)
+  await finishedRun
+  expect(child.kill).toHaveBeenCalledWith('SIGKILL')
+  expect(setFailed).not.toHaveBeenCalled()
+})
+
 test('deploy completes before timeout: success, no kill', async () => {
   vi.useFakeTimers()
   const child = makeFakeChild()
