@@ -1,5 +1,21 @@
+import * as core from '@actions/core'
 import { afterEach, beforeEach, expect, test, vitest } from 'vitest'
 import { processArguments } from './arguments'
+
+// `@actions/core` is real ESM, whose named exports are not configurable,
+// so `vi.spyOn(core, 'warning')` cannot redefine it in place. Mock only
+// `warning`, passing every other export through untouched, so input
+// parsing still reads real `INPUT_*` / `process.env` values as everywhere
+// else in this file.
+vitest.mock('@actions/core', async importOriginal => {
+  const actual = await importOriginal<typeof import('@actions/core')>()
+  return {
+    ...actual,
+    warning: vitest.fn()
+  }
+})
+
+const warn = vitest.mocked(core.warning)
 
 // --
 
@@ -12,6 +28,7 @@ beforeEach(() => {
   process.env.INPUT_FORCE = 'false'
   process.env.INPUT_QUIET = 'false'
   delete process.env.NODE_ENV
+  warn.mockClear()
 })
 
 afterEach(() => {
@@ -51,6 +68,40 @@ test('extra env', () => {
   expect(args.extraEnv!['123']).toEqual('456')
   expect(args.extraEnv!.many_equals).toEqual('dod==d=doodod=d')
   expect(args.extraEnv!.EVIL).toBeUndefined()
+  expect(warn).not.toHaveBeenCalled()
+})
+
+test('extra env, dash key is dropped with a warning that redacts the value', () => {
+  process.env.INPUT_SETENV = 'MY-VAR=super-secret'
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  const args = processArguments()
+  expect(args.extraEnv).toBeDefined()
+  expect(args.extraEnv!['MY-VAR']).toBeUndefined()
+  expect(warn).toHaveBeenCalledTimes(1)
+  const message = warn.mock.calls[0]![0] as string
+  expect(message).not.toContain('super-secret')
+  expect(message).toContain('MY-VAR=***')
+})
+
+test('extra env, line without = never echoes its content', () => {
+  process.env.INPUT_SETENV = 'sk_live_totallyASecretToken'
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  processArguments()
+  expect(warn).toHaveBeenCalledTimes(1)
+  const message = warn.mock.calls[0]![0] as string
+  expect(message).not.toContain('sk_live_totallyASecretToken')
+})
+
+test('extra env, whitespace-only line between valid vars is skipped without a warning', () => {
+  process.env.INPUT_SETENV = 'FOO=foo\n   \nBAR=bar'
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  const args = processArguments()
+  expect(args.extraEnv!.FOO).toEqual('foo')
+  expect(args.extraEnv!.BAR).toEqual('bar')
+  expect(warn).not.toHaveBeenCalled()
 })
 
 test('timeout, default value is undefined', () => {
@@ -73,8 +124,72 @@ test('timeout, default value is not a number', () => {
   process.env.CLEVER_TOKEN = 'token'
   process.env.CLEVER_SECRET = 'secret'
   process.env.INPUT_TIMEOUT = 'nope'
+  const run = () => processArguments()
+  expect(run).toThrow()
+})
+
+test('timeout, negative value throws', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_TIMEOUT = '-5'
+  const run = () => processArguments()
+  expect(run).toThrow()
+})
+
+test('timeout, zero means no timeout', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_TIMEOUT = '0'
   const args = processArguments()
   expect(args.timeout).toBeUndefined()
+})
+
+test('timeout, garbage value throws', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_TIMEOUT = '12abc'
+  const run = () => processArguments()
+  expect(run).toThrow()
+})
+
+test('timeout, scientific notation throws', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_TIMEOUT = '1e3'
+  const run = () => processArguments()
+  expect(run).toThrow()
+})
+
+test('timeout, hexadecimal notation throws', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_TIMEOUT = '0x10'
+  const run = () => processArguments()
+  expect(run).toThrow()
+})
+
+test('timeout, leading plus sign throws', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_TIMEOUT = '+5'
+  const run = () => processArguments()
+  expect(run).toThrow()
+})
+
+test('timeout, 24 hours is accepted', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_TIMEOUT = '86400'
+  const args = processArguments()
+  expect(args.timeout).toEqual(86400)
+})
+
+test('timeout, first value above 24 hours throws', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_TIMEOUT = '86401'
+  const run = () => processArguments()
+  expect(run).toThrow()
 })
 
 test('force, default value is false', () => {

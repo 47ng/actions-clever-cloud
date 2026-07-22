@@ -3,7 +3,12 @@ import { exec, type ExecOptions } from '@actions/exec'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import { PassThrough, Transform, Writable } from 'node:stream'
+import { finished } from 'node:stream/promises'
+import { StringDecoder } from 'node:string_decoder'
 import type { Arguments } from './arguments'
+
+const DEPLOY_TERMINATION_GRACE_PERIOD_MS = 5000
+const DEPLOY_FORCE_KILL_WAIT_MS = 5000
 
 async function checkForShallowCopy(): Promise<void> {
   let output = ''
@@ -23,8 +28,6 @@ async function checkForShallowCopy(): Promise<void> {
 }
 
 export async function run({
-  token,
-  secret,
   appID,
   alias,
   force = false,
@@ -36,18 +39,20 @@ export async function run({
   extraEnv = {},
   sameCommitPolicy
 }: Arguments): Promise<void> {
+  let outputStream: OutputStream | undefined
   try {
     await checkForShallowCopy()
 
+    outputStream = await getOutputStream(quiet, logFile)
     const execOptions: ExecOptions = {
-      outStream: await getOutputStream(quiet, logFile)
+      outStream: outputStream.stream
     }
 
     if (deployPath) {
       try {
         await fs.access(deployPath)
         execOptions.cwd = deployPath
-        core.info(`Deploying from directory: ${deployPath}`)
+        core.info(`Running Clever CLI from directory: ${deployPath}`)
       } catch (error) {
         throw new Error(`Deploy path does not exist: ${deployPath}`)
       }
@@ -55,8 +60,8 @@ export async function run({
 
     core.debug(`Clever CLI path: ${cleverCLI}`)
 
-    // Authenticate (this will only store the credentials at a known location)
-    await exec(cleverCLI, ['login', '--token', token, '--secret', secret])
+    // clever-tools authenticates via the CLEVER_TOKEN / CLEVER_SECRET
+    // environment variables (virtual "$env" profile); no login call needed.
 
     // There is an issue when there is a .clever.json file present
     // and only the appID is passed: link will work, but deploy will need
@@ -76,8 +81,27 @@ export async function run({
         args.push('--alias', alias)
       }
       args.push(envName, envValue)
+      if (envValue) {
+        core.setSecret(envValue)
+      }
       core.info(`Setting environment variable ${envName}`)
-      await exec(cleverCLI, args, execOptions)
+      let stderr = ''
+      const code = await exec(cleverCLI, args, {
+        ...execOptions,
+        silent: true,
+        ignoreReturnCode: true,
+        listeners: {
+          stderr: (data: Buffer) => (stderr += data.toString())
+        }
+      })
+      if (code !== 0) {
+        // stderr may echo the value back (e.g. a rejected value in the CLI's
+        // own error message); safe to surface because setSecret() above
+        // already registered it with the runner's log masking.
+        throw new Error(
+          `Failed to set environment variable ${envName} (exit code ${code}): ${stderr.trim()}`
+        )
+      }
     }
 
     const args = ['deploy']
@@ -121,13 +145,53 @@ export async function run({
         }
       }
       if (timedOut) {
-        // Stop waiting and let the workflow move on. Killing the child releases
-        // the event loop so the action can exit promptly (the documented
-        // tradeoff: we lose any deployment failure information).
+        // Let the child finish handling SIGTERM and drain its output before the
+        // shared tee is closed in `finally`. Escalate if graceful termination
+        // takes too long.
         child.kill('SIGTERM')
-        // The killed process settles `exited` later; swallow it so it doesn't
-        // surface as an unhandled rejection after we've moved on.
-        exited.catch(() => {})
+        let forceKillTimeoutID: NodeJS.Timeout | undefined
+        const forceKillPromise = new Promise<void>(resolve => {
+          forceKillTimeoutID = setTimeout(() => {
+            child.kill('SIGKILL')
+            resolve()
+          }, DEPLOY_TERMINATION_GRACE_PERIOD_MS)
+        })
+        const settledExit = exited.then(
+          () => undefined,
+          () => undefined
+        )
+        const forced = (await Promise.race([
+          settledExit.then(() => false),
+          forceKillPromise.then(() => true)
+        ])) as boolean
+        if (forceKillTimeoutID) {
+          clearTimeout(forceKillTimeoutID)
+        }
+        if (forced) {
+          let forceKillWaitTimeoutID: NodeJS.Timeout | undefined
+          const forceKillWaitPromise = new Promise<boolean>(resolve => {
+            forceKillWaitTimeoutID = setTimeout(
+              () => resolve(false),
+              DEPLOY_FORCE_KILL_WAIT_MS
+            )
+          })
+          const exitedAfterForceKill = await Promise.race([
+            settledExit.then(() => true),
+            forceKillWaitPromise
+          ])
+          if (forceKillWaitTimeoutID) {
+            clearTimeout(forceKillWaitTimeoutID)
+          }
+          if (!exitedAfterForceKill) {
+            if (execOptions.outStream) {
+              child.stdout.unpipe(execOptions.outStream)
+              child.stderr.unpipe(execOptions.outStream)
+            }
+            child.stdout.destroy()
+            child.stderr.destroy()
+            child.unref()
+          }
+        }
         core.info('Deployment timed out, moving on with workflow run')
         return
       }
@@ -147,6 +211,14 @@ export async function run({
       core.setFailed(error.message)
     } else {
       core.setFailed(String(error))
+    }
+  } finally {
+    // Close the tee we opened above so its buffered carry-over line (if any)
+    // and the log file get flushed, even when the timeout path returns early
+    // or the deploy throws.
+    if (outputStream) {
+      outputStream.stream.end()
+      await outputStream.done()
     }
   }
 }
@@ -182,25 +254,62 @@ function spawnDeploy(
   return { child, exited }
 }
 
-async function getOutputStream(
+const TIMESTAMP_PREFIX_REGEX =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z):? /
+
+export type OutputStream = {
+  stream: Writable
+  /**
+   * Resolves once every sink fed by `stream` (the console pipeline, the log
+   * file) has finished processing whatever was written before `stream.end()`
+   * was called. A sink failing (e.g. ENOSPC, EPIPE) is reported via
+   * `core.warning` rather than rejecting — losing log output must never
+   * override the deploy's real outcome.
+   */
+  done: () => Promise<void>
+}
+
+export async function getOutputStream(
   quiet: boolean,
   logFile?: string
-): Promise<Writable> {
+): Promise<OutputStream> {
   const tee = new PassThrough()
+  const completions: Promise<void>[] = []
+  const completionErrors: unknown[] = []
+  let liveSinkCount = 0
+  const monitor = (completion: Promise<void>): void => {
+    liveSinkCount += 1
+    completions.push(
+      completion.catch(error => {
+        completionErrors.push(error)
+        liveSinkCount -= 1
+        if (liveSinkCount === 0) {
+          tee.resume()
+        }
+      })
+    )
+  }
   if (!quiet) {
     let lineSeparator = '\n'
     async function* splitNewlines(
       input: AsyncIterable<Buffer>
     ): AsyncGenerator<string> {
+      let carry = ''
+      const decoder = new StringDecoder('utf8')
       for await (const chunk of input) {
-        const str = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : chunk
+        const str = carry + decoder.write(chunk)
         if (str.includes('\r\n')) {
           lineSeparator = '\r\n'
         }
         const lines = str.split(/\r?\n/)
+        carry = lines.pop() ?? ''
         for (const line of lines) {
           yield line
         }
+      }
+      carry += decoder.end()
+      if (carry.length > 0) {
+        yield carry
       }
     }
     async function* injectAnnotations(
@@ -208,25 +317,47 @@ async function getOutputStream(
     ): AsyncGenerator<string> {
       for await (const line of lines) {
         yield line + lineSeparator
-        // Remove timestamp
-        const message = line.slice('xxxx-xx-xxTxx:xx:xx+xx:xx '.length)
+        // Remove timestamp, if present
+        const message = line.replace(TIMESTAMP_PREFIX_REGEX, '')
+        // Only re-emit when a timestamp was actually stripped: a line that
+        // already starts with ::notice/::error/::warning at column 0 (no
+        // timestamp) is echoed above as-is, and the runner parses workflow
+        // commands at line start on its own — re-emitting it here would
+        // duplicate the annotation.
         if (
-          message.startsWith('::notice ') ||
-          message.startsWith('::error ') ||
-          message.startsWith('::warning ')
+          message !== line &&
+          (message.startsWith('::notice ') ||
+            message.startsWith('::error ') ||
+            message.startsWith('::warning '))
         ) {
           yield message + lineSeparator
         }
       }
     }
-    tee
+    const lastTransform = tee
       .pipe(Transform.from(splitNewlines))
       .pipe(Transform.from(injectAnnotations))
-      .pipe(process.stdout)
+    // `end: false`: process.stdout is shared for the whole action process
+    // lifetime — this tee ending must not close it.
+    lastTransform.pipe(process.stdout, { end: false })
+    monitor(finished(lastTransform))
   }
   if (logFile) {
     const logFileStream = (await fs.open(logFile, 'w')).createWriteStream()
     tee.pipe(logFileStream)
+    monitor(finished(logFileStream))
   }
-  return tee
+  if (liveSinkCount === 0) {
+    tee.resume()
+  }
+  const done = async (): Promise<void> => {
+    await Promise.all(completions)
+    if (completionErrors.length > 0) {
+      const error = completionErrors[0]
+      core.warning(
+        `deploy log output degraded: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+  }
+  return { stream: tee, done }
 }
