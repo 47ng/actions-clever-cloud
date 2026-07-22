@@ -70,7 +70,7 @@ function listExtraEnv(): ExtraEnv {
         env[key] = value
         return env
       },
-      {} as Record<string, string>
+      Object.create(null) as Record<string, string>
     )
 
   if (Object.keys(extraEnv).length) {
