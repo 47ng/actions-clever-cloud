@@ -343,9 +343,13 @@ export async function getOutputStream(
     monitor(finished(lastTransform))
   }
   if (logFile) {
-    const logFileStream = (await fs.open(logFile, 'w')).createWriteStream()
-    tee.pipe(logFileStream)
-    monitor(finished(logFileStream))
+    try {
+      const logFileStream = (await fs.open(logFile, 'w')).createWriteStream()
+      tee.pipe(logFileStream)
+      monitor(finished(logFileStream))
+    } catch (error) {
+      completionErrors.push(error)
+    }
   }
   if (liveSinkCount === 0) {
     tee.resume()
