@@ -71,17 +71,28 @@ test('extra env', () => {
   expect(warn).not.toHaveBeenCalled()
 })
 
-test('extra env, dash key is dropped with a warning that redacts the value', () => {
-  process.env.INPUT_SETENV = 'MY-VAR=super-secret'
+test('extra env, Clever-compatible dotted and dashed keys are accepted', () => {
+  process.env.INPUT_SETENV = 'MY-VAR=dashed\nMY.DOT=dotted'
   process.env.CLEVER_TOKEN = 'token'
   process.env.CLEVER_SECRET = 'secret'
   const args = processArguments()
   expect(args.extraEnv).toBeDefined()
-  expect(args.extraEnv!['MY-VAR']).toBeUndefined()
+  expect(args.extraEnv!['MY-VAR']).toEqual('dashed')
+  expect(args.extraEnv!['MY.DOT']).toEqual('dotted')
+  expect(warn).not.toHaveBeenCalled()
+})
+
+test('extra env, invalid key is dropped with a warning that redacts the value', () => {
+  process.env.INPUT_SETENV = 'MY/VAR=super-secret'
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  const args = processArguments()
+  expect(args.extraEnv).toBeDefined()
+  expect(args.extraEnv!['MY/VAR']).toBeUndefined()
   expect(warn).toHaveBeenCalledTimes(1)
   const message = warn.mock.calls[0]![0] as string
   expect(message).not.toContain('super-secret')
-  expect(message).toContain('MY-VAR=***')
+  expect(message).toContain('MY/VAR=***')
 })
 
 test('extra env, line without = never echoes its content', () => {

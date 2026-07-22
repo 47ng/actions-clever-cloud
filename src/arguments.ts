@@ -29,7 +29,7 @@ function throwMissingEnvVar(name: string): never {
   )
 }
 
-const ENV_LINE_REGEX = /^(\w+)=(.*)$/
+const ENV_LINE_REGEX = /^([a-zA-Z0-9-_.]+)=(.*)$/
 const TIMEOUT_INPUT_REGEX = /^\d+$/
 const MAX_TIMEOUT_SECONDS = 24 * 60 * 60
 
@@ -60,7 +60,7 @@ function listExtraEnv(): ExtraEnv {
         if (!match) {
           if (!line.startsWith('#')) {
             core.warning(
-              `Ignoring setEnv line that is not KEY=value (keys are [A-Za-z0-9_]): ${redactValue(line)}`
+              `Ignoring setEnv line that is not KEY=value (keys are [A-Za-z0-9_.-]): ${redactValue(line)}`
             )
           }
           return env
