@@ -69,7 +69,7 @@ function listExtraEnv(): ExtraEnv {
         const value = match[2]!
         if (key === '__proto__') {
           core.warning(
-            `Ignoring setEnv line with reserved key: ${redactValue(line)}`
+            `Ignoring setEnv line with key: ${redactValue(line)}`
           )
           return env
         }
