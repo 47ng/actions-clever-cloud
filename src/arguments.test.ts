@@ -104,6 +104,23 @@ test('extra env, whitespace-only line between valid vars is skipped without a wa
   expect(warn).not.toHaveBeenCalled()
 })
 
+test('extra env preserves whitespace in unquoted values', () => {
+  process.env.INPUT_SETENV = 'VALUE=  leading and trailing  '
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  const args = processArguments()
+  expect(args.extraEnv!.VALUE).toEqual('  leading and trailing  ')
+})
+
+test('extra env removes matching quote delimiters from values', () => {
+  process.env.INPUT_SETENV = 'DOUBLE=" quoted "\nSINGLE=\'quoted\''
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  const args = processArguments()
+  expect(args.extraEnv!.DOUBLE).toEqual(' quoted ')
+  expect(args.extraEnv!.SINGLE).toEqual('quoted')
+})
+
 test('timeout, default value is undefined', () => {
   process.env.CLEVER_TOKEN = 'token'
   process.env.CLEVER_SECRET = 'secret'

@@ -47,10 +47,18 @@ function redactValue(line: string): string {
   return `${line.slice(0, equalsIndex)}=***`
 }
 
+function parseEnvValue(value: string): string {
+  const quote = value[0]
+  if ((quote === '"' || quote === "'") && value.at(-1) === quote) {
+    return value.slice(1, -1)
+  }
+  return value
+}
+
 function listExtraEnv(): ExtraEnv {
   const extraEnv = core
-    .getMultilineInput('setEnv')
-    .map(line => line.trim())
+    .getMultilineInput('setEnv', { trimWhitespace: false })
+    .map(line => line.trimStart())
     .reduce(
       (env, line) => {
         if (line === '') {
@@ -66,7 +74,7 @@ function listExtraEnv(): ExtraEnv {
           return env
         }
         const key = match[1]!
-        const value = match[2]!
+        const value = parseEnvValue(match[2]!)
         env[key] = value
         return env
       },
