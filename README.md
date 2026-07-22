@@ -31,6 +31,7 @@ Github repository.
 
 In your workflow file:
 
+<!-- x-release-please-start-version -->
 ```yml
 steps:
   # This action requires an unshallow working copy,
@@ -40,11 +41,12 @@ steps:
       fetch-depth: 0
 
   # Deploy your application
-  - uses: 47ng/actions-clever-cloud@v2.1.1
+  - uses: 47ng/actions-clever-cloud@v2.1.2
     env:
       CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
       CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
+<!-- x-release-please-end -->
 
 This minimal example assumes you have only one application for this
 repository that was linked with `clever link`, and the `.clever.json`
@@ -59,26 +61,30 @@ to link to application IDs.
 If you have committed the `.clever.json` file, you only need to specify
 the alias of the application to deploy:
 
+<!-- x-release-please-start-version -->
 ```yml
-- uses: 47ng/actions-clever-cloud@v2.1.1
+- uses: 47ng/actions-clever-cloud@v2.1.2
   with:
     alias: my-app-alias
   env:
     CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
+<!-- x-release-please-end -->
 
 If you don't have this `.clever.json` file or you want to explicly
 deploy to another application, you can pass its ID:
 
+<!-- x-release-please-start-version -->
 ```yml
-- uses: 47ng/actions-clever-cloud@v2.1.1
+- uses: 47ng/actions-clever-cloud@v2.1.2
   with:
     appID: app_facade42-cafe-babe-cafe-deadf00dbaad
   env:
     CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
+<!-- x-release-please-end -->
 
 Application IDs can be found in the [Clever Cloud console](https://console.clever-cloud.com/),
 at the top-right corner of any page for a given app, or in the Information tab.
@@ -106,7 +112,7 @@ $ cat ~/.config/clever-cloud/clever-tools.json
 - `CLEVER_TOKEN`: the `token` value in the credentials
 - `CLEVER_SECRET`: the `secret` value in the credentials
 
-## Extra Environment Variables
+## Extra environment variables
 
 > Support: introduced in v1.2.0
 
@@ -114,8 +120,9 @@ You can set extra environment variables on the deployed application under the
 `setEnv` option. It follows the same syntax as .env files (newline-separated,
 key=value).
 
+<!-- x-release-please-start-version -->
 ```yml
-- uses: 47ng/actions-clever-cloud@v2.1.1
+- uses: 47ng/actions-clever-cloud@v2.1.2
   with:
     setEnv: | # <- note the pipe here..
       FOO=bar
@@ -125,6 +132,7 @@ key=value).
     CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
+<!-- x-release-please-end -->
 
 > **Note**: you need to use a [literal block scalar](https://yaml-multiline.info/) `|` to preserve newlines in a YAML string.
 
@@ -143,7 +151,7 @@ the new instance would use the new variable.
 In the future, we might include a way to rollback environment variables
 set by this action if deployment fails.
 
-## Deployment Timeout
+## Deployment timeout
 
 > Support: introduced in v1.2.0
 
@@ -154,14 +162,16 @@ the Clever Tools CLI (
 you can specify a timeout in seconds after which the workflow will move on,
 regardless of the deployment status:
 
+<!-- x-release-please-start-version -->
 ```yml
-- uses: 47ng/actions-clever-cloud@v2.1.1
+- uses: 47ng/actions-clever-cloud@v2.1.2
   with:
     timeout: 1800 # wait at maximum 30 minutes before moving on
   env:
     CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
+<!-- x-release-please-end -->
 
 ## Force deployement
 
@@ -169,8 +179,9 @@ regardless of the deployment status:
 
 Clever Cloud uses a Git remote to perform deploys. By default, if the commit you want to deploy is not a fast-forward from the commit currently deployed, the deploy will be rejected. You can pass `force: true` to force the deploy anyway:
 
+<!-- x-release-please-start-version -->
 ```yml
-- uses: 47ng/actions-clever-cloud@v2.1.1
+- uses: 47ng/actions-clever-cloud@v2.1.2
   with:
     appID: app_facade42-cafe-babe-cafe-deadf00dbaad
     force: true
@@ -178,8 +189,43 @@ Clever Cloud uses a Git remote to perform deploys. By default, if the commit you
     CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
+<!-- x-release-please-end -->
 
-## Same Commit Policy
+## Deploying a specific app from a monorepo
+
+> Support: introduced in v2.1.0
+
+Clever Cloud receives the whole Git repository. To deploy one app from a monorepo:
+
+1.  Select the Clever Cloud target app with `alias` or `appID`.
+2.  Set `APP_FOLDER` to the folder that contains the app:
+
+<!-- x-release-please-start-version -->
+```yml
+- uses: 47ng/actions-clever-cloud@v2.1.2
+  with:
+    alias: backend
+    setEnv: |
+      APP_FOLDER=packages/backend
+  env:
+    CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+    CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+```
+<!-- x-release-please-end -->
+
+`APP_FOLDER` tells Clever Cloud which folder to build and run.
+It does not change which files are sent.
+
+### The `deployPath` option
+
+`deployPath` changes the directory where this action runs the Clever CLI. Use
+it when a subfolder has its own `.clever.json`.
+
+It does not limit the files sent to Clever Cloud. The CLI searches parent
+folders for the Git repository, then deploys its current commit. In a normal
+monorepo, the whole repository is still sent.
+
+## Same commit policy
 
 > Support: introduced in v2.1.0
 
@@ -190,14 +236,16 @@ When the local and remote commits are identical, you can control what happens us
 - `restart`: Restart the application without redeploying
 - `rebuild`: Rebuild and redeploy the application
 
+<!-- x-release-please-start-version -->
 ```yml
-- uses: 47ng/actions-clever-cloud@v2.1.1
+- uses: 47ng/actions-clever-cloud@v2.1.2
   with:
     sameCommitPolicy: restart
   env:
     CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
+<!-- x-release-please-end -->
 
 ## Logs
 
@@ -205,8 +253,9 @@ When the local and remote commits are identical, you can control what happens us
 
 You can write the deployment logs to a file for archiving:
 
+<!-- x-release-please-start-version -->
 ```yml
-- uses: 47ng/actions-clever-cloud@v2.1.1
+- uses: 47ng/actions-clever-cloud@v2.1.2
   with:
     logFile: ./clever-cloud-deploy.log
   env:
@@ -220,18 +269,21 @@ You can write the deployment logs to a file for archiving:
     path: ./clever-cloud-deploy.log
     retention-days: 30
 ```
+<!-- x-release-please-end -->
 
 If your deployment process is susceptible to log secrets or PII, you can also
 disable it from printing onto the console, using the `quiet` option:
 
+<!-- x-release-please-start-version -->
 ```yml
-- uses: 47ng/actions-clever-cloud@v2.1.1
+- uses: 47ng/actions-clever-cloud@v2.1.2
   with:
     quiet: true
   env:
     CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
+<!-- x-release-please-end -->
 
 ### Annotations
 
@@ -247,7 +299,7 @@ This action follows [SemVer](https://semver.org/).
 
 To specify the version of the action to use:
 
-- `uses: 47ng/actions-clever-cloud@v2.1.1`: latest stable version
+- `uses: 47ng/actions-clever-cloud@v2.1.2`: latest stable version <!-- x-release-please-version -->
 - `uses: 47ng/actions-clever-cloud@f496297399b2351f4459d10f556e1c4eff2566b7`: pinned to a specific Git SHA-1 (check out the [releases](https://github.com/47ng/actions-clever-cloud/releases))
 - `uses: docker://ghcr.io/47ng/actions-clever-cloud:latest`: latest code from master (not recommended, as it may break: hic sunt dracones.)
 
@@ -278,33 +330,3 @@ being published, or after a CI run.
 
 Using this action at work ? [Sponsor me](https://github.com/sponsors/franky47) to help with support and maintenance.
 
-## Deploying a Specific Directory
-
-> Support: introduced in v2.1.0
-
-> ⚠️ Important note about the difference between `working-directory` and `deployPath`:
->
-> - `working-directory` (GitHub Actions option) : Only changes the directory where the action runs. All files remain available, only the execution context changes.
-> - `deployPath` (this action's option) : Specifies exactly which files will be sent to Clever Cloud. Allows deploying only a subset of files, like a `dist` or `build` folder.
-
-### Example
-
-```yml
-# This will NOT deploy only the build folder:
-- uses: 47ng/actions-clever-cloud@v2.1.1
-  with:
-    working-directory: ./build # ❌ Only changes where the action runs
-
-# This will deploy only the build folder:
-- uses: 47ng/actions-clever-cloud@v2.1.1
-  with:
-    deployPath: ./build # ✅ Only sends these files to Clever Cloud
-```
-
-This option is particularly useful for:
-
-- Monorepos where you want to deploy a single package
-- Projects where you only want to deploy built/compiled files
-- Filtering which files are sent to Clever Cloud
-
-Note: The path must be relative to the repository root and must exist.
