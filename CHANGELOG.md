@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.3](https://github.com/47ng/actions-clever-cloud/compare/v2.1.2...v2.1.3) (2026-07-22)
+
+
+### Bug Fixes
+
+* credential hygiene, truthful deployPath docs, robust log pipeline ([#234](https://github.com/47ng/actions-clever-cloud/issues/234)) ([0006b87](https://github.com/47ng/actions-clever-cloud/commit/0006b87d109045ebe2895f930da6dbc6eae5105b))
+* warn on ignored setEnv lines, reject invalid timeout values ([#236](https://github.com/47ng/actions-clever-cloud/issues/236)) ([fcdaf0b](https://github.com/47ng/actions-clever-cloud/commit/fcdaf0b13004a994e2ad388f92414801f1eb1ed8))
+
 ## [2.1.2](https://github.com/47ng/actions-clever-cloud/compare/v2.1.1...v2.1.2) (2026-07-22)
 
 
