@@ -249,7 +249,13 @@ function spawnDeploy(
   }
   const exited = new Promise<number>((resolve, reject) => {
     child.once('error', reject)
-    child.once('close', code => resolve(code ?? 0))
+    child.once('close', (code, signal) => {
+      if (signal) {
+        reject(new Error(`Deployment terminated by signal ${signal}`))
+      } else {
+        resolve(code ?? 0)
+      }
+    })
   })
   return { child, exited }
 }
