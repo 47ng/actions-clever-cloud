@@ -10,6 +10,8 @@ vi.mock('@actions/exec', () => ({
 vi.mock('@actions/core', () => ({
   debug: vi.fn(),
   info: vi.fn(),
+  warning: vi.fn(),
+  setSecret: vi.fn(),
   setFailed: vi.fn()
 }))
 
@@ -18,7 +20,7 @@ vi.mock('node:child_process', () => ({
   spawn: vi.fn()
 }))
 
-import { setFailed } from '@actions/core'
+import { setFailed, setSecret } from '@actions/core'
 import { exec } from '@actions/exec'
 import { spawn } from 'node:child_process'
 import { run } from './action'
@@ -45,6 +47,7 @@ function makeFakeChild() {
     stdout: PassThrough
     stderr: PassThrough
     kill: ReturnType<typeof vi.fn>
+    unref: ReturnType<typeof vi.fn>
   }
   child.stdout = new PassThrough()
   child.stderr = new PassThrough()
@@ -52,6 +55,7 @@ function makeFakeChild() {
     child.emit('close', null)
     return true
   })
+  child.unref = vi.fn()
   return child
 }
 
@@ -87,15 +91,8 @@ test('deploy default application (no arguments)', async () => {
     secret: 'secret',
     cleverCLI: CLEVER_CLI
   })
-  expectCleverCLICallWithArgs(
-    1,
-    'login',
-    '--token',
-    'token',
-    '--secret',
-    'secret'
-  )
-  expectCleverCLICallWithArgs(2, 'deploy')
+  expect(execMock.mock.calls.some(call => call[1]?.[0] === 'login')).toBe(false)
+  expectCleverCLICallWithArgs(1, 'deploy')
   expect(setFailed).not.toHaveBeenCalled()
 })
 
@@ -106,7 +103,7 @@ test('deploy application with alias', async () => {
     alias: 'app-alias',
     cleverCLI: CLEVER_CLI
   })
-  expectCleverCLICallWithArgs(2, 'deploy', '--alias', 'app-alias')
+  expectCleverCLICallWithArgs(1, 'deploy', '--alias', 'app-alias')
   expect(setFailed).not.toHaveBeenCalled()
 })
 
@@ -118,14 +115,14 @@ test('deploy application with app ID', async () => {
     cleverCLI: CLEVER_CLI
   })
   expectCleverCLICallWithArgs(
-    2,
+    1,
     'link',
     'app_facade42-cafe-babe-cafe-deadf00dbaad',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
   )
   expectCleverCLICallWithArgs(
-    3,
+    2,
     'deploy',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
@@ -141,14 +138,14 @@ test('when both app ID and alias are provided, appID takes precedence', async ()
     cleverCLI: CLEVER_CLI
   })
   expectCleverCLICallWithArgs(
-    2,
+    1,
     'link',
     'app_facade42-cafe-babe-cafe-deadf00dbaad',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
   )
   expectCleverCLICallWithArgs(
-    3,
+    2,
     'deploy',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
@@ -165,9 +162,13 @@ test('passing extra env variables, using no input args', async () => {
       egg: 'spam'
     }
   })
-  expectCleverCLICallWithArgs(2, 'env', 'set', 'foo', 'bar')
-  expectCleverCLICallWithArgs(3, 'env', 'set', 'egg', 'spam')
-  expectCleverCLICallWithArgs(4, 'deploy')
+  expectCleverCLICallWithArgs(1, 'env', 'set', 'foo', 'bar')
+  expectCleverCLICallWithArgs(2, 'env', 'set', 'egg', 'spam')
+  expectCleverCLICallWithArgs(3, 'deploy')
+  expect(setSecret).toHaveBeenCalledWith('bar')
+  expect(setSecret).toHaveBeenCalledWith('spam')
+  expect(execMock.mock.calls[1]?.[2]).toMatchObject({ silent: true })
+  expect(execMock.mock.calls[2]?.[2]).toMatchObject({ silent: true })
 })
 
 test('passing extra env variables, using appID', async () => {
@@ -182,14 +183,14 @@ test('passing extra env variables, using appID', async () => {
     }
   })
   expectCleverCLICallWithArgs(
-    2,
+    1,
     'link',
     'app_facade42-cafe-babe-cafe-deadf00dbaad',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
   )
   expectCleverCLICallWithArgs(
-    3,
+    2,
     'env',
     'set',
     '--alias',
@@ -198,7 +199,7 @@ test('passing extra env variables, using appID', async () => {
     'bar'
   )
   expectCleverCLICallWithArgs(
-    4,
+    3,
     'env',
     'set',
     '--alias',
@@ -207,7 +208,7 @@ test('passing extra env variables, using appID', async () => {
     'spam'
   )
   expectCleverCLICallWithArgs(
-    5,
+    4,
     'deploy',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
@@ -225,9 +226,9 @@ test('passing extra env variables, using alias only', async () => {
       egg: 'spam'
     }
   })
-  expectCleverCLICallWithArgs(2, 'env', 'set', '--alias', 'foo', 'foo', 'bar')
-  expectCleverCLICallWithArgs(3, 'env', 'set', '--alias', 'foo', 'egg', 'spam')
-  expectCleverCLICallWithArgs(4, 'deploy', '--alias', 'foo')
+  expectCleverCLICallWithArgs(1, 'env', 'set', '--alias', 'foo', 'foo', 'bar')
+  expectCleverCLICallWithArgs(2, 'env', 'set', '--alias', 'foo', 'egg', 'spam')
+  expectCleverCLICallWithArgs(3, 'deploy', '--alias', 'foo')
 })
 
 test('deployment failure fails the workflow', async () => {
@@ -273,6 +274,108 @@ test('timeout fires: kills the deploy and moves on without failing', async () =>
   await finished
   expect(child.kill).toHaveBeenCalledWith('SIGTERM')
   expect(setFailed).not.toHaveBeenCalled()
+})
+
+test('timeout waits for asynchronous final output before closing the tee', async () => {
+  const stdoutSpy = vi
+    .spyOn(process.stdout, 'write')
+    .mockImplementation(() => true)
+  try {
+    vi.useFakeTimers()
+    const child = makeFakeChild()
+    child.kill.mockImplementation(() => {
+      setTimeout(() => {
+        child.stdout.end()
+        child.stderr.end('::error ::final timeout detail')
+        child.emit('close', null)
+      }, 50)
+      return true
+    })
+    spawnMock.mockReturnValue(child)
+
+    const finishedRun = run({
+      token: 'token',
+      secret: 'secret',
+      cleverCLI: CLEVER_CLI,
+      timeout: 1800
+    })
+    await vi.advanceTimersByTimeAsync(1800 * 1000)
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM')
+    await vi.advanceTimersByTimeAsync(50)
+    await finishedRun
+
+    const out = stdoutSpy.mock.calls
+      .map((call: unknown[]) => String(call[0]))
+      .join('')
+    expect(out).toContain('::error ::final timeout detail')
+    expect(out).not.toContain('\ufffd')
+  } finally {
+    stdoutSpy.mockRestore()
+  }
+})
+
+test('timeout escalates to SIGKILL after the termination grace period', async () => {
+  vi.useFakeTimers()
+  const child = makeFakeChild()
+  child.kill.mockImplementation((signal: NodeJS.Signals) => {
+    if (signal === 'SIGKILL') {
+      child.stdout.end()
+      child.stderr.end()
+      child.emit('close', null)
+    }
+    return true
+  })
+  spawnMock.mockReturnValue(child)
+
+  const finishedRun = run({
+    token: 'token',
+    secret: 'secret',
+    cleverCLI: CLEVER_CLI,
+    timeout: 1800
+  })
+  await vi.advanceTimersByTimeAsync(1800 * 1000)
+  expect(child.kill).toHaveBeenCalledWith('SIGTERM')
+  await vi.advanceTimersByTimeAsync(5000)
+  await finishedRun
+  expect(child.kill).toHaveBeenCalledWith('SIGKILL')
+  expect(setFailed).not.toHaveBeenCalled()
+})
+
+test('timeout stops waiting when the child stays open after SIGKILL', async () => {
+  vi.useFakeTimers()
+  const child = makeFakeChild()
+  child.kill.mockReturnValue(true)
+  spawnMock.mockReturnValue(child)
+
+  const finishedRun = run({
+    token: 'token',
+    secret: 'secret',
+    cleverCLI: CLEVER_CLI,
+    timeout: 1800
+  })
+  let completed = false
+  void finishedRun.then(() => {
+    completed = true
+  })
+
+  await vi.advanceTimersByTimeAsync(1800 * 1000)
+  await vi.advanceTimersByTimeAsync(5000)
+  expect(child.kill).toHaveBeenCalledWith('SIGKILL')
+  await vi.advanceTimersByTimeAsync(5000)
+
+  try {
+    expect(completed).toBe(true)
+    expect(child.stdout.destroyed).toBe(true)
+    expect(child.stderr.destroyed).toBe(true)
+    expect(child.unref).toHaveBeenCalled()
+  } finally {
+    if (!completed) {
+      child.stdout.end()
+      child.stderr.end()
+      child.emit('close', null)
+      await finishedRun
+    }
+  }
 })
 
 test('deploy completes before timeout: success, no kill', async () => {
@@ -338,17 +441,82 @@ test('force deploy application', async () => {
     force: true
   })
   expectCleverCLICallWithArgs(
-    2,
+    1,
     'link',
     'app_facade42-cafe-babe-cafe-deadf00dbaad',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
   )
   expectCleverCLICallWithArgs(
-    3,
+    2,
     'deploy',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad',
     '--force'
   )
+})
+
+test('env-set failure fails the workflow with stderr, without leaking the value, and never deploys', async () => {
+  execMock.mockImplementation(
+    (
+      _cli: string,
+      args: string[],
+      options?: { listeners?: { stderr?: (data: Buffer) => void } }
+    ) => {
+      if (args[0] === 'env' && args[1] === 'set') {
+        options?.listeners?.stderr?.(
+          Buffer.from('Error: environment variable rejected\n')
+        )
+        return Promise.resolve(1)
+      }
+      return Promise.resolve(0)
+    }
+  )
+  await run({
+    token: 'token',
+    secret: 'secret',
+    cleverCLI: CLEVER_CLI,
+    extraEnv: {
+      foo: 'bar'
+    }
+  })
+  expect(setFailed).toHaveBeenCalledWith(
+    'Failed to set environment variable foo (exit code 1): ' +
+      'Error: environment variable rejected'
+  )
+  const failureMessage = (setFailed as ReturnType<typeof vi.fn>).mock
+    .calls[0]?.[0]
+  expect(failureMessage).not.toContain('bar')
+  expect(execMock.mock.calls.some(call => call[1]?.[0] === 'deploy')).toBe(
+    false
+  )
+})
+
+test('spawnDeploy pipes child stderr through the tee (annotations still reach stdout)', async () => {
+  const stdoutSpy = vi
+    .spyOn(process.stdout, 'write')
+    .mockImplementation(() => true)
+  try {
+    vi.useFakeTimers()
+    const child = makeFakeChild()
+    spawnMock.mockReturnValue(child)
+    const finishedRun = run({
+      token: 'token',
+      secret: 'secret',
+      cleverCLI: CLEVER_CLI,
+      timeout: 1800
+    })
+    // Let the pre-deploy steps run and the deploy spawn before touching the
+    // child's streams, same as the other timeout-path tests.
+    await vi.advanceTimersByTimeAsync(1000)
+    child.stderr.write('::error ::deploy failed\n')
+    child.emit('close', 1)
+    await finishedRun
+    const out = stdoutSpy.mock.calls
+      .map((call: unknown[]) => String(call[0]))
+      .join('')
+    expect(out).toContain('::error ::deploy failed')
+  } finally {
+    stdoutSpy.mockRestore()
+  }
 })
