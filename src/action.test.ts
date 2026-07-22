@@ -63,6 +63,15 @@ beforeEach(() => {
   vi.clearAllMocks()
   // Reset to default success behavior
   execMock.mockResolvedValue(0)
+  spawnMock.mockImplementation(() => {
+    const child = makeFakeChild()
+    setImmediate(() => {
+      child.stdout.end()
+      child.stderr.end()
+      child.emit('close', 0)
+    })
+    return child
+  })
 })
 
 afterEach(() => {
@@ -85,6 +94,15 @@ function expectCleverCLICallWithArgs(
   })
 }
 
+function expectDeploySpawnWithArgs(...expectedArgs: any[]) {
+  expect(spawnMock).toHaveBeenCalled()
+  const [cli, args] = spawnMock.mock.calls.at(-1) ?? []
+  expect(cli).toEqual(CLEVER_CLI)
+  expectedArgs.forEach((arg, i) => {
+    expect(args?.[i]).toEqual(arg)
+  })
+}
+
 test('deploy default application (no arguments)', async () => {
   await run({
     token: 'token',
@@ -92,7 +110,7 @@ test('deploy default application (no arguments)', async () => {
     cleverCLI: CLEVER_CLI
   })
   expect(execMock.mock.calls.some(call => call[1]?.[0] === 'login')).toBe(false)
-  expectCleverCLICallWithArgs(1, 'deploy')
+  expectDeploySpawnWithArgs('deploy')
   expect(setFailed).not.toHaveBeenCalled()
 })
 
@@ -103,7 +121,7 @@ test('deploy application with alias', async () => {
     alias: 'app-alias',
     cleverCLI: CLEVER_CLI
   })
-  expectCleverCLICallWithArgs(1, 'deploy', '--alias', 'app-alias')
+  expectDeploySpawnWithArgs('deploy', '--alias', 'app-alias')
   expect(setFailed).not.toHaveBeenCalled()
 })
 
@@ -121,8 +139,7 @@ test('deploy application with app ID', async () => {
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
   )
-  expectCleverCLICallWithArgs(
-    2,
+  expectDeploySpawnWithArgs(
     'deploy',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
@@ -144,8 +161,7 @@ test('when both app ID and alias are provided, appID takes precedence', async ()
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
   )
-  expectCleverCLICallWithArgs(
-    2,
+  expectDeploySpawnWithArgs(
     'deploy',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
@@ -164,7 +180,7 @@ test('passing extra env variables, using no input args', async () => {
   })
   expectCleverCLICallWithArgs(1, 'env', 'set', 'foo', 'bar')
   expectCleverCLICallWithArgs(2, 'env', 'set', 'egg', 'spam')
-  expectCleverCLICallWithArgs(3, 'deploy')
+  expectDeploySpawnWithArgs('deploy')
   expect(setSecret).toHaveBeenCalledWith('bar')
   expect(setSecret).toHaveBeenCalledWith('spam')
   expect(execMock.mock.calls[1]?.[2]).toMatchObject({ silent: true })
@@ -207,8 +223,7 @@ test('passing extra env variables, using appID', async () => {
     'egg',
     'spam'
   )
-  expectCleverCLICallWithArgs(
-    4,
+  expectDeploySpawnWithArgs(
     'deploy',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
@@ -228,17 +243,58 @@ test('passing extra env variables, using alias only', async () => {
   })
   expectCleverCLICallWithArgs(1, 'env', 'set', '--alias', 'foo', 'foo', 'bar')
   expectCleverCLICallWithArgs(2, 'env', 'set', '--alias', 'foo', 'egg', 'spam')
-  expectCleverCLICallWithArgs(3, 'deploy', '--alias', 'foo')
+  expectDeploySpawnWithArgs('deploy', '--alias', 'foo')
 })
 
 test('deployment failure fails the workflow', async () => {
-  execMock.mockResolvedValue(42)
+  const child = makeFakeChild()
+  spawnMock.mockImplementation(() => {
+    setImmediate(() => {
+      child.stdout.end()
+      child.stderr.end()
+      child.emit('close', 42)
+    })
+    return child
+  })
   await run({
     token: 'token',
     secret: 'secret',
     cleverCLI: CLEVER_CLI
   })
   expect(setFailed).toHaveBeenCalledWith('Deployment failed with code 42')
+})
+
+test('deploy output pauses when the console applies backpressure', async () => {
+  const stdoutSpy = vi
+    .spyOn(process.stdout, 'write')
+    .mockImplementation(() => false)
+  const child = makeFakeChild()
+  spawnMock.mockReturnValue(child)
+  const finishedRun = run({
+    token: 'token',
+    secret: 'secret',
+    cleverCLI: CLEVER_CLI
+  })
+
+  try {
+    await new Promise(resolve => setImmediate(resolve))
+    const chunk = Buffer.alloc(64 * 1024, 'x')
+    chunk[chunk.length - 1] = 10
+    for (let i = 0; i < 64 && !child.stdout.isPaused(); i += 1) {
+      child.stdout.write(chunk)
+      await new Promise(resolve => setImmediate(resolve))
+    }
+
+    expect(child.stdout.isPaused()).toBe(true)
+  } finally {
+    stdoutSpy.mockImplementation(() => true)
+    process.stdout.emit('drain')
+    child.stdout.end()
+    child.stderr.end()
+    child.emit('close', 0)
+    await finishedRun
+    stdoutSpy.mockRestore()
+  }
 })
 
 test('timeout is interpreted in seconds, not milliseconds', async () => {
@@ -466,8 +522,7 @@ test('force deploy application', async () => {
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
   )
-  expectCleverCLICallWithArgs(
-    2,
+  expectDeploySpawnWithArgs(
     'deploy',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad',
@@ -506,9 +561,7 @@ test('env-set failure fails the workflow with stderr, without leaking the value,
   const failureMessage = (setFailed as ReturnType<typeof vi.fn>).mock
     .calls[0]?.[0]
   expect(failureMessage).not.toContain('bar')
-  expect(execMock.mock.calls.some(call => call[1]?.[0] === 'deploy')).toBe(
-    false
-  )
+  expect(spawnMock).not.toHaveBeenCalled()
 })
 
 test('spawnDeploy pipes child stderr through the tee (annotations still reach stdout)', async () => {
