@@ -2,6 +2,8 @@
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "include-component-in-tag": false,
   "draft-pull-request": true,
+  "pull-request-header": "<!-- release pull request -->",
+  "pull-request-footer": "This PR was generated with [Release Please](https://github.com/googleapis/release-please). See [documentation](https://github.com/googleapis/release-please#release-please). Merging this PR will publish the release.",
   "changelog-sections": [
     { "type": "feat", "section": "Features" },
     { "type": "fix", "section": "Bug Fixes" },
