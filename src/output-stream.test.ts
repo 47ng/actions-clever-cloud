@@ -80,6 +80,33 @@ test.each(['notice', 'error', 'warning'])(
   }
 )
 
+test('non-quiet: command names are matched case-insensitively', async () => {
+  const { stream, done } = await getOutputStream(false)
+  stream.write(`${TS}::ERROR::Deployed!\n`)
+  stream.end()
+  await done()
+  const out = capturedStdout()
+  expect(out.split('::ERROR::Deployed!').length - 1).toBe(2)
+})
+
+test('non-quiet: leading command whitespace is tolerated', async () => {
+  const { stream, done } = await getOutputStream(false)
+  stream.write(`${TS} ::error::Deployed!\n`)
+  stream.end()
+  await done()
+  const out = capturedStdout()
+  expect(out.split('::error::Deployed!').length - 1).toBe(2)
+})
+
+test('non-quiet: a property command without a closing delimiter is not re-emitted', async () => {
+  const { stream, done } = await getOutputStream(false)
+  stream.write(`${TS}::error title=Deploy failed\n`)
+  stream.end()
+  await done()
+  const out = capturedStdout()
+  expect(out.split('::error title=Deploy failed').length - 1).toBe(1)
+})
+
 test('non-quiet: non-annotation lines are not re-emitted', async () => {
   const { stream, done } = await getOutputStream(false)
   stream.write(TS + 'plain\n')
