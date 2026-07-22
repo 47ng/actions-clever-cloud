@@ -327,8 +327,11 @@ export async function getOutputStream(
         if (
           message !== line &&
           (message.startsWith('::notice ') ||
+            message.startsWith('::notice::') ||
             message.startsWith('::error ') ||
-            message.startsWith('::warning '))
+            message.startsWith('::error::') ||
+            message.startsWith('::warning ') ||
+            message.startsWith('::warning::'))
         ) {
           yield message + lineSeparator
         }

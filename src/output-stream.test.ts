@@ -67,6 +67,19 @@ test.each(['notice', 'error', 'warning'])(
   }
 )
 
+test.each(['notice', 'error', 'warning'])(
+  'non-quiet: no-property ::%s commands are re-emitted without their timestamp',
+  async kind => {
+    const { stream, done } = await getOutputStream(false)
+    stream.write(`${TS}::${kind}::Deployed!\n`)
+    stream.end()
+    await done()
+    const out = capturedStdout()
+    const occurrences = out.split(`::${kind}::Deployed!`).length - 1
+    expect(occurrences).toBe(2)
+  }
+)
+
 test('non-quiet: non-annotation lines are not re-emitted', async () => {
   const { stream, done } = await getOutputStream(false)
   stream.write(TS + 'plain\n')
@@ -183,6 +196,15 @@ test('non-quiet: a line without a timestamp prefix is not duplicated', async () 
   // already parses this workflow command from the raw, column-0 line.
   // Re-emitting it here would duplicate the annotation.
   expect(out.split('::error ::no-timestamp').length - 1).toBe(1)
+})
+
+test('non-quiet: a no-property command without a timestamp is not duplicated', async () => {
+  const { stream, done } = await getOutputStream(false)
+  stream.write('::error::no-timestamp\n')
+  stream.end()
+  await done()
+  const out = capturedStdout()
+  expect(out.split('::error::no-timestamp').length - 1).toBe(1)
 })
 
 test('non-quiet: a Clever CLI timestamp is stripped before annotation detection', async () => {
