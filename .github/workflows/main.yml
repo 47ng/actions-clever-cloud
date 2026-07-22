@@ -2,13 +2,11 @@ name: CI/CD
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
-  release:
-    types: [created, published, edited]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  merge_group:
   push:
     branches:
       - master
-      - "releases/*"
 
 permissions: {}
 
@@ -22,6 +20,11 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+      - name: Validate pull request title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: .github/scripts/validate-pr-title.sh
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -42,11 +45,17 @@ jobs:
           JQ_EXIT_CODE=$?
 
           if [ $JQ_EXIT_CODE -ne 0 ]; then
-            echo "::error::Invalid semver version in package.json"
+            echo "::error::Invalid semver version in package.json: $PACKAGE_VERSION"
             exit 2
           fi
 
-          ACTION_TAG=$(grep 'image: docker://ghcr.io' action.yml | sed 's/.*://g' | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$')
+          MANIFEST_VERSION=$(jq -r '."."' .release-please-manifest.json)
+          if [ "$PACKAGE_VERSION" != "$MANIFEST_VERSION" ]; then
+            echo "::error::Version mismatch! package.json has $PACKAGE_VERSION but .release-please-manifest.json has $MANIFEST_VERSION"
+            exit 5
+          fi
+
+          ACTION_TAG=$(grep 'image: docker://ghcr.io' action.yml | sed -E 's/^.*actions-clever-cloud:([^ ]+).*$/\1/' | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$')
           GREP_EXIT_CODE=$?
           set -e # Re-enable exit on error
 
@@ -83,106 +92,210 @@ jobs:
       - name: Run integration tests
         run: pnpm run test
 
-  cd:
-    name: Deployment
-    # Only run for push events (master, releases) and releases
-    if: github.event_name != 'pull_request'
-    needs: [ci, lint]
+  release:
+    name: Release
+    if: github.event_name == 'push'
+    needs: [lint, ci]
     runs-on: ubuntu-latest
+    concurrency:
+      group: release-please
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release-please.outputs.release_created }}
+      version: ${{ steps.release-please.outputs.version }}
+      sha: ${{ steps.release-please.outputs.sha }}
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release-please
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          target-branch: master
+
+  build:
+    name: Build release image
+    needs: [release]
+    if: needs.release.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-build-${{ needs.release.outputs.sha }}
+      cancel-in-progress: false
     permissions:
       contents: read
       packages: write
+    env:
+      RELEASE_SHA: ${{ needs.release.outputs.sha }}
+      RELEASE_VERSION: ${{ needs.release.outputs.version }}
+    outputs:
+      digest: ${{ steps.digest.outputs.digest }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-      - name: Get Git SHA
-        id: sha
-        run: echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
-      - name: Get Docker tag
-        id: docker-tag
-        env:
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          tag=$(echo "$REF_NAME" | tr '/' '_' | tr -d '#')
-          if [ "$tag" == "master" ]; then
-            tag="latest"
-          fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-      - id: package
-        run: |
-          VERSION=$(jq -r '
-            .version |
-            if test("^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$")
-            then .
-            else error("Invalid semver format in package.json")
-            end
-          ' package.json 2>&1)
-
-          if [ $? -ne 0 ]; then
-            echo "::error::$VERSION" # Expand the error into an annotation
-            exit 1
-          fi
-
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-      - name: Collect Docker labels & tags
-        id: docker-labels-tags
-        env:
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          echo 'labels<<__LABELS_EOF__' >> $GITHUB_OUTPUT
-          echo "org.opencontainers.image.title=47ng/actions-clever-cloud" >> $GITHUB_OUTPUT
-          echo "org.opencontainers.image.description=GitHub action to deploy to Clever Cloud" >> $GITHUB_OUTPUT
-          echo "org.opencontainers.image.version=${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
-          echo "org.opencontainers.image.revision=${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
-          echo "org.opencontainers.image.licenses=MIT" >> $GITHUB_OUTPUT
-          echo "org.opencontainers.image.source=https://github.com/${{github.repository}}/tree/${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
-          echo "org.opencontainers.image.documentation=https://github.com/${{github.repository}}/blob/master/README.md" >> $GITHUB_OUTPUT
-          echo "org.opencontainers.image.url=https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}" >> $GITHUB_OUTPUT
-          echo '__LABELS_EOF__' >> $GITHUB_OUTPUT
-          echo 'tags<<__TAGS_EOF__' >> $GITHUB_OUTPUT
-          if [ "$REF_NAME" = "master" ]; then
-            echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
-            echo "47ng/actions-clever-cloud:${{ steps.package.outputs.version }}" >> $GITHUB_OUTPUT
-          fi
-          echo "ghcr.io/47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}" >> $GITHUB_OUTPUT
-          echo "ghcr.io/47ng/actions-clever-cloud:git-${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
-          echo "47ng/actions-clever-cloud:${{ steps.docker-tag.outputs.tag }}" >> $GITHUB_OUTPUT
-          echo "47ng/actions-clever-cloud:git-${{ steps.sha.outputs.sha }}" >> $GITHUB_OUTPUT
-          echo '__TAGS_EOF__' >> $GITHUB_OUTPUT
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
-      - name: Login to Docker Hub
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
-        with:
-          username: ${{ secrets.DOCKER_HUB_USER }}
-          password: ${{ secrets.DOCKER_HUB_PASSWORD }}
       - name: Login to GitHub Container Registry
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push
-        id: docker-build-push
+      - name: Check for existing canonical image
+        id: existing
+        run: |
+          canonical="ghcr.io/47ng/actions-clever-cloud:git-${RELEASE_SHA}"
+          set +e
+          output=$(docker buildx imagetools inspect --format '{{println .Manifest.Digest}}' "$canonical" 2>&1)
+          inspect_exit_code=$?
+          set -e
+          if [ $inspect_exit_code -eq 0 ]; then
+            digest=$(echo "$output" | tr -d '[:space:]')
+            echo "Canonical image $canonical already exists with digest $digest, skipping rebuild"
+            echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          elif echo "$output" | grep -qiE 'not found|manifest unknown|name unknown'; then
+            echo "Canonical image $canonical does not exist yet, building"
+          else
+            echo "::error::Failed to inspect $canonical, refusing to rebuild over a possibly existing canonical tag: $output"
+            exit 1
+          fi
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        if: steps.existing.outputs.digest == ''
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          persist-credentials: false
+      - name: Collect Docker labels
+        id: docker-labels
+        if: steps.existing.outputs.digest == ''
+        run: |
+          {
+            echo 'labels<<__LABELS_EOF__'
+            echo "org.opencontainers.image.title=47ng/actions-clever-cloud"
+            echo "org.opencontainers.image.description=GitHub action to deploy to Clever Cloud"
+            echo "org.opencontainers.image.version=${RELEASE_VERSION}"
+            echo "org.opencontainers.image.revision=${RELEASE_SHA}"
+            echo "org.opencontainers.image.licenses=MIT"
+            echo "org.opencontainers.image.source=https://github.com/${{ github.repository }}/tree/${RELEASE_SHA}"
+            echo "org.opencontainers.image.documentation=https://github.com/${{ github.repository }}/blob/master/README.md"
+            echo "org.opencontainers.image.url=https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo '__LABELS_EOF__'
+          } >> "$GITHUB_OUTPUT"
+      - name: Set up QEMU
+        if: steps.existing.outputs.digest == ''
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+      - name: Set up Docker Buildx
+        if: steps.existing.outputs.digest == ''
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - name: Build and push canonical image
+        id: build
+        if: steps.existing.outputs.digest == ''
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: .
-          labels: "${{ steps.docker-labels-tags.outputs.labels }}"
-          tags: "${{ steps.docker-labels-tags.outputs.tags }}"
+          labels: ${{ steps.docker-labels.outputs.labels }}
+          tags: ghcr.io/47ng/actions-clever-cloud:git-${{ needs.release.outputs.sha }}
           push: true
+      - name: Resolve image digest
+        id: digest
+        env:
+          EXISTING_DIGEST: ${{ steps.existing.outputs.digest }}
+          BUILT_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          digest="${EXISTING_DIGEST:-$BUILT_DIGEST}"
+          if ! echo "$digest" | grep -qE '^sha256:[0-9a-f]{64}$'; then
+            echo "::error::Invalid or missing image digest from inspection or build: '$digest'"
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish release image
+    needs: [release, build]
+    if: needs.release.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-publish-${{ needs.release.outputs.sha }}
+      cancel-in-progress: false
+    permissions:
+      packages: write
+    env:
+      GHCR_IMAGE: ghcr.io/47ng/actions-clever-cloud
+      HUB_IMAGE: docker.io/47ng/actions-clever-cloud
+      RELEASE_SHA: ${{ needs.release.outputs.sha }}
+      RELEASE_VERSION: ${{ needs.release.outputs.version }}
+      DIGEST: ${{ needs.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          persist-credentials: false
+      - name: Login to registries
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCKER_HUB_USER: ${{ secrets.DOCKER_HUB_USER }}
+          DOCKER_HUB_PASSWORD: ${{ secrets.DOCKER_HUB_PASSWORD }}
+        run: |
+          if [ -z "$DOCKER_HUB_USER" ] || [ -z "$DOCKER_HUB_PASSWORD" ]; then
+            echo "::error::Missing DOCKER_HUB_USER or DOCKER_HUB_PASSWORD secret, cannot publish to Docker Hub"
+            exit 1
+          fi
+          skopeo login ghcr.io --username "${{ github.repository_owner }}" --password-stdin <<< "$GITHUB_TOKEN"
+          skopeo login docker.io --username "$DOCKER_HUB_USER" --password-stdin <<< "$DOCKER_HUB_PASSWORD"
+      - name: Promote immutable tags
+        run: |
+          .github/scripts/promote-image.sh "${GHCR_IMAGE}@${DIGEST}" \
+            "${GHCR_IMAGE}:${RELEASE_VERSION}" \
+            "${HUB_IMAGE}:${RELEASE_VERSION}" \
+            "${HUB_IMAGE}:git-${RELEASE_SHA}"
       - name: Generate step summary
         run: |
-          echo "## 🐳 &nbsp;Docker image" >> $GITHUB_STEP_SUMMARY
-          echo "Digest: \`${{ steps.docker-build-push.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "### 📌 &nbsp;Tags" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.docker-labels-tags.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "### 🏷 &nbsp;Labels" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.docker-labels-tags.outputs.labels }}" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 🐳 &nbsp;Docker image"
+            echo "Version: \`${RELEASE_VERSION}\`"
+            echo "Source: \`${RELEASE_SHA}\`"
+            echo "Digest: \`${DIGEST}\`"
+            echo "### 📌 &nbsp;Immutable tags"
+            echo "\`\`\`"
+            echo "${GHCR_IMAGE}:${RELEASE_VERSION}"
+            echo "${GHCR_IMAGE}:git-${RELEASE_SHA}"
+            echo "${HUB_IMAGE}:${RELEASE_VERSION}"
+            echo "${HUB_IMAGE}:git-${RELEASE_SHA}"
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  latest:
+    name: Move latest tags
+    needs: [release, build, publish]
+    if: needs.release.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-latest
+      cancel-in-progress: false
+    permissions:
+      packages: write
+    env:
+      GHCR_IMAGE: ghcr.io/47ng/actions-clever-cloud
+      HUB_IMAGE: docker.io/47ng/actions-clever-cloud
+      RELEASE_VERSION: ${{ needs.release.outputs.version }}
+      DIGEST: ${{ needs.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          persist-credentials: false
+      - name: Login to registries
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCKER_HUB_USER: ${{ secrets.DOCKER_HUB_USER }}
+          DOCKER_HUB_PASSWORD: ${{ secrets.DOCKER_HUB_PASSWORD }}
+        run: |
+          if [ -z "$DOCKER_HUB_USER" ] || [ -z "$DOCKER_HUB_PASSWORD" ]; then
+            echo "::error::Missing DOCKER_HUB_USER or DOCKER_HUB_PASSWORD secret, cannot publish to Docker Hub"
+            exit 1
+          fi
+          skopeo login ghcr.io --username "${{ github.repository_owner }}" --password-stdin <<< "$GITHUB_TOKEN"
+          skopeo login docker.io --username "$DOCKER_HUB_USER" --password-stdin <<< "$DOCKER_HUB_PASSWORD"
+      - name: Move latest tags
+        run: |
+          .github/scripts/move-latest.sh "${GHCR_IMAGE}@${DIGEST}" \
+            "${GHCR_IMAGE}:latest" \
+            "${HUB_IMAGE}:latest"
