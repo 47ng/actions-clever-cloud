@@ -20,7 +20,9 @@ RUN pnpm install --frozen-lockfile --ignore-scripts --production
 
 FROM node:24.9.0-slim AS final
 
-RUN apt update && apt install -y git
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git \
+  && rm -rf /var/lib/apt/lists/*
 
 # Provide defaults for boolean inputs so the parser doesn't complain
 ENV INPUT_QUIET=false
