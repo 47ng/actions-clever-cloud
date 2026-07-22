@@ -82,13 +82,17 @@ test('extra env, Clever-compatible dotted and dashed keys are accepted', () => {
   expect(warn).not.toHaveBeenCalled()
 })
 
-test('extra env, __proto__ is preserved as an own property', () => {
-  process.env.INPUT_SETENV = '__proto__=sentinel'
+test('extra env, __proto__ key is rejected with a redacted warning', () => {
+  process.env.INPUT_SETENV = '__proto__=super-secret'
   process.env.CLEVER_TOKEN = 'token'
   process.env.CLEVER_SECRET = 'secret'
   const args = processArguments()
-  expect(Object.entries(args.extraEnv!)).toEqual([['__proto__', 'sentinel']])
-  expect(warn).not.toHaveBeenCalled()
+  expect(args.extraEnv).toBeDefined()
+  expect(Object.hasOwn(args.extraEnv!, '__proto__')).toBe(false)
+  expect(warn).toHaveBeenCalledTimes(1)
+  const message = warn.mock.calls[0]![0] as string
+  expect(message).not.toContain('super-secret')
+  expect(message).toContain('__proto__=***')
 })
 
 test('extra env, invalid key is dropped with a warning that redacts the value', () => {

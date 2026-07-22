@@ -67,10 +67,16 @@ function listExtraEnv(): ExtraEnv {
         }
         const key = match[1]!
         const value = match[2]!
+        if (key === '__proto__') {
+          core.warning(
+            `Ignoring setEnv line with reserved key: ${redactValue(line)}`
+          )
+          return env
+        }
         env[key] = value
         return env
       },
-      Object.create(null) as Record<string, string>
+      {} as Record<string, string>
     )
 
   if (Object.keys(extraEnv).length) {
