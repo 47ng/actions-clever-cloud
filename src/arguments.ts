@@ -47,18 +47,36 @@ function redactValue(line: string): string {
   return `${line.slice(0, equalsIndex)}=***`
 }
 
-function parseEnvValue(value: string): string {
+function parseEnvValue(value: string): string | undefined {
   const quote = value[0]
-  if ((quote === '"' || quote === "'") && value.at(-1) === quote) {
-    return value.slice(1, -1)
+  if (quote !== '"' && quote !== "'") {
+    return value
   }
-  return value
+
+  let closingQuoteIndex = 1
+  let escaped = false
+  while (closingQuoteIndex < value.length) {
+    if (value[closingQuoteIndex] === quote && !escaped) {
+      break
+    }
+    escaped = value[closingQuoteIndex] === '\\'
+    closingQuoteIndex += 1
+  }
+  if (closingQuoteIndex !== value.length - 1) {
+    return undefined
+  }
+
+  const quotedValue = value.slice(1, closingQuoteIndex)
+  const quotePattern = quote === '"' ? /([\\]*)"/g : /([\\]*)'/g
+  return quotedValue.replace(quotePattern, (_, slashes: string) => {
+    return '\\'.repeat((slashes.length - 1) / 2) + quote
+  })
 }
 
 function listExtraEnv(): ExtraEnv {
   const extraEnv = core
     .getMultilineInput('setEnv', { trimWhitespace: false })
-    .map(line => line.trimStart())
+    .map(line => line.replace(/\r$/, '').trimStart())
     .reduce(
       (env, line) => {
         if (line === '') {
@@ -75,6 +93,12 @@ function listExtraEnv(): ExtraEnv {
         }
         const key = match[1]!
         const value = parseEnvValue(match[2]!)
+        if (value === undefined) {
+          core.warning(
+            `Ignoring setEnv line with invalid quotes: ${redactValue(line)}`
+          )
+          return env
+        }
         env[key] = value
         return env
       },
