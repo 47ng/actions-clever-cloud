@@ -78,13 +78,11 @@ describe('manual e2e workflow policies', () => {
       'node-version-file: .workflow-source/.node-version'
     )
     expect(reusableWorkflow).toContain('working-directory: .workflow-source')
-    expect(reusableWorkflow).toContain(
-      'pnpm install --frozen-lockfile --ignore-scripts --prod'
-    )
     expect(reusableWorkflow).toContain('working-directory: .candidate-source')
     expect(reusableWorkflow).toContain(
       'pnpm install --frozen-lockfile --ignore-scripts'
     )
+    expect(reusableWorkflow).not.toContain('--prod')
     expect(reusableWorkflow).toContain('persist-credentials: false')
     expect(reusableWorkflow).toContain(
       'OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml'

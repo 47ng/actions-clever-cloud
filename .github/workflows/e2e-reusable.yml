@@ -191,7 +191,7 @@ jobs:
       - name: Install workflow pinning dependencies
         if: steps.candidate-state.outputs.proceed == 'true'
         working-directory: .workflow-source
-        run: pnpm install --frozen-lockfile --ignore-scripts --prod
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Install candidate dependencies
         if: steps.candidate-state.outputs.proceed == 'true'

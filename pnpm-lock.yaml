@@ -21,9 +21,6 @@ importers:
       clever-tools:
         specifier: ^4.11.0
         version: 4.11.0(@types/node@24.13.2)
-      yaml:
-        specifier: ^2.9.0
-        version: 2.9.0
     devDependencies:
       '@types/node':
         specifier: ^24.13.2
@@ -43,6 +40,9 @@ importers:
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@24.13.2)(vite@7.1.9(@types/node@24.13.2)(jiti@2.7.0)(yaml@2.9.0))
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
 
 packages:
 

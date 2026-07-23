@@ -35,8 +35,7 @@
   "dependencies": {
     "@actions/core": "^3.0.1",
     "@actions/exec": "^3.0.0",
-    "clever-tools": "^4.11.0",
-    "yaml": "^2.9.0"
+    "clever-tools": "^4.11.0"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",
@@ -44,7 +43,8 @@
     "prettier": "^3.9.4",
     "tsdown": "^0.22.3",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "yaml": "^2.9.0"
   },
   "prettier": {
     "printWidth": 80,
