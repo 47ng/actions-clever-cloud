@@ -9,7 +9,7 @@ function readProjectFile(path: string): string {
 const reusableWorkflow = readProjectFile('../.github/workflows/e2e-reusable.yml')
 
 describe('e2e failure evidence workflow policies', () => {
-  test('the reusable workflow writes structured results, prepares redacted failure evidence before teardown, and uploads only failure artifacts without credentials', () => {
+  test('the reusable workflow writes structured results, prepares safe failure evidence inside teardown, and uploads only verified failure artifacts without credentials', () => {
     expect(reusableWorkflow).toContain('name: Prepare evidence directories')
     expect(reusableWorkflow).toContain('name: Write structured scenario results')
     expect(reusableWorkflow).toContain(
@@ -20,10 +20,11 @@ describe('e2e failure evidence workflow policies', () => {
     )
     expect(reusableWorkflow).toContain('baselineInstanceId: null')
     expect(reusableWorkflow).toContain('instanceId:')
-    expect(reusableWorkflow).toContain(
-      "name: Prepare failure evidence\n        if: always() && steps.candidate-state.outputs.proceed == 'true'"
-    )
-    expect(reusableWorkflow).toContain('name: Verify failure evidence after teardown')
+    expect(reusableWorkflow).not.toContain('name: Prepare failure evidence')
+    expect(reusableWorkflow).not.toContain('name: Verify failure evidence after teardown')
+    expect(reusableWorkflow).toContain('id: delete-app')
+    expect(reusableWorkflow).toContain('failure_evidence_ready=true')
+    expect(reusableWorkflow).toContain("steps.delete-app.outputs.failure_evidence_ready == 'true'")
     expect(reusableWorkflow).toContain('name: Upload failure evidence')
     expect(reusableWorkflow).toContain('logFile: .e2e-artifacts/candidate-action/001-deploy-healthy.log')
     expect(reusableWorkflow).toContain('logFile: .e2e-artifacts/candidate-action/002-deploy-env.log')
@@ -49,8 +50,7 @@ describe('e2e failure evidence workflow policies', () => {
     expect(reusableWorkflow).toContain("candidateActionLogs: ['candidate-action/010-divergent-no-force.log']")
     expect(reusableWorkflow).toContain("candidateActionLogs: ['candidate-action/011-divergent-force.log']")
     expect(reusableWorkflow).toContain("candidateActionLogs: ['candidate-action/012-timeout.log']")
-    expect(reusableWorkflow).toContain("steps.prepare-failure-evidence.outcome == 'success'")
-    expect(reusableWorkflow).toContain("steps.verify-failure-evidence.outcome == 'success'")
+    expect(reusableWorkflow).toContain("steps.delete-app.outputs.failure_evidence_ready == 'true'")
     expect(reusableWorkflow).toContain('candidate-action/007-build-failure.log')
     expect(reusableWorkflow).toContain('candidate-action/008-startup-failure.log')
     expect(reusableWorkflow).toContain('candidate-action/009-recovery.log')
@@ -59,16 +59,28 @@ describe('e2e failure evidence workflow policies', () => {
     expect(reusableWorkflow).toContain('candidate-action/012-timeout.log')
     expect(reusableWorkflow).toContain('retention-days: 3')
     expect(reusableWorkflow).toContain('name: clever-cloud-e2e-failure-${{ github.run_id }}-${{ github.run_attempt }}')
+    expect(reusableWorkflow).toContain('uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3')
+    expect(reusableWorkflow).not.toContain(
+      "import { prepareFailureEvidence } from './.candidate-source/src/e2e/evidence.ts'"
+    )
+    expect(reusableWorkflow).not.toContain(
+      "import { verifyPreparedFailureEvidence } from './.candidate-source/src/e2e/evidence.ts'"
+    )
 
-    const prepareIndex = reusableWorkflow.indexOf('name: Prepare failure evidence')
+    const resultsIndex = reusableWorkflow.indexOf('name: Write structured scenario results')
     const deleteIndex = reusableWorkflow.indexOf('name: Delete the captured app')
-    const verifyIndex = reusableWorkflow.indexOf('name: Verify failure evidence after teardown')
     const uploadIndex = reusableWorkflow.indexOf('name: Upload failure evidence')
 
-    expect(prepareIndex).toBeGreaterThan(-1)
-    expect(deleteIndex).toBeGreaterThan(prepareIndex)
-    expect(verifyIndex).toBeGreaterThan(deleteIndex)
-    expect(uploadIndex).toBeGreaterThan(verifyIndex)
+    expect(resultsIndex).toBeGreaterThan(-1)
+    expect(deleteIndex).toBeGreaterThan(resultsIndex)
+    expect(uploadIndex).toBeGreaterThan(deleteIndex)
+
+    const deleteStep = reusableWorkflow.slice(deleteIndex, uploadIndex)
+    expect(deleteStep).toContain('CLEVER_TOKEN')
+    expect(deleteStep).toContain('CLEVER_SECRET')
+    expect(deleteStep).toContain('OUTPUT_DIR: ${{ github.workspace }}/.e2e-artifacts/upload')
+    expect(deleteStep).toContain('RESULTS_PATH: ${{ github.workspace }}/.e2e-state/suite-results.json')
+    expect(deleteStep).not.toContain("from './.candidate-source/")
 
     const uploadStep = reusableWorkflow.slice(uploadIndex, reusableWorkflow.length)
     expect(uploadStep).not.toContain('CLEVER_TOKEN')

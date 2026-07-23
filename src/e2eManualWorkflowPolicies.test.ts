@@ -95,7 +95,9 @@ describe('manual e2e workflow policies', () => {
     expect(reusableWorkflow).toContain('requestController.abort()')
     expect(reusableWorkflow).toContain("const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`")
     expect(reusableWorkflow).toContain("controller.getApplication(appId)")
-    expect(reusableWorkflow).toContain("controller.deleteApplication({ appId, name: appName })")
+    expect(reusableWorkflow).toContain("await deleteApplication({ appId, name: appName })")
+    expect(reusableWorkflow).toContain("['delete', '--app', appId, '--yes']")
+    expect(reusableWorkflow).toContain('Invalid captured app ID for teardown')
     expect(reusableWorkflow).toContain("controller.findApplicationByName(appName)")
     expect(reusableWorkflow).toContain('appId: recoveredApplication.appId')
     expect(reusableWorkflow).toContain('name: recoveredApplication.name')
@@ -106,6 +108,28 @@ describe('manual e2e workflow policies', () => {
     expect(reusableWorkflow).toContain('pr.head.sha !== headSha')
     expect(reusableWorkflow).toContain('caller === \"automatic\"')
     expect(reusableWorkflow).toContain("addRaw('superseded')")
+
+    const staleCheckIndex = reusableWorkflow.indexOf('name: Recheck staleness after approval')
+    const checkoutIndex = reusableWorkflow.indexOf('name: Checkout candidate source')
+    const installIndex = reusableWorkflow.indexOf('name: Install candidate dependencies')
+    const pinIndex = reusableWorkflow.indexOf('name: Verify and pin candidate action metadata')
+    const createAppIndex = reusableWorkflow.indexOf('name: Create personal Node.js app')
+
+    expect(staleCheckIndex).toBeGreaterThan(-1)
+    expect(checkoutIndex).toBeGreaterThan(staleCheckIndex)
+    expect(installIndex).toBeGreaterThan(checkoutIndex)
+    expect(pinIndex).toBeGreaterThan(installIndex)
+    expect(createAppIndex).toBeGreaterThan(pinIndex)
+    expect(reusableWorkflow).toContain(
+      "name: Checkout candidate source\n        if: steps.candidate-state.outputs.proceed == 'true'"
+    )
+    expect(reusableWorkflow).toContain(
+      "name: Install candidate dependencies\n        if: steps.candidate-state.outputs.proceed == 'true'"
+    )
+    expect(reusableWorkflow).toContain(
+      "name: Verify and pin candidate action metadata\n        if: steps.candidate-state.outputs.proceed == 'true'"
+    )
+
     expect(reusableWorkflow).toContain(
       "name: Create personal Node.js app\n        if: steps.candidate-state.outputs.proceed == 'true'"
     )

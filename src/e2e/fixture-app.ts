@@ -17,7 +17,7 @@ export type FixtureHealth = {
 
 type FixtureLogState = Omit<FixtureHealth, 'healthValue'>
 
-export function readFixtureHealth(
+function readFixtureHealth(
   env: NodeJS.ProcessEnv = process.env
 ): FixtureHealth {
   return {
@@ -30,7 +30,7 @@ export function readFixtureHealth(
   }
 }
 
-export async function startFixtureApp(
+async function startFixtureApp(
   env: NodeJS.ProcessEnv = process.env
 ): Promise<void> {
   const portValue = env.PORT

@@ -74,97 +74,6 @@ jobs:
           }
           EOF
 
-      - name: Checkout candidate source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ inputs.head_sha }}
-          path: .candidate-source
-          persist-credentials: false
-
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-        with:
-          version: 11.10.0
-
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version-file: .candidate-source/.node-version
-          cache: pnpm
-          cache-dependency-path: .candidate-source/pnpm-lock.yaml
-
-      - name: Install candidate dependencies
-        working-directory: .candidate-source
-        run: pnpm install --frozen-lockfile --ignore-scripts
-
-      - name: Verify and pin candidate action metadata
-        env:
-          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
-          OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
-        run: |
-          node --input-type=module <<'EOF'
-          import { mkdir, readFile, writeFile } from 'node:fs/promises'
-          import path from 'node:path'
-          import { pinActionMetadata } from './.candidate-source/src/e2e/candidate-image.ts'
-
-          const image = process.env.CANDIDATE_IMAGE
-          const outputActionPath = process.env.OUTPUT_ACTION_PATH
-
-          if (!image || !outputActionPath) {
-            throw new Error('Missing candidate pinning environment variables')
-          }
-
-          const actionMetadata = await readFile('./.candidate-source/action.yml', 'utf8')
-          const pinnedMetadata = pinActionMetadata({
-            actionMetadata,
-            image
-          })
-
-          await mkdir(path.dirname(outputActionPath), {
-            recursive: true
-          })
-          await writeFile(outputActionPath, pinnedMetadata)
-          EOF
-
-      - name: Build run-based app name
-        id: app-name
-        env:
-          RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile } from 'node:fs/promises'
-          import { buildE2EApplicationName } from './.candidate-source/src/e2e/clever-client.ts'
-
-          const runId = process.env.RUN_ID
-          const runAttempt = process.env.RUN_ATTEMPT
-          const githubOutput = process.env.GITHUB_OUTPUT
-
-          if (!runId || !runAttempt || !githubOutput) {
-            throw new Error('Missing run identity for app naming')
-          }
-
-          const name = buildE2EApplicationName({ runId, runAttempt })
-          await appendFile(githubOutput, `name=${name}\n`)
-          EOF
-
-      - name: Create fixture repository
-        id: fixture
-        env:
-          WORKSPACE_DIR: ${{ github.workspace }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile } from 'node:fs/promises'
-          import { createFixtureRepository } from './.candidate-source/src/e2e/git-fixture.ts'
-
-          const workspaceDir = process.env.WORKSPACE_DIR
-          const githubOutput = process.env.GITHUB_OUTPUT
-          if (!workspaceDir || !githubOutput) {
-            throw new Error('Missing fixture setup outputs')
-          }
-
-          const fixture = await createFixtureRepository({ workspaceDir })
-          await appendFile(githubOutput, `commit=${fixture.commit}\n`)
-          EOF
-
       - name: Recheck staleness after approval
         id: candidate-state
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -220,6 +129,104 @@ jobs:
             }
 
             core.setOutput("proceed", "true");
+
+      - name: Checkout candidate source
+        if: steps.candidate-state.outputs.proceed == 'true'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.head_sha }}
+          path: .candidate-source
+          persist-credentials: false
+
+      - if: steps.candidate-state.outputs.proceed == 'true'
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.10.0
+
+      - if: steps.candidate-state.outputs.proceed == 'true'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .candidate-source/.node-version
+          cache: pnpm
+          cache-dependency-path: .candidate-source/pnpm-lock.yaml
+
+      - name: Install candidate dependencies
+        if: steps.candidate-state.outputs.proceed == 'true'
+        working-directory: .candidate-source
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Verify and pin candidate action metadata
+        if: steps.candidate-state.outputs.proceed == 'true'
+        env:
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
+        run: |
+          node --input-type=module <<'EOF'
+          import { mkdir, readFile, writeFile } from 'node:fs/promises'
+          import path from 'node:path'
+          import { pinActionMetadata } from './.candidate-source/src/e2e/candidate-image.ts'
+
+          const image = process.env.CANDIDATE_IMAGE
+          const outputActionPath = process.env.OUTPUT_ACTION_PATH
+
+          if (!image || !outputActionPath) {
+            throw new Error('Missing candidate pinning environment variables')
+          }
+
+          const actionMetadata = await readFile('./.candidate-source/action.yml', 'utf8')
+          const pinnedMetadata = pinActionMetadata({
+            actionMetadata,
+            image
+          })
+
+          await mkdir(path.dirname(outputActionPath), {
+            recursive: true
+          })
+          await writeFile(outputActionPath, pinnedMetadata)
+          EOF
+
+      - name: Build run-based app name
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: app-name
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { appendFile } from 'node:fs/promises'
+          import { buildE2EApplicationName } from './.candidate-source/src/e2e/clever-client.ts'
+
+          const runId = process.env.RUN_ID
+          const runAttempt = process.env.RUN_ATTEMPT
+          const githubOutput = process.env.GITHUB_OUTPUT
+
+          if (!runId || !runAttempt || !githubOutput) {
+            throw new Error('Missing run identity for app naming')
+          }
+
+          const name = buildE2EApplicationName({ runId, runAttempt })
+          await appendFile(githubOutput, `name=${name}\n`)
+          EOF
+
+      - name: Create fixture repository
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: fixture
+        env:
+          WORKSPACE_DIR: ${{ github.workspace }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { appendFile } from 'node:fs/promises'
+          import { createFixtureRepository } from './.candidate-source/src/e2e/git-fixture.ts'
+
+          const workspaceDir = process.env.WORKSPACE_DIR
+          const githubOutput = process.env.GITHUB_OUTPUT
+          if (!workspaceDir || !githubOutput) {
+            throw new Error('Missing fixture setup outputs')
+          }
+
+          const fixture = await createFixtureRepository({ workspaceDir })
+          await appendFile(githubOutput, `commit=${fixture.commit}\n`)
+          EOF
 
       - name: Prepare evidence directories
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -2429,12 +2436,16 @@ jobs:
           )
           EOF
 
-      - name: Prepare failure evidence
+      - name: Delete the captured app
         if: always() && steps.candidate-state.outputs.proceed == 'true'
-        id: prepare-failure-evidence
+        id: delete-app
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          APP_NAME: ${{ steps.create.outputs.app_name }}
+          APP_ID_FILE: ${{ github.workspace }}/.e2e-state/app.json
+          HAS_APP_ID_FILE: ${{ hashFiles('.e2e-state/app.json') != '' }}
           OUTPUT_DIR: ${{ github.workspace }}/.e2e-artifacts/upload
           RESULTS_PATH: ${{ github.workspace }}/.e2e-state/suite-results.json
           HEALTHY_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/001-deploy-healthy.log
@@ -2451,10 +2462,25 @@ jobs:
           TIMEOUT_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/012-timeout.log
         run: |
           node --input-type=module <<'EOF'
+          import { Buffer } from 'node:buffer'
+          import { execFile } from 'node:child_process'
           import { constants } from 'node:fs'
-          import { access } from 'node:fs/promises'
-          import { prepareFailureEvidence } from './.candidate-source/src/e2e/evidence.ts'
+          import {
+            access,
+            appendFile,
+            mkdir,
+            readFile,
+            readdir,
+            rm,
+            writeFile
+          } from 'node:fs/promises'
+          import path from 'node:path'
+          import { promisify } from 'node:util'
 
+          const REDACTION = '[REDACTED]'
+          const execFileAsync = promisify(execFile)
+          const githubOutput = process.env.GITHUB_OUTPUT
+          const hasAppIdFile = process.env.HAS_APP_ID_FILE === 'true'
           const outputDir = process.env.OUTPUT_DIR
           const resultsPath = process.env.RESULTS_PATH
           const healthyLogPath = process.env.HEALTHY_LOG_PATH
@@ -2471,6 +2497,10 @@ jobs:
           const timeoutLogPath = process.env.TIMEOUT_LOG_PATH
           const token = process.env.CLEVER_TOKEN
           const secret = process.env.CLEVER_SECRET
+          let appId = process.env.APP_ID
+          let appName = process.env.APP_NAME
+          const appIdFile = process.env.APP_ID_FILE
+          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
 
           if (
             !outputDir ||
@@ -2490,174 +2520,369 @@ jobs:
             !token ||
             !secret
           ) {
-            throw new Error('Missing failure evidence inputs')
+            throw new Error('Missing teardown or failure evidence inputs')
           }
 
-          const candidates = [
-            {
-              sourcePath: resultsPath,
-              artifactPath: 'suite-results.json'
-            }
-          ]
+          const APP_ID_REGEX = /^app_[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/
+          const COMMAND_TIMEOUT_MS = 30_000
+          const SETTLE_TIMEOUT_MS = 10 * 60_000
+          const POLL_INTERVAL_MS = 5_000
+          const IN_PROGRESS_STATES = new Set(['WIP', 'PENDING', 'QUEUED', 'RUNNING'])
 
-          for (const logCandidate of [
-            {
-              sourcePath: healthyLogPath,
-              artifactPath: 'candidate-action/001-deploy-healthy.log'
-            },
-            {
-              sourcePath: envLogPath,
-              artifactPath: 'candidate-action/002-deploy-env.log'
-            },
-            {
-              sourcePath: sameCommitErrorLogPath,
-              artifactPath: 'candidate-action/003-same-commit-error.log'
-            },
-            {
-              sourcePath: sameCommitIgnoreLogPath,
-              artifactPath: 'candidate-action/004-same-commit-ignore.log'
-            },
-            {
-              sourcePath: sameCommitRestartLogPath,
-              artifactPath: 'candidate-action/005-same-commit-restart.log'
-            },
-            {
-              sourcePath: sameCommitRebuildLogPath,
-              artifactPath: 'candidate-action/006-same-commit-rebuild.log'
-            },
-            {
-              sourcePath: buildFailureLogPath,
-              artifactPath: 'candidate-action/007-build-failure.log'
-            },
-            {
-              sourcePath: startupFailureLogPath,
-              artifactPath: 'candidate-action/008-startup-failure.log'
-            },
-            {
-              sourcePath: recoveryLogPath,
-              artifactPath: 'candidate-action/009-recovery.log'
-            },
-            {
-              sourcePath: divergentNoForceLogPath,
-              artifactPath: 'candidate-action/010-divergent-no-force.log'
-            },
-            {
-              sourcePath: divergentForceLogPath,
-              artifactPath: 'candidate-action/011-divergent-force.log'
-            },
-            {
-              sourcePath: timeoutLogPath,
-              artifactPath: 'candidate-action/012-timeout.log'
-            }
-          ]) {
+          function messageFrom(error) {
+            return error instanceof Error ? error.message : String(error)
+          }
+
+          function remainingBeforeDeadline(deadlineAt) {
+            return Math.max(0, deadlineAt - Date.now())
+          }
+
+          async function sleepUntilNextPoll(deadlineAt) {
+            await new Promise(resolve =>
+              setTimeout(resolve, Math.min(POLL_INTERVAL_MS, remainingBeforeDeadline(deadlineAt)))
+            )
+          }
+
+          async function runCleverCommand(args, timeoutMs = COMMAND_TIMEOUT_MS) {
             try {
-              await access(logCandidate.sourcePath, constants.F_OK)
-              candidates.push(logCandidate)
+              const { stdout, stderr } = await execFileAsync(cleverCLI, args, {
+                encoding: 'utf8',
+                env: process.env,
+                timeout: timeoutMs,
+                maxBuffer: 1024 * 1024 * 10,
+              })
+              return { stdout, stderr }
             } catch (error) {
-              if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') {
-                throw error
+              throw new Error(error.stderr?.trim() || error.message)
+            }
+          }
+
+          async function listActivity(appId, timeoutMs = COMMAND_TIMEOUT_MS) {
+            const result = await runCleverCommand(
+              ['activity', '--app', appId, '--format', 'json'],
+              timeoutMs
+            )
+
+            return JSON.parse(result.stdout)
+          }
+
+          async function readActiveDeployments(appId, timeoutMs = COMMAND_TIMEOUT_MS) {
+            return (await listActivity(appId, timeoutMs)).filter(
+              deployment =>
+                deployment.action === 'DEPLOY' &&
+                IN_PROGRESS_STATES.has(deployment.state ?? '')
+            )
+          }
+
+          async function listApplications(timeoutMs = COMMAND_TIMEOUT_MS) {
+            const result = await runCleverCommand(
+              ['applications', 'list', '--format', 'json'],
+              timeoutMs
+            )
+
+            return JSON.parse(result.stdout)
+          }
+
+          async function verifyApplicationDeletion(appId) {
+            const organisations = await listApplications()
+            const isStillPresent = organisations.some(organisation =>
+              organisation.applications?.some(application => application.app_id === appId)
+            )
+
+            if (isStillPresent) {
+              throw new Error(`Application ${appId} still exists after deletion`)
+            }
+          }
+
+          async function waitForCancelledDeployment(appId, timeoutMs = SETTLE_TIMEOUT_MS) {
+            const deadline = Date.now() + timeoutMs
+
+            for (;;) {
+              const activeDeployment = (
+                await readActiveDeployments(
+                  appId,
+                  Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
+                )
+              ).at(0)
+
+              if (Date.now() >= deadline) {
+                throw new Error(
+                  `Timed out while waiting for deployment cancellation for ${appId}`
+                )
               }
+
+              if (!activeDeployment) {
+                return
+              }
+
+              await sleepUntilNextPoll(deadline)
             }
           }
 
-          await prepareFailureEvidence({
-            outputDir,
-            candidates,
-            credentials: {
-              token,
-              secret
+          async function deleteApplication({ appId, name }) {
+            try {
+              const deadline = Date.now() + SETTLE_TIMEOUT_MS
+              const activeDeployments = await readActiveDeployments(
+                appId,
+                Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
+              )
+
+              if (activeDeployments.length > 0) {
+                await runCleverCommand(
+                  ['cancel-deploy', '--app', appId],
+                  Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
+                )
+                await waitForCancelledDeployment(
+                  appId,
+                  remainingBeforeDeadline(deadline)
+                )
+              }
+
+              await runCleverCommand(['delete', '--app', appId, '--yes'])
+              await verifyApplicationDeletion(appId)
+            } catch (error) {
+              throw new Error(`Failed to delete ${name} (${appId}): ${messageFrom(error)}`)
             }
-          })
-          EOF
-
-      - name: Delete the captured app
-        if: always() && (steps.create.outputs.app_id != '' || hashFiles('.e2e-state/app.json') != '')
-        env:
-          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
-          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
-          APP_ID: ${{ steps.create.outputs.app_id }}
-          APP_NAME: ${{ steps.create.outputs.app_name }}
-          APP_ID_FILE: ${{ github.workspace }}/.e2e-state/app.json
-        run: |
-          node --input-type=module <<'EOF'
-          import { readFile } from 'node:fs/promises'
-          import { execFile } from 'node:child_process'
-          import { promisify } from 'node:util'
-          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
-
-          const execFileAsync = promisify(execFile)
-          let appId = process.env.APP_ID
-          let appName = process.env.APP_NAME
-          const appIdFile = process.env.APP_ID_FILE
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
-
-          if ((!appId || !appName) && appIdFile) {
-            const persisted = JSON.parse(await readFile(appIdFile, 'utf8'))
-            appId ??= persisted.appId
-            appName ??= persisted.name
           }
 
-          if (!appId || !appName) {
-            throw new Error('Missing captured app identity for teardown')
-          }
+          function buildSensitivePatterns(credentials) {
+            const combined = `${credentials.token}:${credentials.secret}`
+            const values = [credentials.token, credentials.secret, combined]
 
-          const controller = createCleverController({
-            cleverCLI,
-            runCommand: async (cli, args, { timeoutMs }) => {
-              try {
-                const { stdout, stderr } = await execFileAsync(cli, args, {
-                  encoding: 'utf8',
-                  env: process.env,
-                  timeout: timeoutMs,
-                  maxBuffer: 1024 * 1024 * 10,
+            return Array.from(
+              new Set(
+                values.flatMap(value => {
+                  const base64 = Buffer.from(value, 'utf8').toString('base64')
+
+                  return [
+                    value,
+                    encodeURIComponent(value),
+                    base64,
+                    base64.replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '')
+                  ]
                 })
-                return { stdout, stderr }
-              } catch (error) {
-                throw new Error(error.stderr?.trim() || error.message)
+              )
+            ).sort((left, right) => right.length - left.length)
+          }
+
+          function redactArtifactContent(content, credentials) {
+            let redacted = content
+
+            for (const pattern of buildSensitivePatterns(credentials)) {
+              redacted = redacted.split(pattern).join(REDACTION)
+            }
+
+            return redacted
+          }
+
+          function scanArtifactContent(content, credentials) {
+            for (const pattern of buildSensitivePatterns(credentials)) {
+              if (content.includes(pattern)) {
+                throw new Error('Artifact still contains redaction target content')
               }
-            },
-          })
+            }
+          }
+
+          function assertSafeArtifactPath(artifactPath) {
+            if (
+              artifactPath.startsWith('/') ||
+              artifactPath.split('/').some(segment => segment === '..' || segment === '.' || segment === '') ||
+              !/^[A-Za-z0-9._/-]+$/.test(artifactPath)
+            ) {
+              throw new Error(`Unsafe artifact path: ${artifactPath}`)
+            }
+
+            return artifactPath
+          }
+
+          async function listPreparedEvidenceFiles(directory) {
+            const entries = await readdir(directory, {
+              withFileTypes: true
+            })
+
+            const files = await Promise.all(
+              entries.map(async entry => {
+                const entryPath = path.join(directory, entry.name)
+
+                if (entry.isDirectory()) {
+                  return listPreparedEvidenceFiles(entryPath)
+                }
+
+                if (entry.isFile()) {
+                  return [entryPath]
+                }
+
+                return []
+              })
+            )
+
+            return files.flat()
+          }
+
+          async function prepareFailureEvidence({ outputDir, candidates, credentials }) {
+            await rm(outputDir, {
+              force: true,
+              recursive: true
+            })
+
+            for (const candidate of candidates) {
+              const artifactPath = assertSafeArtifactPath(candidate.artifactPath)
+              const redacted = redactArtifactContent(
+                await readFile(candidate.sourcePath, 'utf8'),
+                credentials
+              )
+
+              scanArtifactContent(redacted, credentials)
+
+              const destinationPath = path.join(outputDir, artifactPath)
+              await mkdir(path.dirname(destinationPath), {
+                recursive: true
+              })
+              await writeFile(destinationPath, redacted, 'utf8')
+            }
+          }
+
+          async function verifyPreparedFailureEvidence({ outputDir, credentials }) {
+            for (const filePath of await listPreparedEvidenceFiles(outputDir)) {
+              scanArtifactContent(await readFile(filePath, 'utf8'), credentials)
+            }
+          }
+
+          async function buildEvidenceCandidates() {
+            const candidates = [
+              {
+                sourcePath: resultsPath,
+                artifactPath: 'suite-results.json'
+              }
+            ]
+
+            for (const logCandidate of [
+              {
+                sourcePath: healthyLogPath,
+                artifactPath: 'candidate-action/001-deploy-healthy.log'
+              },
+              {
+                sourcePath: envLogPath,
+                artifactPath: 'candidate-action/002-deploy-env.log'
+              },
+              {
+                sourcePath: sameCommitErrorLogPath,
+                artifactPath: 'candidate-action/003-same-commit-error.log'
+              },
+              {
+                sourcePath: sameCommitIgnoreLogPath,
+                artifactPath: 'candidate-action/004-same-commit-ignore.log'
+              },
+              {
+                sourcePath: sameCommitRestartLogPath,
+                artifactPath: 'candidate-action/005-same-commit-restart.log'
+              },
+              {
+                sourcePath: sameCommitRebuildLogPath,
+                artifactPath: 'candidate-action/006-same-commit-rebuild.log'
+              },
+              {
+                sourcePath: buildFailureLogPath,
+                artifactPath: 'candidate-action/007-build-failure.log'
+              },
+              {
+                sourcePath: startupFailureLogPath,
+                artifactPath: 'candidate-action/008-startup-failure.log'
+              },
+              {
+                sourcePath: recoveryLogPath,
+                artifactPath: 'candidate-action/009-recovery.log'
+              },
+              {
+                sourcePath: divergentNoForceLogPath,
+                artifactPath: 'candidate-action/010-divergent-no-force.log'
+              },
+              {
+                sourcePath: divergentForceLogPath,
+                artifactPath: 'candidate-action/011-divergent-force.log'
+              },
+              {
+                sourcePath: timeoutLogPath,
+                artifactPath: 'candidate-action/012-timeout.log'
+              }
+            ]) {
+              try {
+                await access(logCandidate.sourcePath, constants.F_OK)
+                candidates.push(logCandidate)
+              } catch (error) {
+                if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') {
+                  throw error
+                }
+              }
+            }
+
+            return candidates
+          }
+
+          const credentials = { token, secret }
+          const errors = []
+          let evidencePrepared = false
 
           try {
-            await controller.deleteApplication({ appId, name: appName })
+            await prepareFailureEvidence({
+              outputDir,
+              candidates: await buildEvidenceCandidates(),
+              credentials
+            })
+            evidencePrepared = true
           } catch (error) {
-            const message = error instanceof Error ? error.message : String(error)
-            console.error(`::error::${message}`)
-            throw error
-          }
-          EOF
-
-      - name: Verify failure evidence after teardown
-        if: failure() && steps.prepare-failure-evidence.outcome == 'success'
-        id: verify-failure-evidence
-        env:
-          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
-          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
-          OUTPUT_DIR: ${{ github.workspace }}/.e2e-artifacts/upload
-        run: |
-          node --input-type=module <<'EOF'
-          import { verifyPreparedFailureEvidence } from './.candidate-source/src/e2e/evidence.ts'
-
-          const outputDir = process.env.OUTPUT_DIR
-          const token = process.env.CLEVER_TOKEN
-          const secret = process.env.CLEVER_SECRET
-
-          if (!outputDir || !token || !secret) {
-            throw new Error('Missing failure evidence verification inputs')
+            errors.push(`Failure evidence preparation failed: ${messageFrom(error)}`)
           }
 
-          await verifyPreparedFailureEvidence({
-            outputDir,
-            credentials: {
-              token,
-              secret
+          if ((!appId || !appName) && hasAppIdFile && appIdFile) {
+            try {
+              const persisted = JSON.parse(await readFile(appIdFile, 'utf8'))
+              appId ??= persisted.appId
+              appName ??= persisted.name
+            } catch (error) {
+              errors.push(`Failed to read captured app identity: ${messageFrom(error)}`)
             }
-          })
+          }
+
+          if (appId && !APP_ID_REGEX.test(appId)) {
+            errors.push(`Invalid captured app ID for teardown: ${appId}`)
+          } else if (appId && appName) {
+            try {
+              await deleteApplication({ appId, name: appName })
+            } catch (error) {
+              errors.push(`App teardown failed: ${messageFrom(error)}`)
+            }
+          }
+
+          if (evidencePrepared) {
+            try {
+              await verifyPreparedFailureEvidence({
+                outputDir,
+                credentials
+              })
+              if (githubOutput) {
+                await appendFile(githubOutput, 'failure_evidence_ready=true\n')
+              }
+            } catch (error) {
+              errors.push(`Failure evidence verification failed: ${messageFrom(error)}`)
+            }
+          }
+
+          if ((!appId || !appName) && (hasAppIdFile || Boolean(process.env.APP_ID) || Boolean(process.env.APP_NAME))) {
+            errors.push('Missing captured app identity for teardown')
+          }
+
+          if (errors.length > 0) {
+            for (const errorMessage of errors) {
+              console.error(`::error::${errorMessage}`)
+            }
+            throw new Error(errors.join('\n'))
+          }
           EOF
 
       - name: Upload failure evidence
-        if: failure() && steps.prepare-failure-evidence.outcome == 'success' && steps.verify-failure-evidence.outcome == 'success'
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.1
+        if: failure() && steps.delete-app.outputs.failure_evidence_ready == 'true'
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         with:
           name: clever-cloud-e2e-failure-${{ github.run_id }}-${{ github.run_attempt }}
           path: .e2e-artifacts/upload
