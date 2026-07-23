@@ -22,6 +22,8 @@ const DEFAULT_SETTLE_TIMEOUT_MS = 10 * 60_000
 const DEFAULT_POLL_INTERVAL_MS = 5_000
 const DEFAULT_HEALTH_CHECK_TIMEOUT_MS = 10_000
 const SUCCESS_STATES = new Set(['SUCCESS', 'SUCCEEDED', 'DONE'])
+const FAILED_STATES = new Set(['FAIL', 'FAILED', 'ERROR', 'FAILURE'])
+const IN_PROGRESS_STATES = new Set(['WIP', 'PENDING', 'QUEUED', 'RUNNING'])
 
 export async function confirmNoNewDeploymentActivity({
   appId,
@@ -94,6 +96,51 @@ export async function waitForNewSuccessfulDeploymentActivity({
     if (elapsedMs >= settleTimeoutMs) {
       throw new Error(
         `Timed out while waiting for a new successful deployment activity for ${appId}`
+      )
+    }
+
+    await sleep(pollIntervalMs)
+    elapsedMs += pollIntervalMs
+  }
+}
+
+export async function waitForNewFailedDeploymentActivity({
+  appId,
+  expectedCommitID,
+  previousActivity,
+  listActivity,
+  sleep = defaultSleep,
+  settleTimeoutMs = DEFAULT_SETTLE_TIMEOUT_MS,
+  pollIntervalMs = DEFAULT_POLL_INTERVAL_MS
+}: {
+  appId: string
+  expectedCommitID: string
+  previousActivity: DeploymentActivity[]
+  listActivity: (appId: string) => Promise<DeploymentActivity[]>
+  sleep?: Sleep
+  settleTimeoutMs?: number
+  pollIntervalMs?: number
+}): Promise<DeploymentActivity> {
+  let elapsedMs = 0
+  const previousSnapshot = new Set(previousActivity.map(serializeActivity))
+
+  for (;;) {
+    const activity = await listActivity(appId)
+    const deployment = activity.find(
+      entry =>
+        entry.action === 'DEPLOY' &&
+        entry.commit === expectedCommitID &&
+        isFailedDeploymentState(entry.state) &&
+        !previousSnapshot.has(serializeActivity(entry))
+    )
+
+    if (deployment?.uuid) {
+      return deployment
+    }
+
+    if (elapsedMs >= settleTimeoutMs) {
+      throw new Error(
+        `Timed out while waiting for a new failed deployment activity for ${appId}`
       )
     }
 
@@ -265,6 +312,10 @@ function hasMatchingActivitySnapshot(
     previousSnapshot.length === currentSnapshot.length &&
     previousSnapshot.every((entry, index) => entry === currentSnapshot[index])
   )
+}
+
+function isFailedDeploymentState(state: string | undefined): boolean {
+  return Boolean(state && FAILED_STATES.has(state) && !IN_PROGRESS_STATES.has(state))
 }
 
 function serializeActivity(activity: DeploymentActivity): string {

@@ -2,6 +2,7 @@ import { expect, test } from 'vitest'
 import {
   confirmNoNewDeploymentActivity,
   waitForHealthyDeployment,
+  waitForNewFailedDeploymentActivity,
   waitForNewSuccessfulDeploymentActivity
 } from './deployment-observer'
 
@@ -301,6 +302,414 @@ test('waits for a new successful same-commit deploy activity before restart or r
     state: 'SUCCESS',
     uuid: 'deployment-456',
     commit: 'commit-123'
+  })
+})
+
+test('waits for a new failed deploy activity for the expected commit before failed-deploy checks', async () => {
+  const baselineActivity = [
+    {
+      action: 'DEPLOY',
+      state: 'SUCCESS',
+      uuid: 'deployment-123',
+      commit: 'commit-healthy'
+    }
+  ]
+  let activityCalls = 0
+
+  await expect(
+    waitForNewFailedDeploymentActivity({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      expectedCommitID: 'commit-failed',
+      previousActivity: baselineActivity,
+      listActivity: async () => {
+        activityCalls += 1
+        return activityCalls === 1
+          ? [
+              ...baselineActivity,
+              {
+                action: 'DEPLOY',
+                state: 'WIP',
+                uuid: 'deployment-failed',
+                commit: 'commit-failed'
+              }
+            ]
+          : [
+              ...baselineActivity,
+              {
+                action: 'DEPLOY',
+                state: 'FAIL',
+                uuid: 'deployment-failed',
+                commit: 'commit-failed'
+              }
+            ]
+      },
+      sleep: async () => {},
+      settleTimeoutMs: 2,
+      pollIntervalMs: 1
+    })
+  ).resolves.toEqual({
+    action: 'DEPLOY',
+    state: 'FAIL',
+    uuid: 'deployment-failed',
+    commit: 'commit-failed'
+  })
+})
+
+test('ignores cancelled, unknown, wrong-commit, and missing-id activity while waiting for a failed deploy', async () => {
+  const baselineActivity = [
+    {
+      action: 'DEPLOY',
+      state: 'SUCCESS',
+      uuid: 'deployment-123',
+      commit: 'commit-healthy'
+    }
+  ]
+  let activityCalls = 0
+
+  await expect(
+    waitForNewFailedDeploymentActivity({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      expectedCommitID: 'commit-failed',
+      previousActivity: baselineActivity,
+      listActivity: async () => {
+        activityCalls += 1
+
+        if (activityCalls === 1) {
+          return [
+            ...baselineActivity,
+            {
+              action: 'DEPLOY',
+              state: 'CANCELLED',
+              uuid: 'deployment-cancelled',
+              commit: 'commit-failed'
+            }
+          ]
+        }
+
+        if (activityCalls === 2) {
+          return [
+            ...baselineActivity,
+            {
+              action: 'DEPLOY',
+              state: 'UNKNOWN',
+              uuid: 'deployment-unknown',
+              commit: 'commit-failed'
+            }
+          ]
+        }
+
+        if (activityCalls === 3) {
+          return [
+            ...baselineActivity,
+            {
+              action: 'DEPLOY',
+              state: 'FAIL',
+              uuid: 'deployment-wrong-commit',
+              commit: 'commit-other'
+            }
+          ]
+        }
+
+        return [
+          ...baselineActivity,
+          {
+            action: 'DEPLOY',
+            state: 'FAIL',
+            commit: 'commit-failed'
+          }
+        ]
+      },
+      sleep: async () => {},
+      settleTimeoutMs: 3,
+      pollIntervalMs: 1
+    })
+  ).rejects.toThrow(
+    'Timed out while waiting for a new failed deployment activity for app_facade42-cafe-babe-cafe-deadf00dbaad'
+  )
+})
+
+test('failed build and startup deploys keep the prior healthy commit, deployment, and instance live', async () => {
+  const baselineActivity = [
+    {
+      action: 'DEPLOY',
+      state: 'SUCCESS',
+      uuid: 'deployment-healthy',
+      commit: 'commit-healthy'
+    }
+  ]
+  let buildCalls = 0
+  let startupCalls = 0
+
+  await expect(
+    waitForNewFailedDeploymentActivity({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      expectedCommitID: 'commit-build-failure',
+      previousActivity: baselineActivity,
+      listActivity: async () => {
+        buildCalls += 1
+        return buildCalls === 1
+          ? [
+              ...baselineActivity,
+              {
+                action: 'DEPLOY',
+                state: 'WIP',
+                uuid: 'deployment-build-failure',
+                commit: 'commit-build-failure'
+              }
+            ]
+          : [
+              ...baselineActivity,
+              {
+                action: 'DEPLOY',
+                state: 'FAIL',
+                uuid: 'deployment-build-failure',
+                commit: 'commit-build-failure'
+              }
+            ]
+      },
+      sleep: async () => {},
+      settleTimeoutMs: 2,
+      pollIntervalMs: 1
+    })
+  ).resolves.toEqual({
+    action: 'DEPLOY',
+    state: 'FAIL',
+    uuid: 'deployment-build-failure',
+    commit: 'commit-build-failure'
+  })
+
+  await expect(
+    waitForHealthyDeployment({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      healthURL: 'https://fixture.example.com/health',
+      expectedScenario: 'healthy',
+      expectedCommitID: 'commit-healthy',
+      expectedDeploymentID: 'deployment-healthy',
+      listActivity: async () => [
+        ...baselineActivity,
+        {
+          action: 'DEPLOY',
+          state: 'FAIL',
+          uuid: 'deployment-build-failure',
+          commit: 'commit-build-failure'
+        }
+      ],
+      fetchHealth: async () => ({
+        status: 200,
+        json: async () => ({
+          scenario: 'healthy',
+          healthValue: null,
+          INSTANCE_ID: 'instance-healthy',
+          INSTANCE_TYPE: 'production',
+          CC_DEPLOYMENT_ID: 'deployment-healthy',
+          CC_COMMIT_ID: 'commit-healthy'
+        })
+      }),
+      sleep: async () => {},
+      settleTimeoutMs: 2,
+      pollIntervalMs: 1
+    })
+  ).resolves.toEqual({
+    scenario: 'healthy',
+    healthValue: null,
+    INSTANCE_ID: 'instance-healthy',
+    INSTANCE_TYPE: 'production',
+    CC_DEPLOYMENT_ID: 'deployment-healthy',
+    CC_COMMIT_ID: 'commit-healthy'
+  })
+
+  await expect(
+    waitForNewFailedDeploymentActivity({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      expectedCommitID: 'commit-startup-failure',
+      previousActivity: [
+        ...baselineActivity,
+        {
+          action: 'DEPLOY',
+          state: 'FAIL',
+          uuid: 'deployment-build-failure',
+          commit: 'commit-build-failure'
+        }
+      ],
+      listActivity: async () => {
+        startupCalls += 1
+        return startupCalls === 1
+          ? [
+              ...baselineActivity,
+              {
+                action: 'DEPLOY',
+                state: 'FAIL',
+                uuid: 'deployment-build-failure',
+                commit: 'commit-build-failure'
+              },
+              {
+                action: 'DEPLOY',
+                state: 'WIP',
+                uuid: 'deployment-startup-failure',
+                commit: 'commit-startup-failure'
+              }
+            ]
+          : [
+              ...baselineActivity,
+              {
+                action: 'DEPLOY',
+                state: 'FAIL',
+                uuid: 'deployment-build-failure',
+                commit: 'commit-build-failure'
+              },
+              {
+                action: 'DEPLOY',
+                state: 'FAIL',
+                uuid: 'deployment-startup-failure',
+                commit: 'commit-startup-failure'
+              }
+            ]
+      },
+      sleep: async () => {},
+      settleTimeoutMs: 2,
+      pollIntervalMs: 1
+    })
+  ).resolves.toEqual({
+    action: 'DEPLOY',
+    state: 'FAIL',
+    uuid: 'deployment-startup-failure',
+    commit: 'commit-startup-failure'
+  })
+
+  await expect(
+    waitForHealthyDeployment({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      healthURL: 'https://fixture.example.com/health',
+      expectedScenario: 'healthy',
+      expectedCommitID: 'commit-healthy',
+      expectedDeploymentID: 'deployment-healthy',
+      listActivity: async () => [
+        ...baselineActivity,
+        {
+          action: 'DEPLOY',
+          state: 'FAIL',
+          uuid: 'deployment-build-failure',
+          commit: 'commit-build-failure'
+        },
+        {
+          action: 'DEPLOY',
+          state: 'FAIL',
+          uuid: 'deployment-startup-failure',
+          commit: 'commit-startup-failure'
+        }
+      ],
+      fetchHealth: async () => ({
+        status: 200,
+        json: async () => ({
+          scenario: 'healthy',
+          healthValue: null,
+          INSTANCE_ID: 'instance-healthy',
+          INSTANCE_TYPE: 'production',
+          CC_DEPLOYMENT_ID: 'deployment-healthy',
+          CC_COMMIT_ID: 'commit-healthy'
+        })
+      }),
+      sleep: async () => {},
+      settleTimeoutMs: 2,
+      pollIntervalMs: 1
+    })
+  ).resolves.toEqual({
+    scenario: 'healthy',
+    healthValue: null,
+    INSTANCE_ID: 'instance-healthy',
+    INSTANCE_TYPE: 'production',
+    CC_DEPLOYMENT_ID: 'deployment-healthy',
+    CC_COMMIT_ID: 'commit-healthy'
+  })
+})
+
+test('a later recovery deployment becomes publicly observable after failed deploys', async () => {
+  let activityCalls = 0
+
+  await expect(
+    waitForHealthyDeployment({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      healthURL: 'https://fixture.example.com/health',
+      expectedScenario: 'healthy',
+      expectedCommitID: 'commit-recovery',
+      listActivity: async () => {
+        activityCalls += 1
+        return activityCalls === 1
+          ? [
+              {
+                action: 'DEPLOY',
+                state: 'SUCCESS',
+                uuid: 'deployment-healthy',
+                commit: 'commit-healthy'
+              },
+              {
+                action: 'DEPLOY',
+                state: 'FAIL',
+                uuid: 'deployment-build-failure',
+                commit: 'commit-build-failure'
+              },
+              {
+                action: 'DEPLOY',
+                state: 'FAIL',
+                uuid: 'deployment-startup-failure',
+                commit: 'commit-startup-failure'
+              },
+              {
+                action: 'DEPLOY',
+                state: 'WIP',
+                uuid: 'deployment-recovery',
+                commit: 'commit-recovery'
+              }
+            ]
+          : [
+              {
+                action: 'DEPLOY',
+                state: 'SUCCESS',
+                uuid: 'deployment-healthy',
+                commit: 'commit-healthy'
+              },
+              {
+                action: 'DEPLOY',
+                state: 'FAIL',
+                uuid: 'deployment-build-failure',
+                commit: 'commit-build-failure'
+              },
+              {
+                action: 'DEPLOY',
+                state: 'FAIL',
+                uuid: 'deployment-startup-failure',
+                commit: 'commit-startup-failure'
+              },
+              {
+                action: 'DEPLOY',
+                state: 'SUCCESS',
+                uuid: 'deployment-recovery',
+                commit: 'commit-recovery'
+              }
+            ]
+      },
+      fetchHealth: async () => ({
+        status: 200,
+        json: async () => ({
+          scenario: 'healthy',
+          healthValue: null,
+          INSTANCE_ID: 'instance-recovery',
+          INSTANCE_TYPE: 'production',
+          CC_DEPLOYMENT_ID: 'deployment-recovery',
+          CC_COMMIT_ID: 'commit-recovery'
+        })
+      }),
+      sleep: async () => {},
+      settleTimeoutMs: 2,
+      pollIntervalMs: 1
+    })
+  ).resolves.toEqual({
+    scenario: 'healthy',
+    healthValue: null,
+    INSTANCE_ID: 'instance-recovery',
+    INSTANCE_TYPE: 'production',
+    CC_DEPLOYMENT_ID: 'deployment-recovery',
+    CC_COMMIT_ID: 'commit-recovery'
   })
 })
 

@@ -3,8 +3,10 @@ import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import {
+  FIXTURE_BUILD_FAILURE_MARKER,
   FIXTURE_BUILD_MARKER,
   FIXTURE_READY_MARKER,
+  FIXTURE_STARTUP_FAILURE_MARKER,
   FIXTURE_START_MARKER
 } from './fixture-app'
 
@@ -52,6 +54,11 @@ if (!Number.isInteger(port) || port < 0) {
   throw new Error('Invalid PORT value: ' + (process.env.PORT ?? '(missing)'))
 }
 
+if (health.scenario === 'startup-failure') {
+  console.error('${FIXTURE_STARTUP_FAILURE_MARKER}')
+  throw new Error('${FIXTURE_STARTUP_FAILURE_MARKER}')
+}
+
 createServer((request, response) => {
   if (request.url !== '/health') {
     response.writeHead(404)
@@ -68,6 +75,11 @@ createServer((request, response) => {
 `
 
 const FIXTURE_POSTINSTALL_SOURCE = `console.log('${FIXTURE_BUILD_MARKER}')\n`
+const FIXTURE_POST_BUILD_HOOK_SOURCE = `if ((process.env.E2E_SCENARIO ?? 'healthy') === 'build-failure') {
+  console.log('${FIXTURE_BUILD_FAILURE_MARKER}')
+  process.exitCode = 1
+}
+`
 const FIXTURE_VERSION_FILE = 'fixture-version.txt'
 const INITIAL_FIXTURE_VERSION = 'healthy-1\n'
 
@@ -117,6 +129,11 @@ export async function createFixtureRepository({
     FIXTURE_POSTINSTALL_SOURCE,
     'utf8'
   )
+  await writeFile(
+    path.join(workspaceDir, 'scripts', 'post-build-hook.mjs'),
+    FIXTURE_POST_BUILD_HOOK_SOURCE,
+    'utf8'
+  )
 
   await runGit(workspaceDir, ['init', '--initial-branch', 'master'])
   await runGit(workspaceDir, ['config', 'user.name', 'Actions Clever Cloud E2E'])
@@ -130,7 +147,8 @@ export async function createFixtureRepository({
     FIXTURE_VERSION_FILE,
     'package.json',
     'server.mjs',
-    'scripts/postinstall-marker.mjs'
+    'scripts/postinstall-marker.mjs',
+    'scripts/post-build-hook.mjs'
   ])
   await runGit(workspaceDir, ['commit', '-m', 'fixture: initial healthy commit'])
 

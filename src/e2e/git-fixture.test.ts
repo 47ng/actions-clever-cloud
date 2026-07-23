@@ -7,6 +7,10 @@ import { once } from 'node:events'
 import { createServer } from 'node:net'
 import { promisify } from 'node:util'
 import { afterEach, expect, test } from 'vitest'
+import {
+  FIXTURE_BUILD_FAILURE_MARKER,
+  FIXTURE_STARTUP_FAILURE_MARKER
+} from './fixture-app'
 import { createFixtureRepository, createHealthyFixtureCommit } from './git-fixture'
 
 const execFileAsync = promisify(execFile)
@@ -16,7 +20,11 @@ const children: Array<ReturnType<typeof spawn>> = []
 afterEach(async () => {
   await Promise.all(
     children.splice(0).map(async child => {
-      if (child.exitCode === null && !child.killed) {
+      if (child.exitCode !== null) {
+        return
+      }
+
+      if (!child.killed) {
         child.kill('SIGTERM')
       }
 
@@ -108,6 +116,7 @@ test('creates a fresh non-shallow fixture repository and keeps support files ign
       '.gitignore',
       'fixture-version.txt',
       'package.json',
+      'scripts/post-build-hook.mjs',
       'scripts/postinstall-marker.mjs',
       'server.mjs'
     ].join('\n')
@@ -142,6 +151,77 @@ test('creates a controlled second healthy commit for later deployments', async (
   await expect(runGit(workspaceDir, ['show', 'HEAD:fixture-version.txt'])).resolves.toBe(
     'healthy-2'
   )
+})
+
+test('the generated post-build hook fails deterministically for the build-failure scenario', async () => {
+  const workspaceDir = await createTemporaryWorkspace()
+  await mkdir(path.join(workspaceDir, '.candidate-source'), { recursive: true })
+  await mkdir(path.join(workspaceDir, '.candidate-action'), { recursive: true })
+  await createFixtureRepository({ workspaceDir })
+
+  let stdout = ''
+  let stderr = ''
+  const child = spawn(process.execPath, ['scripts/post-build-hook.mjs'], {
+    cwd: workspaceDir,
+    env: {
+      ...process.env,
+      E2E_SCENARIO: 'build-failure'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+  children.push(child)
+  child.stdout.setEncoding('utf8')
+  child.stderr.setEncoding('utf8')
+  child.stdout.on('data', chunk => {
+    stdout += chunk
+  })
+  child.stderr.on('data', chunk => {
+    stderr += chunk
+  })
+
+  const [exitCode] = await once(child, 'exit')
+  children.splice(children.indexOf(child), 1)
+
+  expect(exitCode).toBe(1)
+  expect(stdout).toContain(FIXTURE_BUILD_FAILURE_MARKER)
+  expect(stderr).toBe('')
+})
+
+test('the generated fixture server fails from the application process for the startup-failure scenario', async () => {
+  const workspaceDir = await createTemporaryWorkspace()
+  await mkdir(path.join(workspaceDir, '.candidate-source'), { recursive: true })
+  await mkdir(path.join(workspaceDir, '.candidate-action'), { recursive: true })
+  await createFixtureRepository({ workspaceDir })
+
+  const port = await getFreePort()
+  let stdout = ''
+  let stderr = ''
+
+  const child = spawn(process.execPath, ['server.mjs'], {
+    cwd: workspaceDir,
+    env: {
+      ...process.env,
+      PORT: String(port),
+      E2E_SCENARIO: 'startup-failure'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+  children.push(child)
+  child.stdout.setEncoding('utf8')
+  child.stderr.setEncoding('utf8')
+  child.stdout.on('data', chunk => {
+    stdout += chunk
+  })
+  child.stderr.on('data', chunk => {
+    stderr += chunk
+  })
+
+  const [exitCode] = await once(child, 'exit')
+  children.splice(children.indexOf(child), 1)
+
+  expect(exitCode).toBe(1)
+  expect(stdout).not.toContain('fixture-ready')
+  expect(`${stdout}${stderr}`).toContain(FIXTURE_STARTUP_FAILURE_MARKER)
 })
 
 test('runs the generated fixture server with the expected health contract and markers', async () => {

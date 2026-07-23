@@ -1,7 +1,9 @@
 import { createServer } from 'node:http'
 
 export const FIXTURE_BUILD_MARKER = 'fixture-build'
+export const FIXTURE_BUILD_FAILURE_MARKER = 'fixture-build-failure'
 export const FIXTURE_READY_MARKER = 'fixture-ready'
+export const FIXTURE_STARTUP_FAILURE_MARKER = 'fixture-startup-failure'
 export const FIXTURE_START_MARKER = 'fixture-start'
 
 export type FixtureHealth = {
@@ -45,6 +47,11 @@ export async function startFixtureApp(
     INSTANCE_TYPE: health.INSTANCE_TYPE,
     CC_DEPLOYMENT_ID: health.CC_DEPLOYMENT_ID,
     CC_COMMIT_ID: health.CC_COMMIT_ID
+  }
+
+  if (health.scenario === 'startup-failure') {
+    console.error(FIXTURE_STARTUP_FAILURE_MARKER)
+    throw new Error(FIXTURE_STARTUP_FAILURE_MARKER)
   }
 
   const server = createServer((request, response) => {
