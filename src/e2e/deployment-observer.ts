@@ -18,6 +18,16 @@ type HealthResponse = {
   json: () => Promise<unknown>
 }
 
+type NewDeploymentActivityOptions = {
+  appId: string
+  expectedCommitID: string
+  previousActivity: DeploymentActivity[]
+  listActivity: (appId: string) => Promise<DeploymentActivity[]>
+  sleep?: Sleep
+  settleTimeoutMs?: number
+  pollIntervalMs?: number
+}
+
 const DEFAULT_SETTLE_TIMEOUT_MS = 10 * 60_000
 const DEFAULT_NO_NEW_ACTIVITY_TIMEOUT_MS = 15_000
 const DEFAULT_POLL_INTERVAL_MS = 5_000
@@ -201,44 +211,18 @@ export async function waitForNewSuccessfulDeploymentActivity({
   sleep = defaultSleep,
   settleTimeoutMs = DEFAULT_SETTLE_TIMEOUT_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS
-}: {
-  appId: string
-  expectedCommitID: string
-  previousActivity: DeploymentActivity[]
-  listActivity: (appId: string) => Promise<DeploymentActivity[]>
-  sleep?: Sleep
-  settleTimeoutMs?: number
-  pollIntervalMs?: number
-}): Promise<DeploymentActivity> {
-  const deadlineAt = buildDeadline(settleTimeoutMs)
-  const previousSnapshot = new Set(previousActivity.map(serializeActivity))
-
-  for (;;) {
-    const activity = await listActivity(appId)
-    const deployment = activity.find(
-      entry =>
-        entry.action === 'DEPLOY' &&
-        entry.commit === expectedCommitID &&
-        isSuccessfulDeploymentState(entry.state) &&
-        !previousSnapshot.has(serializeActivity(entry))
-    )
-
-    if (deployment?.uuid) {
-      return deployment
-    }
-
-    if (hasReachedDeadline(deadlineAt)) {
-      throw new Error(
-        `Timed out while waiting for a new successful deployment activity for ${appId}`
-      )
-    }
-
-    await sleepUntilNextPoll({
-      sleep,
-      pollIntervalMs,
-      deadlineAt
-    })
-  }
+}: NewDeploymentActivityOptions): Promise<DeploymentActivity> {
+  return waitForNewDeploymentActivity({
+    appId,
+    expectedCommitID,
+    previousActivity,
+    listActivity,
+    sleep,
+    settleTimeoutMs,
+    pollIntervalMs,
+    matchesState: isSuccessfulDeploymentState,
+    stateLabel: 'successful'
+  })
 }
 
 export async function waitForNewHealthyDeployment({
@@ -302,14 +286,33 @@ export async function waitForNewFailedDeploymentActivity({
   sleep = defaultSleep,
   settleTimeoutMs = DEFAULT_SETTLE_TIMEOUT_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS
-}: {
-  appId: string
-  expectedCommitID: string
-  previousActivity: DeploymentActivity[]
-  listActivity: (appId: string) => Promise<DeploymentActivity[]>
-  sleep?: Sleep
-  settleTimeoutMs?: number
-  pollIntervalMs?: number
+}: NewDeploymentActivityOptions): Promise<DeploymentActivity> {
+  return waitForNewDeploymentActivity({
+    appId,
+    expectedCommitID,
+    previousActivity,
+    listActivity,
+    sleep,
+    settleTimeoutMs,
+    pollIntervalMs,
+    matchesState: isFailedDeploymentState,
+    stateLabel: 'failed'
+  })
+}
+
+async function waitForNewDeploymentActivity({
+  appId,
+  expectedCommitID,
+  previousActivity,
+  listActivity,
+  sleep,
+  settleTimeoutMs,
+  pollIntervalMs,
+  matchesState,
+  stateLabel
+}: Required<NewDeploymentActivityOptions> & {
+  matchesState: (state: string | undefined) => boolean
+  stateLabel: string
 }): Promise<DeploymentActivity> {
   const deadlineAt = buildDeadline(settleTimeoutMs)
   const previousSnapshot = new Set(previousActivity.map(serializeActivity))
@@ -320,7 +323,7 @@ export async function waitForNewFailedDeploymentActivity({
       entry =>
         entry.action === 'DEPLOY' &&
         entry.commit === expectedCommitID &&
-        isFailedDeploymentState(entry.state) &&
+        matchesState(entry.state) &&
         !previousSnapshot.has(serializeActivity(entry))
     )
 
@@ -330,7 +333,7 @@ export async function waitForNewFailedDeploymentActivity({
 
     if (hasReachedDeadline(deadlineAt)) {
       throw new Error(
-        `Timed out while waiting for a new failed deployment activity for ${appId}`
+        `Timed out while waiting for a new ${stateLabel} deployment activity for ${appId}`
       )
     }
 
@@ -379,16 +382,20 @@ export async function waitForHealthyDeployment({
 }): Promise<FixtureHealth> {
   const deadlineAt = buildDeadline(settleTimeoutMs)
   let lastHealthError: string | undefined
+  const throwIfDeadlineReached = () => {
+    if (!hasReachedDeadline(deadlineAt)) {
+      return
+    }
+    const healthDetail = lastHealthError
+      ? ` Last health error: ${lastHealthError}`
+      : ''
+    throw new Error(
+      `Timed out while waiting for a healthy deployment for ${appId}${healthDetail}`
+    )
+  }
 
   for (;;) {
-    if (hasReachedDeadline(deadlineAt)) {
-      const healthDetail = lastHealthError
-        ? ` Last health error: ${lastHealthError}`
-        : ''
-      throw new Error(
-        `Timed out while waiting for a healthy deployment for ${appId}${healthDetail}`
-      )
-    }
+    throwIfDeadlineReached()
 
     const activity = await listActivity(
       appId,
@@ -397,14 +404,7 @@ export async function waitForHealthyDeployment({
         Math.max(1, remainingBeforeDeadline(deadlineAt))
       )
     )
-    if (hasReachedDeadline(deadlineAt)) {
-      const healthDetail = lastHealthError
-        ? ` Last health error: ${lastHealthError}`
-        : ''
-      throw new Error(
-        `Timed out while waiting for a healthy deployment for ${appId}${healthDetail}`
-      )
-    }
+    throwIfDeadlineReached()
     const deployment = activity.find(
       entry =>
         entry.action === 'DEPLOY' &&
@@ -465,14 +465,7 @@ export async function waitForHealthyDeployment({
       }
     }
 
-    if (hasReachedDeadline(deadlineAt)) {
-      const healthDetail = lastHealthError
-        ? ` Last health error: ${lastHealthError}`
-        : ''
-      throw new Error(
-        `Timed out while waiting for a healthy deployment for ${appId}${healthDetail}`
-      )
-    }
+    throwIfDeadlineReached()
 
     await sleepUntilNextPoll({
       sleep,
@@ -502,12 +495,16 @@ async function waitForCancellableDeployment({
   pollIntervalMs?: number
   deadlineAt?: number
 }): Promise<DeploymentActivity & { uuid: string }> {
-  for (;;) {
+  const throwIfDeadlineReached = () => {
     if (hasReachedDeadline(deadlineAt)) {
       throw new Error(
         `Timed out while waiting for a cancellable deployment for ${expectedCommitID} on ${appId}`
       )
     }
+  }
+
+  for (;;) {
+    throwIfDeadlineReached()
 
     const deployment = (
       await listActivity(
@@ -526,21 +523,13 @@ async function waitForCancellableDeployment({
         entry.uuid.length > 0
     )
 
-    if (hasReachedDeadline(deadlineAt)) {
-      throw new Error(
-        `Timed out while waiting for a cancellable deployment for ${expectedCommitID} on ${appId}`
-      )
-    }
+    throwIfDeadlineReached()
 
     if (deployment?.uuid) {
       return deployment as DeploymentActivity & { uuid: string }
     }
 
-    if (hasReachedDeadline(deadlineAt)) {
-      throw new Error(
-        `Timed out while waiting for a cancellable deployment for ${expectedCommitID} on ${appId}`
-      )
-    }
+    throwIfDeadlineReached()
 
     await sleepUntilNextPoll({
       sleep,
