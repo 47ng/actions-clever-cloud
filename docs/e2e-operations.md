@@ -36,13 +36,25 @@ No step calls `clever login`.
 Each run creates one app named `actions-clever-cloud-e2e-<run-id>-<attempt>`.
 The workflow reports success only after it captures a valid `app_...` ID from Clever Cloud.
 
+## Failure evidence
+
+A failed reusable run prepares redacted failure evidence before teardown, then uploads one short-lived artifact named `clever-cloud-e2e-failure-<run-id>-<attempt>`.
+Download that artifact from the workflow run page if you need to inspect a live failure after the app has been deleted.
+It contains:
+
+- `suite-results.json` with scenario outcomes, app identity, commit IDs, deployment IDs, and candidate action log paths
+- `candidate-action/001-deploy-healthy.log` when the candidate action produced that log file
+
+If evidence preparation fails its redaction scan, the workflow skips the upload and fails the run so you can inspect the job log instead.
+
 ## Teardown and manual cleanup
 
 Teardown always targets the captured app ID.
 It cancels any active deployment for that app, deletes the app by exact ID, and checks that the app no longer appears in Clever Cloud.
 If cleanup fails, the workflow reports the exact app name and ID so you can remove it by hand.
 
-For manual cleanup, use the reported ID with Clever Tools from a trusted shell:
+For manual recovery, first download the failure evidence artifact if one exists.
+Then use the reported app ID with Clever Tools from a trusted shell:
 
 ```bash
 clever cancel-deploy --app <app-id>

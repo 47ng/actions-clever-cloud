@@ -14,7 +14,7 @@ describe('e2e documentation', () => {
     expect(contributingGuide).toContain('docs/e2e-operations.md')
   })
 
-  test('the operations guide covers setup, approval, region, dispatch, naming, and cleanup', () => {
+  test('the operations guide covers setup, approval, region, dispatch, naming, cleanup, and failure evidence recovery', () => {
     expect(operationsGuide).toContain('CLEVER_TOKEN')
     expect(operationsGuide).toContain('CLEVER_SECRET')
     expect(operationsGuide).toContain('CLEVER_E2E_REGION')
@@ -22,5 +22,9 @@ describe('e2e documentation', () => {
     expect(operationsGuide).toContain('actions-clever-cloud-e2e-<run-id>-<attempt>')
     expect(operationsGuide).toContain('e2e-manual.yml')
     expect(operationsGuide).toContain('manual cleanup')
+    expect(operationsGuide).toContain('failure evidence')
+    expect(operationsGuide).toContain('clever-cloud-e2e-failure-<run-id>-<attempt>')
+    expect(operationsGuide).toContain('suite-results.json')
+    expect(operationsGuide).toContain('candidate-action/001-deploy-healthy.log')
   })
 })
