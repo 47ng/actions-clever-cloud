@@ -176,7 +176,7 @@ jobs:
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
         run: |
-          IMAGE="ghcr.io/47ng/actions-clever-cloud"
+          IMAGE="ghcr.io/47ng/actions-clever-cloud-preview"
           {
             echo "tags<<__TAGS_EOF__"
             echo "${IMAGE}:pr-${PR_NUMBER}"
@@ -264,7 +264,7 @@ jobs:
             const fork = process.env.FORK;
             const digest = process.env.DIGEST;
             const tags = process.env.TAGS;
-            const image = "ghcr.io/47ng/actions-clever-cloud";
+            const image = "ghcr.io/47ng/actions-clever-cloud-preview";
             const marker = "<!-- docker-preview-manual-comment -->";
 
             const body = [

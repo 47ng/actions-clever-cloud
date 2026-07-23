@@ -57,6 +57,17 @@ describe('candidate image workflow policies', () => {
     )
   })
 
+  test('manual fork previews publish to a separate package from trusted images', () => {
+    expect(manualPreviewWorkflow).toContain(
+      'IMAGE="ghcr.io/47ng/actions-clever-cloud-preview"'
+    )
+    expect(manualPreviewWorkflow).toContain(
+      'const image = "ghcr.io/47ng/actions-clever-cloud-preview";'
+    )
+    expect(previewWorkflow).not.toContain('actions-clever-cloud-preview')
+    expect(mainWorkflow).not.toContain('actions-clever-cloud-preview')
+  })
+
   test('manual fork preview does not execute repository helper code on the host', () => {
     expect(manualPreviewWorkflow).not.toContain(
       'name: Verify and pin candidate action metadata'

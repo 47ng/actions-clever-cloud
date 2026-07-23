@@ -41,4 +41,4 @@ Implement the candidate-image path described in the parent PRD's "Candidate imag
 
 - added a candidate image helper that validates digest, revision, and source labels and pins action metadata to a verified digest
 - wired trusted PR preview verification into the workflow before writing local pinned action metadata
-- expanded workflow policy coverage for preview triggers, cache scopes, and top-level permissions
+- kept trusted preview and release images away from vetted fork preview images by using separate cache scopes and a separate fork preview package, with static workflow checks for preview triggers and top-level permissions
