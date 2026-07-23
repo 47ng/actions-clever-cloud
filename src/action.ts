@@ -200,7 +200,8 @@ export async function run({
         throw new Error(`Deployment failed with code ${result}`)
       }
     } else {
-      const code = await exec(cleverCLI, args, execOptions)
+      const { exited } = spawnDeploy(cleverCLI, args, execOptions)
+      const code = await exited
       core.info(`code: ${code}`)
       if (code !== 0) {
         throw new Error(`Deployment failed with code ${code}`)
@@ -226,12 +227,12 @@ export async function run({
 // --
 
 /**
- * Spawn the Clever CLI deploy ourselves so we keep a handle on the child
- * process and can terminate it when the deployment timeout fires.
+ * Spawn the Clever CLI deploy ourselves so child output is piped with native
+ * stream backpressure and timeout-mode deployments can terminate the process.
  *
  * Output is piped into the same tee stream used by @actions/exec (via
  * `options.outStream`) so console logging, log files and annotation injection
- * keep working identically to the non-timeout path.
+ * keep working identically for deploys and pre-deploy commands.
  */
 function spawnDeploy(
   cleverCLI: string,
