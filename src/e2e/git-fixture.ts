@@ -164,10 +164,29 @@ export async function createHealthyFixtureCommit({
   workspaceDir: string
   label: string
 }): Promise<string> {
-  await writeFile(path.join(workspaceDir, FIXTURE_VERSION_FILE), `${label}\n`, 'utf8')
-  await runGit(workspaceDir, ['add', FIXTURE_VERSION_FILE])
+  await writeFixtureVersion(workspaceDir, label)
   await runGit(workspaceDir, ['commit', '-m', `fixture: ${label}`])
   return runGit(workspaceDir, ['rev-parse', 'HEAD'])
+}
+
+export async function createDivergentFixtureCommit({
+  workspaceDir,
+  ancestorCommit,
+  label
+}: {
+  workspaceDir: string
+  ancestorCommit: string
+  label: string
+}): Promise<string> {
+  await runGit(workspaceDir, ['reset', '--hard', ancestorCommit])
+  await writeFixtureVersion(workspaceDir, label)
+  await runGit(workspaceDir, ['commit', '-m', `fixture: ${label}`])
+  return runGit(workspaceDir, ['rev-parse', 'HEAD'])
+}
+
+async function writeFixtureVersion(workspaceDir: string, label: string): Promise<void> {
+  await writeFile(path.join(workspaceDir, FIXTURE_VERSION_FILE), `${label}\n`, 'utf8')
+  await runGit(workspaceDir, ['add', FIXTURE_VERSION_FILE])
 }
 
 async function runGit(cwd: string, args: string[]): Promise<string> {

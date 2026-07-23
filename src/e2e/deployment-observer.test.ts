@@ -1,8 +1,10 @@
 import { expect, test } from 'vitest'
 import {
   confirmNoNewDeploymentActivity,
+  confirmRejectedDeploymentPreservesLiveApp,
   waitForHealthyDeployment,
   waitForNewFailedDeploymentActivity,
+  waitForNewHealthyDeployment,
   waitForNewSuccessfulDeploymentActivity
 } from './deployment-observer'
 
@@ -255,6 +257,50 @@ test('fails same-commit error and ignore checks when a new deploy activity appea
   )
 })
 
+test('confirms that a rejected divergent deploy leaves the prior healthy commit publicly visible', async () => {
+  const baselineActivity = [
+    {
+      action: 'DEPLOY',
+      state: 'SUCCESS',
+      uuid: 'deployment-recovery',
+      commit: 'commit-recovery'
+    }
+  ]
+
+  await expect(
+    confirmRejectedDeploymentPreservesLiveApp({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      healthURL: 'https://fixture.example.com/health',
+      expectedScenario: 'healthy',
+      previousActivity: baselineActivity,
+      previousCommitID: 'commit-recovery',
+      previousDeploymentID: 'deployment-recovery',
+      listActivity: async () => baselineActivity,
+      fetchHealth: async () => ({
+        status: 200,
+        json: async () => ({
+          scenario: 'healthy',
+          healthValue: null,
+          INSTANCE_ID: 'instance-recovery',
+          INSTANCE_TYPE: 'production',
+          CC_DEPLOYMENT_ID: 'deployment-recovery',
+          CC_COMMIT_ID: 'commit-recovery'
+        })
+      }),
+      sleep: async () => {},
+      settleTimeoutMs: 2,
+      pollIntervalMs: 1
+    })
+  ).resolves.toEqual({
+    scenario: 'healthy',
+    healthValue: null,
+    INSTANCE_ID: 'instance-recovery',
+    INSTANCE_TYPE: 'production',
+    CC_DEPLOYMENT_ID: 'deployment-recovery',
+    CC_COMMIT_ID: 'commit-recovery'
+  })
+})
+
 test('waits for a new successful same-commit deploy activity before restart or rebuild checks', async () => {
   const baselineActivity = [
     {
@@ -302,6 +348,79 @@ test('waits for a new successful same-commit deploy activity before restart or r
     state: 'SUCCESS',
     uuid: 'deployment-456',
     commit: 'commit-123'
+  })
+})
+
+test('waits for a forced divergent deploy to replace the live app with the new commit', async () => {
+  const baselineActivity = [
+    {
+      action: 'DEPLOY',
+      state: 'SUCCESS',
+      uuid: 'deployment-recovery',
+      commit: 'commit-recovery'
+    }
+  ]
+  let activityCalls = 0
+
+  await expect(
+    waitForNewHealthyDeployment({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      healthURL: 'https://fixture.example.com/health',
+      expectedScenario: 'healthy',
+      expectedCommitID: 'commit-divergent',
+      previousActivity: baselineActivity,
+      listActivity: async () => {
+        activityCalls += 1
+        return activityCalls === 1
+          ? [
+              ...baselineActivity,
+              {
+                action: 'DEPLOY',
+                state: 'WIP',
+                uuid: 'deployment-divergent',
+                commit: 'commit-divergent'
+              }
+            ]
+          : [
+              ...baselineActivity,
+              {
+                action: 'DEPLOY',
+                state: 'SUCCESS',
+                uuid: 'deployment-divergent',
+                commit: 'commit-divergent'
+              }
+            ]
+      },
+      fetchHealth: async () => ({
+        status: 200,
+        json: async () => ({
+          scenario: 'healthy',
+          healthValue: null,
+          INSTANCE_ID: 'instance-divergent',
+          INSTANCE_TYPE: 'production',
+          CC_DEPLOYMENT_ID: 'deployment-divergent',
+          CC_COMMIT_ID: 'commit-divergent'
+        })
+      }),
+      sleep: async () => {},
+      settleTimeoutMs: 2,
+      pollIntervalMs: 1
+    })
+  ).resolves.toEqual({
+    deployment: {
+      action: 'DEPLOY',
+      state: 'SUCCESS',
+      uuid: 'deployment-divergent',
+      commit: 'commit-divergent'
+    },
+    health: {
+      scenario: 'healthy',
+      healthValue: null,
+      INSTANCE_ID: 'instance-divergent',
+      INSTANCE_TYPE: 'production',
+      CC_DEPLOYMENT_ID: 'deployment-divergent',
+      CC_COMMIT_ID: 'commit-divergent'
+    }
   })
 })
 

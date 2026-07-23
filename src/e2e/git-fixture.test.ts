@@ -11,7 +11,11 @@ import {
   FIXTURE_BUILD_FAILURE_MARKER,
   FIXTURE_STARTUP_FAILURE_MARKER
 } from './fixture-app'
-import { createFixtureRepository, createHealthyFixtureCommit } from './git-fixture'
+import {
+  createDivergentFixtureCommit,
+  createFixtureRepository,
+  createHealthyFixtureCommit
+} from './git-fixture'
 
 const execFileAsync = promisify(execFile)
 const temporaryDirectories: string[] = []
@@ -150,6 +154,48 @@ test('creates a controlled second healthy commit for later deployments', async (
   await expect(runGit(workspaceDir, ['rev-list', '--count', 'HEAD'])).resolves.toBe('2')
   await expect(runGit(workspaceDir, ['show', 'HEAD:fixture-version.txt'])).resolves.toBe(
     'healthy-2'
+  )
+})
+
+test('resets to a known ancestor and creates a real divergent commit instead of a simple ahead-or-behind history', async () => {
+  const workspaceDir = await createTemporaryWorkspace()
+  const remoteDir = await createTemporaryWorkspace()
+
+  await mkdir(path.join(workspaceDir, '.candidate-source'), { recursive: true })
+  await mkdir(path.join(workspaceDir, '.candidate-action'), { recursive: true })
+  await createFixtureRepository({ workspaceDir })
+  const initialCommit = await runGit(workspaceDir, ['rev-parse', 'HEAD'])
+  const healthyTwoCommit = await createHealthyFixtureCommit({
+    workspaceDir,
+    label: 'healthy-2'
+  })
+  await createHealthyFixtureCommit({
+    workspaceDir,
+    label: 'healthy-3'
+  })
+  const remoteHeadBeforeDivergence = await runGit(workspaceDir, ['rev-parse', 'HEAD'])
+
+  await runGit(remoteDir, ['init', '--bare'])
+  await runGit(workspaceDir, ['remote', 'add', 'origin', remoteDir])
+  await runGit(workspaceDir, ['push', '--set-upstream', 'origin', 'master'])
+
+  const divergentCommit = await createDivergentFixtureCommit({
+    workspaceDir,
+    ancestorCommit: healthyTwoCommit,
+    label: 'forced-healthy'
+  })
+
+  expect(divergentCommit).not.toBe(remoteHeadBeforeDivergence)
+  await expect(runGit(workspaceDir, ['merge-base', 'HEAD', 'origin/master'])).resolves.toBe(
+    healthyTwoCommit
+  )
+  await expect(runGit(workspaceDir, ['merge-base', '--is-ancestor', 'HEAD', 'origin/master'])).rejects.toThrow()
+  await expect(runGit(workspaceDir, ['merge-base', '--is-ancestor', 'origin/master', 'HEAD'])).rejects.toThrow()
+  await expect(runGit(workspaceDir, ['show', 'HEAD:fixture-version.txt'])).resolves.toBe(
+    'forced-healthy'
+  )
+  await expect(runGit(workspaceDir, ['show', `${initialCommit}:fixture-version.txt`])).resolves.toBe(
+    'healthy-1'
   )
 })
 

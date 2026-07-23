@@ -1623,6 +1623,336 @@ jobs:
           )
           EOF
 
+      - name: Capture force baseline state
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: force-baseline
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/force-state.json
+          BASELINE_INSTANCE_ID: ${{ steps.observe-recovery.outputs.instance_id }}
+          BASELINE_DEPLOYMENT_ID: ${{ steps.observe-recovery.outputs.deployment_id }}
+          BASELINE_COMMIT_ID: ${{ steps.observe-recovery.outputs.commit_id }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { execFile } from 'node:child_process'
+          import { writeFile } from 'node:fs/promises'
+          import { promisify } from 'node:util'
+          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
+
+          const execFileAsync = promisify(execFile)
+          const appId = process.env.APP_ID
+          const statePath = process.env.STATE_PATH
+          const instanceId = process.env.BASELINE_INSTANCE_ID
+          const deploymentId = process.env.BASELINE_DEPLOYMENT_ID
+          const commitId = process.env.BASELINE_COMMIT_ID
+          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+
+          if (!appId || !statePath || !instanceId || !deploymentId || !commitId) {
+            throw new Error('Missing force baseline inputs')
+          }
+
+          const controller = createCleverController({
+            cleverCLI,
+            runCommand: async (cli, args, { timeoutMs }) => {
+              try {
+                const { stdout, stderr } = await execFileAsync(cli, args, {
+                  encoding: 'utf8',
+                  env: process.env,
+                  timeout: timeoutMs,
+                  maxBuffer: 1024 * 1024 * 10,
+                })
+                return { stdout, stderr }
+              } catch (error) {
+                throw new Error(error.stderr?.trim() || error.message)
+              }
+            },
+          })
+
+          await writeFile(
+            statePath,
+            JSON.stringify(
+              {
+                activity: await controller.listActivity(appId),
+                instanceId,
+                deploymentId,
+                commitId,
+              },
+              null,
+              2,
+            ),
+            'utf8',
+          )
+          EOF
+
+      - name: Create divergent fixture commit
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: divergent-commit
+        env:
+          WORKSPACE_DIR: ${{ github.workspace }}
+          ANCESTOR_COMMIT: ${{ steps.second-healthy.outputs.commit }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { appendFile } from 'node:fs/promises'
+          import { createDivergentFixtureCommit } from './.candidate-source/src/e2e/git-fixture.ts'
+
+          const workspaceDir = process.env.WORKSPACE_DIR
+          const ancestorCommit = process.env.ANCESTOR_COMMIT
+          const githubOutput = process.env.GITHUB_OUTPUT
+
+          if (!workspaceDir || !ancestorCommit || !githubOutput) {
+            throw new Error('Missing divergent fixture commit inputs')
+          }
+
+          const commit = await createDivergentFixtureCommit({
+            workspaceDir,
+            ancestorCommit,
+            label: 'healthy-force'
+          })
+
+          await appendFile(githubOutput, `commit=${commit}\n`)
+          EOF
+
+      - name: Deploy divergent fixture commit without force
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: divergent-no-force
+        continue-on-error: true
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/010-divergent-no-force.log
+          setEnv: |
+            CC_HEALTH_CHECK_PATH=/health
+            E2E_SCENARIO=healthy
+
+      - name: Assert divergent rejection outcome and preserved production
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: assert-divergent-no-force
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          ACTION_OUTCOME: ${{ steps.divergent-no-force.outcome }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/force-state.json
+          LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/010-divergent-no-force.log
+        run: |
+          node --input-type=module <<'EOF'
+          import { execFile } from 'node:child_process'
+          import { appendFile, readFile } from 'node:fs/promises'
+          import { promisify } from 'node:util'
+          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
+          import { confirmRejectedDeploymentPreservesLiveApp } from './.candidate-source/src/e2e/deployment-observer.ts'
+
+          const execFileAsync = promisify(execFile)
+          const appId = process.env.APP_ID
+          const actionOutcome = process.env.ACTION_OUTCOME
+          const statePath = process.env.STATE_PATH
+          const logPath = process.env.LOG_PATH
+          const githubOutput = process.env.GITHUB_OUTPUT
+          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+
+          if (!appId || !actionOutcome || !statePath || !logPath || !githubOutput) {
+            throw new Error('Missing divergent rejection assertion inputs')
+          }
+
+          if (actionOutcome !== 'failure') {
+            throw new Error('Expected divergent deployment without force to fail')
+          }
+
+          const previousState = JSON.parse(await readFile(statePath, 'utf8'))
+          const controller = createCleverController({
+            cleverCLI,
+            runCommand: async (cli, args, { timeoutMs }) => {
+              try {
+                const { stdout, stderr } = await execFileAsync(cli, args, {
+                  encoding: 'utf8',
+                  env: process.env,
+                  timeout: timeoutMs,
+                  maxBuffer: 1024 * 1024 * 10,
+                })
+                return { stdout, stderr }
+              } catch (error) {
+                throw new Error(error.stderr?.trim() || error.message)
+              }
+            },
+          })
+
+          const application = await controller.getApplication(appId)
+          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
+          const health = await confirmRejectedDeploymentPreservesLiveApp({
+            appId,
+            healthURL,
+            expectedScenario: 'healthy',
+            previousActivity: previousState.activity,
+            previousCommitID: previousState.commitId,
+            previousDeploymentID: previousState.deploymentId,
+            listActivity: controller.listActivity,
+            fetchHealth: async url => {
+              const requestController = new AbortController()
+              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
+
+              try {
+                const response = await fetch(url, {
+                  signal: requestController.signal
+                })
+                return {
+                  status: response.status,
+                  json: async () => response.json()
+                }
+              } finally {
+                clearTimeout(timeoutId)
+              }
+            }
+          })
+
+          if (health.INSTANCE_ID !== previousState.instanceId) {
+            throw new Error('Expected divergent rejection to preserve the prior healthy instance ID')
+          }
+          if (health.CC_DEPLOYMENT_ID !== previousState.deploymentId) {
+            throw new Error('Expected divergent rejection to preserve the prior healthy deployment ID')
+          }
+          if (health.CC_COMMIT_ID !== previousState.commitId) {
+            throw new Error('Expected divergent rejection to preserve the prior healthy commit ID')
+          }
+
+          const logContent = await readFile(logPath, 'utf8')
+          const nonFastForwardMarkers = [
+            'non-fast-forward',
+            '[rejected]',
+            'fetch first',
+            'Updates were rejected'
+          ]
+          if (!nonFastForwardMarkers.some(marker => logContent.includes(marker))) {
+            throw new Error(
+              'Expected divergent deployment without force log to mention a non-fast-forward rejection'
+            )
+          }
+
+          await appendFile(
+            githubOutput,
+            `instance_id=${health.INSTANCE_ID ?? ''}\n` +
+              `deployment_id=${health.CC_DEPLOYMENT_ID ?? ''}\n` +
+              `commit_id=${health.CC_COMMIT_ID ?? ''}\n`,
+          )
+          EOF
+
+      - name: Deploy divergent fixture commit with force
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: divergent-force
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
+          force: true
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/011-divergent-force.log
+          setEnv: |
+            CC_HEALTH_CHECK_PATH=/health
+            E2E_SCENARIO=healthy
+
+      - name: Observe forced divergent deployment
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: observe-divergent-force
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          ACTION_OUTCOME: ${{ steps.divergent-force.outcome }}
+          EXPECTED_COMMIT_ID: ${{ steps.divergent-commit.outputs.commit }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/force-state.json
+        run: |
+          node --input-type=module <<'EOF'
+          import { execFile } from 'node:child_process'
+          import { appendFile, readFile } from 'node:fs/promises'
+          import { promisify } from 'node:util'
+          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
+          import { confirmRejectedDeploymentPreservesLiveApp, waitForNewHealthyDeployment } from './.candidate-source/src/e2e/deployment-observer.ts'
+
+          const execFileAsync = promisify(execFile)
+          const appId = process.env.APP_ID
+          const actionOutcome = process.env.ACTION_OUTCOME
+          const expectedCommitID = process.env.EXPECTED_COMMIT_ID
+          const statePath = process.env.STATE_PATH
+          const githubOutput = process.env.GITHUB_OUTPUT
+          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+
+          if (!appId || !actionOutcome || !expectedCommitID || !statePath || !githubOutput) {
+            throw new Error('Missing divergent force observation inputs')
+          }
+
+          if (actionOutcome !== 'success') {
+            throw new Error('Expected divergent deployment with force to succeed')
+          }
+
+          const previousState = JSON.parse(await readFile(statePath, 'utf8'))
+          const controller = createCleverController({
+            cleverCLI,
+            runCommand: async (cli, args, { timeoutMs }) => {
+              try {
+                const { stdout, stderr } = await execFileAsync(cli, args, {
+                  encoding: 'utf8',
+                  env: process.env,
+                  timeout: timeoutMs,
+                  maxBuffer: 1024 * 1024 * 10,
+                })
+                return { stdout, stderr }
+              } catch (error) {
+                throw new Error(error.stderr?.trim() || error.message)
+              }
+            },
+          })
+
+          const application = await controller.getApplication(appId)
+          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
+          const result = await waitForNewHealthyDeployment({
+            appId,
+            healthURL,
+            expectedScenario: 'healthy',
+            expectedCommitID,
+            previousActivity: previousState.activity,
+            listActivity: controller.listActivity,
+            fetchHealth: async url => {
+              const requestController = new AbortController()
+              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
+
+              try {
+                const response = await fetch(url, {
+                  signal: requestController.signal
+                })
+                return {
+                  status: response.status,
+                  json: async () => response.json()
+                }
+              } finally {
+                clearTimeout(timeoutId)
+              }
+            }
+          })
+
+          if (result.health.CC_COMMIT_ID === previousState.commitId) {
+            throw new Error('Expected forced divergent deployment to change the live commit ID')
+          }
+          if (result.health.CC_DEPLOYMENT_ID === previousState.deploymentId) {
+            throw new Error('Expected forced divergent deployment to change the live deployment ID')
+          }
+
+          await appendFile(
+            githubOutput,
+            `instance_id=${result.health.INSTANCE_ID ?? ''}\n` +
+              `deployment_id=${result.deployment.uuid ?? result.health.CC_DEPLOYMENT_ID ?? ''}\n` +
+              `commit_id=${result.health.CC_COMMIT_ID ?? ''}\n`,
+          )
+          EOF
+
       - name: Write structured scenario results
         if: always() && steps.candidate-state.outputs.proceed == 'true'
         env:
@@ -1665,6 +1995,17 @@ jobs:
           RECOVERY_INSTANCE_ID: ${{ steps.observe-recovery.outputs.instance_id }}
           RECOVERY_COMMIT_ID: ${{ steps.observe-recovery.outputs.commit_id }}
           RECOVERY_DEPLOYMENT_ID: ${{ steps.observe-recovery.outputs.deployment_id }}
+          DIVERGENT_NO_FORCE_OUTCOME: ${{ steps.divergent-no-force.outcome }}
+          ASSERT_DIVERGENT_NO_FORCE_OUTCOME: ${{ steps.assert-divergent-no-force.outcome }}
+          DIVERGENT_NO_FORCE_INSTANCE_ID: ${{ steps.assert-divergent-no-force.outputs.instance_id }}
+          DIVERGENT_NO_FORCE_COMMIT_ID: ${{ steps.assert-divergent-no-force.outputs.commit_id }}
+          DIVERGENT_NO_FORCE_DEPLOYMENT_ID: ${{ steps.assert-divergent-no-force.outputs.deployment_id }}
+          DIVERGENT_FORCE_OUTCOME: ${{ steps.divergent-force.outcome }}
+          OBSERVE_DIVERGENT_FORCE_OUTCOME: ${{ steps.observe-divergent-force.outcome }}
+          DIVERGENT_FORCE_COMMIT: ${{ steps.divergent-commit.outputs.commit }}
+          DIVERGENT_FORCE_INSTANCE_ID: ${{ steps.observe-divergent-force.outputs.instance_id }}
+          DIVERGENT_FORCE_COMMIT_ID: ${{ steps.observe-divergent-force.outputs.commit_id }}
+          DIVERGENT_FORCE_DEPLOYMENT_ID: ${{ steps.observe-divergent-force.outputs.deployment_id }}
           SAME_COMMIT_BASELINE_INSTANCE_ID: ${{ steps.observe-env.outputs.instance_id }}
           SAME_COMMIT_BASELINE_COMMIT_ID: ${{ steps.observe-env.outputs.commit_id }}
           SAME_COMMIT_BASELINE_DEPLOYMENT_ID: ${{ steps.observe-env.outputs.deployment_id }}
@@ -1680,6 +2021,7 @@ jobs:
           SAME_COMMIT_REBUILD_COMMIT_ID: ${{ steps.observe-same-commit-rebuild.outputs.commit_id }}
           SAME_COMMIT_REBUILD_DEPLOYMENT_ID: ${{ steps.observe-same-commit-rebuild.outputs.deployment_id }}
           FAILED_DEPLOY_BASELINE_INSTANCE_ID: ${{ steps.observe-same-commit-rebuild.outputs.instance_id }}
+          FORCE_BASELINE_INSTANCE_ID: ${{ steps.observe-recovery.outputs.instance_id }}
         run: |
           node --input-type=module <<'EOF'
           import { readFile } from 'node:fs/promises'
@@ -1852,6 +2194,36 @@ jobs:
                     null,
                   deploymentId: process.env.RECOVERY_DEPLOYMENT_ID || null,
                   candidateActionLogs: ['candidate-action/009-recovery.log']
+                },
+                {
+                  name: 'divergent-no-force',
+                  outcome: buildExpectedFailureOutcome({
+                    actionOutcome: process.env.DIVERGENT_NO_FORCE_OUTCOME,
+                    assertionOutcome: process.env.ASSERT_DIVERGENT_NO_FORCE_OUTCOME
+                  }),
+                  baselineInstanceId: process.env.FORCE_BASELINE_INSTANCE_ID || null,
+                  instanceId:
+                    process.env.DIVERGENT_NO_FORCE_INSTANCE_ID ||
+                    process.env.FORCE_BASELINE_INSTANCE_ID ||
+                    null,
+                  commitId: process.env.DIVERGENT_NO_FORCE_COMMIT_ID || null,
+                  deploymentId: process.env.DIVERGENT_NO_FORCE_DEPLOYMENT_ID || null,
+                  candidateActionLogs: ['candidate-action/010-divergent-no-force.log']
+                },
+                {
+                  name: 'divergent-force',
+                  outcome: buildSuccessfulScenarioOutcome(
+                    process.env.DIVERGENT_FORCE_OUTCOME,
+                    process.env.OBSERVE_DIVERGENT_FORCE_OUTCOME
+                  ),
+                  baselineInstanceId: process.env.FORCE_BASELINE_INSTANCE_ID || null,
+                  instanceId: process.env.DIVERGENT_FORCE_INSTANCE_ID || null,
+                  commitId:
+                    process.env.DIVERGENT_FORCE_COMMIT_ID ||
+                    process.env.DIVERGENT_FORCE_COMMIT ||
+                    null,
+                  deploymentId: process.env.DIVERGENT_FORCE_DEPLOYMENT_ID || null,
+                  candidateActionLogs: ['candidate-action/011-divergent-force.log']
                 }
               ]
             })
@@ -1875,6 +2247,8 @@ jobs:
           BUILD_FAILURE_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/007-build-failure.log
           STARTUP_FAILURE_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/008-startup-failure.log
           RECOVERY_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/009-recovery.log
+          DIVERGENT_NO_FORCE_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/010-divergent-no-force.log
+          DIVERGENT_FORCE_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/011-divergent-force.log
         run: |
           node --input-type=module <<'EOF'
           import { constants } from 'node:fs'
@@ -1892,6 +2266,8 @@ jobs:
           const buildFailureLogPath = process.env.BUILD_FAILURE_LOG_PATH
           const startupFailureLogPath = process.env.STARTUP_FAILURE_LOG_PATH
           const recoveryLogPath = process.env.RECOVERY_LOG_PATH
+          const divergentNoForceLogPath = process.env.DIVERGENT_NO_FORCE_LOG_PATH
+          const divergentForceLogPath = process.env.DIVERGENT_FORCE_LOG_PATH
           const token = process.env.CLEVER_TOKEN
           const secret = process.env.CLEVER_SECRET
 
@@ -1907,6 +2283,8 @@ jobs:
             !buildFailureLogPath ||
             !startupFailureLogPath ||
             !recoveryLogPath ||
+            !divergentNoForceLogPath ||
+            !divergentForceLogPath ||
             !token ||
             !secret
           ) {
@@ -1956,6 +2334,14 @@ jobs:
             {
               sourcePath: recoveryLogPath,
               artifactPath: 'candidate-action/009-recovery.log'
+            },
+            {
+              sourcePath: divergentNoForceLogPath,
+              artifactPath: 'candidate-action/010-divergent-no-force.log'
+            },
+            {
+              sourcePath: divergentForceLogPath,
+              artifactPath: 'candidate-action/011-divergent-force.log'
             }
           ]) {
             try {

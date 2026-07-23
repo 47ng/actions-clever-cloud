@@ -59,6 +59,57 @@ export async function confirmNoNewDeploymentActivity({
   }
 }
 
+export async function confirmRejectedDeploymentPreservesLiveApp({
+  appId,
+  healthURL,
+  expectedScenario,
+  previousActivity,
+  previousCommitID,
+  previousDeploymentID,
+  listActivity,
+  fetchHealth,
+  sleep = defaultSleep,
+  settleTimeoutMs = DEFAULT_SETTLE_TIMEOUT_MS,
+  pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
+  healthCheckTimeoutMs = DEFAULT_HEALTH_CHECK_TIMEOUT_MS
+}: {
+  appId: string
+  healthURL: string
+  expectedScenario: string
+  previousActivity: DeploymentActivity[]
+  previousCommitID: string
+  previousDeploymentID?: string
+  listActivity: (appId: string) => Promise<DeploymentActivity[]>
+  fetchHealth: (url: string) => Promise<HealthResponse>
+  sleep?: Sleep
+  settleTimeoutMs?: number
+  pollIntervalMs?: number
+  healthCheckTimeoutMs?: number
+}): Promise<FixtureHealth> {
+  await confirmNoNewDeploymentActivity({
+    appId,
+    previousActivity,
+    listActivity,
+    sleep,
+    settleTimeoutMs,
+    pollIntervalMs
+  })
+
+  return waitForHealthyDeployment({
+    appId,
+    healthURL,
+    expectedScenario,
+    expectedCommitID: previousCommitID,
+    expectedDeploymentID: previousDeploymentID,
+    listActivity,
+    fetchHealth,
+    sleep,
+    settleTimeoutMs,
+    pollIntervalMs,
+    healthCheckTimeoutMs
+  })
+}
+
 export async function waitForNewSuccessfulDeploymentActivity({
   appId,
   expectedCommitID,
@@ -101,6 +152,59 @@ export async function waitForNewSuccessfulDeploymentActivity({
 
     await sleep(pollIntervalMs)
     elapsedMs += pollIntervalMs
+  }
+}
+
+export async function waitForNewHealthyDeployment({
+  appId,
+  healthURL,
+  expectedScenario,
+  expectedCommitID,
+  previousActivity,
+  listActivity,
+  fetchHealth,
+  sleep = defaultSleep,
+  settleTimeoutMs = DEFAULT_SETTLE_TIMEOUT_MS,
+  pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
+  healthCheckTimeoutMs = DEFAULT_HEALTH_CHECK_TIMEOUT_MS
+}: {
+  appId: string
+  healthURL: string
+  expectedScenario: string
+  expectedCommitID: string
+  previousActivity: DeploymentActivity[]
+  listActivity: (appId: string) => Promise<DeploymentActivity[]>
+  fetchHealth: (url: string) => Promise<HealthResponse>
+  sleep?: Sleep
+  settleTimeoutMs?: number
+  pollIntervalMs?: number
+  healthCheckTimeoutMs?: number
+}): Promise<{ deployment: DeploymentActivity; health: FixtureHealth }> {
+  const deployment = await waitForNewSuccessfulDeploymentActivity({
+    appId,
+    expectedCommitID,
+    previousActivity,
+    listActivity,
+    sleep,
+    settleTimeoutMs,
+    pollIntervalMs
+  })
+
+  return {
+    deployment,
+    health: await waitForHealthyDeployment({
+      appId,
+      healthURL,
+      expectedScenario,
+      expectedCommitID,
+      expectedDeploymentID: deployment.uuid,
+      listActivity,
+      fetchHealth,
+      sleep,
+      settleTimeoutMs,
+      pollIntervalMs,
+      healthCheckTimeoutMs
+    })
   }
 }
 
