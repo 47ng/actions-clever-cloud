@@ -446,6 +446,25 @@ test('deploy fails before timeout: fails the workflow', async () => {
   expect(setFailed).toHaveBeenCalledWith('Deployment failed with code 42')
 })
 
+test('deploy terminated by a signal before timeout fails the workflow', async () => {
+  vi.useFakeTimers()
+  const child = makeFakeChild()
+  spawnMock.mockReturnValue(child)
+  const finished = run({
+    token: 'token',
+    secret: 'secret',
+    cleverCLI: CLEVER_CLI,
+    timeout: 1800
+  })
+  await vi.advanceTimersByTimeAsync(1000)
+  child.emit('close', null, 'SIGTERM')
+  await finished
+  expect(child.kill).not.toHaveBeenCalled()
+  expect(setFailed).toHaveBeenCalledWith(
+    'Deployment terminated by signal SIGTERM'
+  )
+})
+
 test('spawn error: fails the workflow and leaves no pending timer', async () => {
   vi.useFakeTimers()
   const child = makeFakeChild()
