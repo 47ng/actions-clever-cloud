@@ -247,7 +247,8 @@ export async function run({
         throw new Error(`Deployment failed with code ${result}`)
       }
     } else {
-      const code = await exec(cleverCLI, args, execOptions)
+      const { exited } = spawnDeploy(cleverCLI, args, execOptions)
+      const code = await exited
       core.info(`code: ${code}`)
       if (code !== 0) {
         throw new Error(`Deployment failed with code ${code}`)
@@ -273,12 +274,12 @@ export async function run({
 // --
 
 /**
- * Spawn the Clever CLI deploy ourselves so we keep a handle on the child
- * process and can terminate it when the deployment timeout fires.
+ * Spawn the Clever CLI deploy ourselves so child output is piped with native
+ * stream backpressure and timeout-mode deployments can terminate the process.
  *
  * Output is piped into the same tee stream used by @actions/exec (via
  * `options.outStream`) so console logging, log files and annotation injection
- * keep working identically to the non-timeout path.
+ * keep working identically for deploys and pre-deploy commands.
  */
 function spawnDeploy(
   cleverCLI: string,
@@ -296,7 +297,13 @@ function spawnDeploy(
   }
   const exited = new Promise<number>((resolve, reject) => {
     child.once('error', reject)
-    child.once('close', code => resolve(code ?? 0))
+    child.once('close', (code, signal) => {
+      if (signal) {
+        reject(new Error(`Deployment terminated by signal ${signal}`))
+      } else {
+        resolve(code ?? 0)
+      }
+    })
   })
   return { child, exited }
 }
@@ -367,16 +374,13 @@ export async function getOutputStream(
         // Remove timestamp, if present
         const message = line.replace(TIMESTAMP_PREFIX_REGEX, '')
         // Only re-emit when a timestamp was actually stripped: a line that
-        // already starts with ::notice/::error/::warning at column 0 (no
-        // timestamp) is echoed above as-is, and the runner parses workflow
-        // commands at line start on its own — re-emitting it here would
-        // duplicate the annotation.
-        if (
-          message !== line &&
-          (message.startsWith('::notice ') ||
-            message.startsWith('::error ') ||
-            message.startsWith('::warning '))
-        ) {
+        // already contains a runner-recognized workflow command (without a
+        // timestamp) is echoed above as-is, and the runner parses it on its
+        // own. Re-emitting it here would duplicate the annotation.
+        const isAnnotation = /^::(?:notice|error|warning)(?:::| .*::)/i.test(
+          message.trimStart()
+        )
+        if (message !== line && isAnnotation) {
           yield message + lineSeparator
         }
       }
@@ -390,9 +394,13 @@ export async function getOutputStream(
     monitor(finished(lastTransform))
   }
   if (logFile) {
-    const logFileStream = (await fs.open(logFile, 'w')).createWriteStream()
-    tee.pipe(logFileStream)
-    monitor(finished(logFileStream))
+    try {
+      const logFileStream = (await fs.open(logFile, 'w')).createWriteStream()
+      tee.pipe(logFileStream)
+      monitor(finished(logFileStream))
+    } catch (error) {
+      completionErrors.push(error)
+    }
   }
   if (liveSinkCount === 0) {
     tee.resume()
