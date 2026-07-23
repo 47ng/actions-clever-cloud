@@ -35,3 +35,9 @@ Add the force path from the parent PRD's "Git fixture builder" and "Deployment o
 - User story 62
 - User story 63
 - User story 69
+
+## Summary of Changes
+
+- added real divergent fixture history and checks for rejected non-fast-forward deployment without new activity
+- added forced deployment of the same commit, with public health proof and failure evidence coverage
+- added Git and observer tests for divergent ancestry, prior health, and forced replacement
