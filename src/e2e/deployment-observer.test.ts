@@ -299,6 +299,7 @@ test('confirms that a rejected divergent deploy leaves the prior healthy commit 
         })
       }),
       sleep: async () => {},
+      noNewActivityTimeoutMs: 2,
       settleTimeoutMs: 2,
       pollIntervalMs: 1
     })
@@ -310,6 +311,72 @@ test('confirms that a rejected divergent deploy leaves the prior healthy commit 
     CC_DEPLOYMENT_ID: 'deployment-recovery',
     CC_COMMIT_ID: 'commit-recovery'
   })
+})
+
+test('uses a short no-new-activity window without shrinking later health checks', async () => {
+  const baselineActivity = [
+    {
+      action: 'DEPLOY',
+      state: 'SUCCESS',
+      uuid: 'deployment-recovery',
+      commit: 'commit-recovery'
+    }
+  ]
+  let now = 0
+  let healthCalls = 0
+  const dateNowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now)
+
+  try {
+    await expect(
+      confirmRejectedDeploymentPreservesLiveApp({
+        appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+        healthURL: 'https://fixture.example.com/health',
+        expectedScenario: 'healthy',
+        previousActivity: baselineActivity,
+        previousCommitID: 'commit-recovery',
+        previousDeploymentID: 'deployment-recovery',
+        listActivity: async () => baselineActivity,
+        fetchHealth: async () => {
+          healthCalls += 1
+
+          return healthCalls < 4
+            ? {
+                status: 503,
+                json: async () => ({})
+              }
+            : {
+                status: 200,
+                json: async () => ({
+                  scenario: 'healthy',
+                  healthValue: null,
+                  INSTANCE_ID: 'instance-recovery',
+                  INSTANCE_TYPE: 'production',
+                  CC_DEPLOYMENT_ID: 'deployment-recovery',
+                  CC_COMMIT_ID: 'commit-recovery'
+                })
+              }
+        },
+        sleep: async timeoutMs => {
+          now += timeoutMs
+        },
+        noNewActivityTimeoutMs: 2,
+        settleTimeoutMs: 4,
+        pollIntervalMs: 1
+      })
+    ).resolves.toEqual({
+      scenario: 'healthy',
+      healthValue: null,
+      INSTANCE_ID: 'instance-recovery',
+      INSTANCE_TYPE: 'production',
+      CC_DEPLOYMENT_ID: 'deployment-recovery',
+      CC_COMMIT_ID: 'commit-recovery'
+    })
+
+    expect(healthCalls).toBe(4)
+    expect(now).toBe(5)
+  } finally {
+    dateNowSpy.mockRestore()
+  }
 })
 
 test('accepts a new clever-tools OK deploy activity before restart or rebuild checks', async () => {
@@ -1169,7 +1236,9 @@ test('times out when a timed-out deployment never exposes a cancellable activity
         }
       ],
       cancelDeployment: async () => {
-        throw new Error('cancel should not run before the expected commit is observed')
+        throw new Error(
+          'cancel should not run before the expected commit is observed'
+        )
       },
       fetchHealth: async () => ({
         status: 200,
@@ -1202,7 +1271,9 @@ test('times out when a healthy deploy never reaches a completed activity', async
         { action: 'DEPLOY', state: 'WIP', commit: 'commit-123' }
       ],
       fetchHealth: async () => {
-        throw new Error('health should not be fetched before a completed deploy')
+        throw new Error(
+          'health should not be fetched before a completed deploy'
+        )
       },
       sleep: async () => {},
       settleTimeoutMs: 2,

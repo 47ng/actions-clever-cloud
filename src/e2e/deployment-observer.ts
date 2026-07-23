@@ -19,6 +19,7 @@ type HealthResponse = {
 }
 
 const DEFAULT_SETTLE_TIMEOUT_MS = 10 * 60_000
+const DEFAULT_NO_NEW_ACTIVITY_TIMEOUT_MS = 15_000
 const DEFAULT_POLL_INTERVAL_MS = 5_000
 const DEFAULT_HEALTH_CHECK_TIMEOUT_MS = 10_000
 const SUCCESS_STATES = new Set(['OK', 'SUCCESS', 'SUCCEEDED', 'DONE'])
@@ -48,7 +49,9 @@ export async function confirmNoNewDeploymentActivity({
     const activity = await listActivity(appId)
 
     if (!hasMatchingActivitySnapshot(previousSnapshot, activity)) {
-      throw new Error(`Observed unexpected deployment activity change for ${appId}`)
+      throw new Error(
+        `Observed unexpected deployment activity change for ${appId}`
+      )
     }
 
     if (hasReachedDeadline(deadlineAt)) {
@@ -73,6 +76,7 @@ export async function confirmRejectedDeploymentPreservesLiveApp({
   listActivity,
   fetchHealth,
   sleep = defaultSleep,
+  noNewActivityTimeoutMs = DEFAULT_NO_NEW_ACTIVITY_TIMEOUT_MS,
   settleTimeoutMs = DEFAULT_SETTLE_TIMEOUT_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   healthCheckTimeoutMs = DEFAULT_HEALTH_CHECK_TIMEOUT_MS
@@ -86,6 +90,7 @@ export async function confirmRejectedDeploymentPreservesLiveApp({
   listActivity: (appId: string) => Promise<DeploymentActivity[]>
   fetchHealth: (url: string) => Promise<HealthResponse>
   sleep?: Sleep
+  noNewActivityTimeoutMs?: number
   settleTimeoutMs?: number
   pollIntervalMs?: number
   healthCheckTimeoutMs?: number
@@ -95,7 +100,7 @@ export async function confirmRejectedDeploymentPreservesLiveApp({
     previousActivity,
     listActivity,
     sleep,
-    settleTimeoutMs,
+    settleTimeoutMs: noNewActivityTimeoutMs,
     pollIntervalMs
   })
 
@@ -135,7 +140,10 @@ export async function cancelTimedOutDeploymentPreservesLiveApp({
   expectedScenario: string
   previousCommitID: string
   previousDeploymentID?: string
-  listActivity: (appId: string, timeoutMs?: number) => Promise<DeploymentActivity[]>
+  listActivity: (
+    appId: string,
+    timeoutMs?: number
+  ) => Promise<DeploymentActivity[]>
   cancelDeployment: (
     appId: string,
     deploymentId: string,
@@ -354,9 +362,15 @@ export async function waitForHealthyDeployment({
   expectedScenario: string
   expectedCommitID: string
   expectedDeploymentID?: string
-  listActivity: (appId: string, timeoutMs?: number) => Promise<DeploymentActivity[]>
+  listActivity: (
+    appId: string,
+    timeoutMs?: number
+  ) => Promise<DeploymentActivity[]>
   fetchHealth: (url: string) => Promise<HealthResponse>
-  lookupEnvironmentValue?: (appId: string, name: string) => Promise<string | null>
+  lookupEnvironmentValue?: (
+    appId: string,
+    name: string
+  ) => Promise<string | null>
   expectedHealthValue?: string
   sleep?: Sleep
   settleTimeoutMs?: number
@@ -378,7 +392,10 @@ export async function waitForHealthyDeployment({
 
     const activity = await listActivity(
       appId,
-      Math.min(DEFAULT_HEALTH_CHECK_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadlineAt)))
+      Math.min(
+        DEFAULT_HEALTH_CHECK_TIMEOUT_MS,
+        Math.max(1, remainingBeforeDeadline(deadlineAt))
+      )
     )
     if (hasReachedDeadline(deadlineAt)) {
       const healthDetail = lastHealthError
@@ -406,21 +423,22 @@ export async function waitForHealthyDeployment({
           const health = parseFixtureHealth(await response.json())
 
           if (health.scenario !== expectedScenario) {
-            lastHealthError =
-              `Expected fixture scenario ${expectedScenario}, got ${health.scenario}`
+            lastHealthError = `Expected fixture scenario ${expectedScenario}, got ${health.scenario}`
           } else if (!deployment.uuid) {
-            lastHealthError = 'Completed deploy activity is missing a deployment ID'
+            lastHealthError =
+              'Completed deploy activity is missing a deployment ID'
           } else if (health.CC_DEPLOYMENT_ID !== deployment.uuid) {
-            lastHealthError =
-              `Expected deployment ${deployment.uuid}, got ${health.CC_DEPLOYMENT_ID ?? '(missing)'}`
+            lastHealthError = `Expected deployment ${deployment.uuid}, got ${health.CC_DEPLOYMENT_ID ?? '(missing)'}`
           } else if (health.CC_COMMIT_ID !== expectedCommitID) {
-            lastHealthError =
-              `Expected commit ${expectedCommitID}, got ${health.CC_COMMIT_ID ?? '(missing)'}`
+            lastHealthError = `Expected commit ${expectedCommitID}, got ${health.CC_COMMIT_ID ?? '(missing)'}`
           } else if (expectedHealthValue) {
             const remoteValue = lookupEnvironmentValue
               ? await withTimeout(
                   lookupEnvironmentValue(appId, HEALTH_VALUE_ENV_NAME),
-                  Math.min(healthCheckTimeoutMs, remainingBeforeDeadline(deadlineAt)),
+                  Math.min(
+                    healthCheckTimeoutMs,
+                    remainingBeforeDeadline(deadlineAt)
+                  ),
                   `Timed out while waiting for ${HEALTH_VALUE_ENV_NAME} from ${appId}`
                 )
               : null
@@ -433,7 +451,8 @@ export async function waitForHealthyDeployment({
               })
               return health
             } catch (error) {
-              lastHealthError = error instanceof Error ? error.message : String(error)
+              lastHealthError =
+                error instanceof Error ? error.message : String(error)
             }
           } else {
             return health
@@ -474,7 +493,10 @@ async function waitForCancellableDeployment({
 }: {
   appId: string
   expectedCommitID: string
-  listActivity: (appId: string, timeoutMs?: number) => Promise<DeploymentActivity[]>
+  listActivity: (
+    appId: string,
+    timeoutMs?: number
+  ) => Promise<DeploymentActivity[]>
   sleep?: Sleep
   settleTimeoutMs?: number
   pollIntervalMs?: number
@@ -490,7 +512,10 @@ async function waitForCancellableDeployment({
     const deployment = (
       await listActivity(
         appId,
-        Math.min(DEFAULT_HEALTH_CHECK_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadlineAt)))
+        Math.min(
+          DEFAULT_HEALTH_CHECK_TIMEOUT_MS,
+          Math.max(1, remainingBeforeDeadline(deadlineAt))
+        )
       )
     ).find(
       entry =>
@@ -542,7 +567,9 @@ function parseFixtureHealth(value: unknown): FixtureHealth {
 
   for (const key of Object.keys(record)) {
     if (!allowedKeys.includes(key)) {
-      throw new Error(`Fixture health response contains unexpected field ${key}`)
+      throw new Error(
+        `Fixture health response contains unexpected field ${key}`
+      )
     }
   }
 
@@ -589,7 +616,9 @@ function isSuccessfulDeploymentState(state: string | undefined): boolean {
 }
 
 function isFailedDeploymentState(state: string | undefined): boolean {
-  return Boolean(state && FAILED_STATES.has(state) && !IN_PROGRESS_STATES.has(state))
+  return Boolean(
+    state && FAILED_STATES.has(state) && !IN_PROGRESS_STATES.has(state)
+  )
 }
 
 function serializeActivity(activity: DeploymentActivity): string {

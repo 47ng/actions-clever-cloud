@@ -4,9 +4,13 @@ type InspectResult = {
   stderr: string
 }
 
-type InspectFormat = '{{println .Manifest.Digest}}' | '{{json .Image.Config.Labels}}'
+type InspectFormat =
+  '{{println .Manifest.Digest}}' | '{{json .Image.Config.Labels}}'
 
-type InspectCommand = (format: InspectFormat) => Promise<InspectResult>
+type InspectCommand = (
+  format: InspectFormat,
+  reference: string
+) => Promise<InspectResult>
 
 type InspectCandidateImageOptions = {
   image: string
@@ -59,7 +63,7 @@ export async function inspectCandidateImage({
   expectedSourceRepository,
   inspect
 }: InspectCandidateImageOptions): Promise<CandidateImage | undefined> {
-  const digestResult = await inspect('{{println .Manifest.Digest}}')
+  const digestResult = await inspect('{{println .Manifest.Digest}}', image)
   if (digestResult.exitCode !== 0) {
     if (isMissingImage(digestResult.stderr)) {
       return undefined
@@ -72,7 +76,11 @@ export async function inspectCandidateImage({
     throw new Error(`Invalid candidate image digest: ${digest}`)
   }
 
-  const labelsResult = await inspect('{{json .Image.Config.Labels}}')
+  const pinnedImage = image.replace(/:[^:@]+$/, `@${digest}`)
+  const labelsResult = await inspect(
+    '{{json .Image.Config.Labels}}',
+    pinnedImage
+  )
   if (labelsResult.exitCode !== 0) {
     throw inspectFailure(image, labelsResult.stderr)
   }
@@ -101,6 +109,6 @@ export async function inspectCandidateImage({
 
   return {
     digest,
-    image: image.replace(/:[^:@]+$/, `@${digest}`)
+    image: pinnedImage
   }
 }

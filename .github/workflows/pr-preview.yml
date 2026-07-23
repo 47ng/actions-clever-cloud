@@ -4,17 +4,17 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - "src/**/*.ts"
-      - "!src/**/*.test.ts"
-      - "Dockerfile"
-      - "action.yml"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
-      - "tsconfig.json"
-      - ".github/workflows/pr-preview.yml"
-      - ".github/workflows/pr-preview-manual.yml"
-      - ".github/workflows/*e2e*.yml"
+      - 'src/**/*.ts'
+      - '!src/**/*.test.ts'
+      - 'Dockerfile'
+      - 'action.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.json'
+      - '.github/workflows/pr-preview.yml'
+      - '.github/workflows/pr-preview-manual.yml'
+      - '.github/workflows/*e2e*.yml'
 
 permissions: {}
 
@@ -126,8 +126,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha,scope=pr-preview-internal-${{ github.event.pull_request.number }}
           cache-to: type=gha,mode=max,scope=pr-preview-internal-${{ github.event.pull_request.number }}
-          labels: "${{ steps.docker-labels-tags.outputs.labels }}"
-          tags: "${{ steps.docker-labels-tags.outputs.tags }}"
+          labels: '${{ steps.docker-labels-tags.outputs.labels }}'
+          tags: '${{ steps.docker-labels-tags.outputs.tags }}'
           push: true
 
       - name: Verify and pin candidate action metadata
@@ -161,11 +161,11 @@ jobs:
             throw new Error('Missing candidate verification environment variables')
           }
 
-          const inspect = async format => {
+          const inspect = async (format, reference) => {
             try {
               const { stdout, stderr } = await execFileAsync(
                 'docker',
-                ['buildx', 'imagetools', 'inspect', '--format', format, image],
+                ['buildx', 'imagetools', 'inspect', '--format', format, reference],
                 { encoding: 'utf8' }
               )
               return { exitCode: 0, stdout, stderr }

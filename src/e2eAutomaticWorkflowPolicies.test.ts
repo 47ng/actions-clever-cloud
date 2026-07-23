@@ -24,9 +24,13 @@ describe('automatic e2e workflow policies', () => {
     expect(automaticWorkflow).toContain(
       'PR_NUMBER: ${{ github.event.client_payload.pr_number || github.event.pull_request.number }}'
     )
-    expect(automaticWorkflow).toContain("pr.draft === false")
-    expect(automaticWorkflow).toContain("pr.user.login === 'github-actions[bot]'")
-    expect(automaticWorkflow).toContain("pr.head.ref === 'release-please--branches--master'")
+    expect(automaticWorkflow).toContain('pr.draft === false')
+    expect(automaticWorkflow).toContain(
+      "pr.user.login === 'github-actions[bot]'"
+    )
+    expect(automaticWorkflow).toContain(
+      "pr.head.ref === 'release-please--branches--master'"
+    )
     expect(automaticWorkflow).toContain('autorelease: pending')
     expect(automaticWorkflow).toContain('pr.head.repo.full_name === thisRepo')
   })
@@ -40,20 +44,36 @@ describe('automatic e2e workflow policies', () => {
   })
 
   test('main release workflow dispatches automatic e2e for release please candidates created with GITHUB_TOKEN', () => {
-    expect(mainWorkflow).toContain('prs_created: ${{ steps.release-please.outputs.prs_created }}')
-    expect(mainWorkflow).toContain('prs: ${{ steps.release-please.outputs.prs }}')
-    expect(mainWorkflow).toContain('name: Dispatch automatic e2e for Release Please candidates')
-    expect(mainWorkflow).toContain("headBranchName !== 'release-please--branches--master'")
-    expect(mainWorkflow).toContain("!pr.labels?.includes('autorelease: pending')")
+    expect(mainWorkflow).toContain(
+      'prs_created: ${{ steps.release-please.outputs.prs_created }}'
+    )
+    expect(mainWorkflow).toContain(
+      'prs: ${{ steps.release-please.outputs.prs }}'
+    )
+    expect(mainWorkflow).toContain(
+      'name: Dispatch automatic e2e for Release Please candidates'
+    )
+    expect(mainWorkflow).toContain(
+      "headBranchName !== 'release-please--branches--master'"
+    )
+    expect(mainWorkflow).toContain(
+      "!pr.labels?.includes('autorelease: pending')"
+    )
     expect(mainWorkflow).toContain('createDispatchEvent')
     expect(mainWorkflow).toContain("event_type: 'release-please-candidate'")
   })
 
   test('existing verified sha images are reused, missing images are built, and the reusable suite receives the digest-pinned candidate identity', () => {
-    expect(automaticWorkflow).toContain('name: Reject stale automatic candidates before image work')
-    expect(automaticWorkflow).toContain('name: Reuse existing verified SHA image when available')
-    expect(automaticWorkflow).toContain('name: Build and push missing SHA image')
-    expect(automaticWorkflow).toContain("addRaw(\"superseded\")")
+    expect(automaticWorkflow).toContain(
+      'name: Reject stale automatic candidates before image work'
+    )
+    expect(automaticWorkflow).toContain(
+      'name: Reuse existing verified SHA image when available'
+    )
+    expect(automaticWorkflow).toContain(
+      'name: Build and push missing SHA image'
+    )
+    expect(automaticWorkflow).toContain('addRaw("superseded")')
     expect(automaticWorkflow).toContain(
       "if: needs.current-state.outputs.proceed == 'true'"
     )
@@ -62,6 +82,10 @@ describe('automatic e2e workflow policies', () => {
     )
     expect(automaticWorkflow).toContain('org.opencontainers.image.revision')
     expect(automaticWorkflow).toContain('org.opencontainers.image.source')
+    expect(automaticWorkflow).toContain(
+      "const labelsResult = await inspect('{{json .Image.Config.Labels}}', pinnedImage)"
+    )
+    expect(automaticWorkflow).toContain('`image=${pinnedImage}\\n`')
     expect(automaticWorkflow).toContain(
       'cache-from: type=gha,scope=pr-preview-internal-${{ needs.resolve.outputs.pr_number }}'
     )
@@ -83,8 +107,10 @@ describe('automatic e2e workflow policies', () => {
 
   test('the automatic release path stays separate from the fork preview flow, ignores docs-only changes, and does not inherit secrets', () => {
     expect(automaticWorkflow).toContain('paths:')
-    expect(automaticWorkflow).toContain('- "action.yml"')
-    expect(automaticWorkflow).toContain('- ".github/workflows/*e2e*.yml"')
+    expect(automaticWorkflow).toMatch(/- ['"]action\.yml['"]/)
+    expect(automaticWorkflow).toMatch(
+      /- ['"]\.github\/workflows\/\*e2e\*\.yml['"]/
+    )
     expect(automaticWorkflow).not.toContain('README.md')
     expect(automaticWorkflow).not.toContain('docs/')
     expect(automaticWorkflow).not.toContain('actions-clever-cloud-preview')

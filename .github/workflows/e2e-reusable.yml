@@ -1810,7 +1810,10 @@ jobs:
               } finally {
                 clearTimeout(timeoutId)
               }
-            }
+            },
+            noNewActivityTimeoutMs: 15_000,
+            settleTimeoutMs: 600_000,
+            pollIntervalMs: 5_000
           })
 
           if (health.INSTANCE_ID !== previousState.instanceId) {

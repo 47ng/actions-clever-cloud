@@ -3,7 +3,11 @@ import { inspectCandidateImage, pinActionMetadata } from './candidate-image'
 
 describe('inspectCandidateImage', () => {
   test('returns the pinned digest for a matching candidate image', async () => {
-    const inspect = async (format: string) => {
+    const inspect = async (format: string, reference: string) => {
+      expect(reference).toMatch(
+        /ghcr\.io\/47ng\/actions-clever-cloud(?:[:@].+)?$/
+      )
+
       if (format === '{{println .Manifest.Digest}}') {
         return {
           exitCode: 0,
@@ -15,7 +19,8 @@ describe('inspectCandidateImage', () => {
       return {
         exitCode: 0,
         stdout: JSON.stringify({
-          'org.opencontainers.image.revision': '0123456789abcdef0123456789abcdef01234567',
+          'org.opencontainers.image.revision':
+            '0123456789abcdef0123456789abcdef01234567',
           'org.opencontainers.image.source':
             'https://github.com/47ng/actions-clever-cloud/tree/0123456789abcdef0123456789abcdef01234567'
         }),
@@ -25,7 +30,8 @@ describe('inspectCandidateImage', () => {
 
     await expect(
       inspectCandidateImage({
-        image: 'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
+        image:
+          'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
         expectedRevision: '0123456789abcdef0123456789abcdef01234567',
         expectedSourceRepository: '47ng/actions-clever-cloud',
         inspect
@@ -37,10 +43,71 @@ describe('inspectCandidateImage', () => {
     })
   })
 
+  test('inspects labels from the verified digest instead of the mutable tag', async () => {
+    const mutableImage =
+      'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567'
+    const pinnedImage =
+      'ghcr.io/47ng/actions-clever-cloud@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    const inspections: Array<{ format: string; reference: string }> = []
+
+    await expect(
+      inspectCandidateImage({
+        image: mutableImage,
+        expectedRevision: '0123456789abcdef0123456789abcdef01234567',
+        expectedSourceRepository: '47ng/actions-clever-cloud',
+        inspect: async (format, reference) => {
+          inspections.push({ format, reference })
+
+          if (format === '{{println .Manifest.Digest}}') {
+            return {
+              exitCode: 0,
+              stdout: `sha256:${'a'.repeat(64)}\n`,
+              stderr: ''
+            }
+          }
+
+          return {
+            exitCode: 0,
+            stdout: JSON.stringify(
+              reference === pinnedImage
+                ? {
+                    'org.opencontainers.image.revision':
+                      '0123456789abcdef0123456789abcdef01234567',
+                    'org.opencontainers.image.source':
+                      'https://github.com/47ng/actions-clever-cloud/tree/0123456789abcdef0123456789abcdef01234567'
+                  }
+                : {
+                    'org.opencontainers.image.revision': 'race-on-mutable-tag',
+                    'org.opencontainers.image.source':
+                      'https://github.com/evil/fork/tree/race-on-mutable-tag'
+                  }
+            ),
+            stderr: ''
+          }
+        }
+      })
+    ).resolves.toEqual({
+      digest: `sha256:${'a'.repeat(64)}`,
+      image: pinnedImage
+    })
+
+    expect(inspections).toEqual([
+      {
+        format: '{{println .Manifest.Digest}}',
+        reference: mutableImage
+      },
+      {
+        format: '{{json .Image.Config.Labels}}',
+        reference: pinnedImage
+      }
+    ])
+  })
+
   test('returns undefined when the candidate image is missing', async () => {
     await expect(
       inspectCandidateImage({
-        image: 'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
+        image:
+          'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
         expectedRevision: '0123456789abcdef0123456789abcdef01234567',
         expectedSourceRepository: '47ng/actions-clever-cloud',
         inspect: async () => ({
@@ -55,7 +122,8 @@ describe('inspectCandidateImage', () => {
   test('fails when image inspection errors for another reason', async () => {
     await expect(
       inspectCandidateImage({
-        image: 'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
+        image:
+          'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
         expectedRevision: '0123456789abcdef0123456789abcdef01234567',
         expectedSourceRepository: '47ng/actions-clever-cloud',
         inspect: async () => ({
@@ -72,10 +140,11 @@ describe('inspectCandidateImage', () => {
   test('rejects a malformed digest', async () => {
     await expect(
       inspectCandidateImage({
-        image: 'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
+        image:
+          'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
         expectedRevision: '0123456789abcdef0123456789abcdef01234567',
         expectedSourceRepository: '47ng/actions-clever-cloud',
-        inspect: async format => ({
+        inspect: async (format, _reference) => ({
           exitCode: 0,
           stdout:
             format === '{{println .Manifest.Digest}}'
@@ -95,10 +164,11 @@ describe('inspectCandidateImage', () => {
   test('rejects an image built from another revision', async () => {
     await expect(
       inspectCandidateImage({
-        image: 'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
+        image:
+          'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
         expectedRevision: '0123456789abcdef0123456789abcdef01234567',
         expectedSourceRepository: '47ng/actions-clever-cloud',
-        inspect: async format => ({
+        inspect: async (format, _reference) => ({
           exitCode: 0,
           stdout:
             format === '{{println .Manifest.Digest}}'
@@ -120,10 +190,11 @@ describe('inspectCandidateImage', () => {
   test('rejects an image built from another repository source', async () => {
     await expect(
       inspectCandidateImage({
-        image: 'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
+        image:
+          'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
         expectedRevision: '0123456789abcdef0123456789abcdef01234567',
         expectedSourceRepository: '47ng/actions-clever-cloud',
-        inspect: async format => ({
+        inspect: async (format, _reference) => ({
           exitCode: 0,
           stdout:
             format === '{{println .Manifest.Digest}}'
@@ -145,10 +216,11 @@ describe('inspectCandidateImage', () => {
   test('rejects malformed label output', async () => {
     await expect(
       inspectCandidateImage({
-        image: 'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
+        image:
+          'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
         expectedRevision: '0123456789abcdef0123456789abcdef01234567',
         expectedSourceRepository: '47ng/actions-clever-cloud',
-        inspect: async format => ({
+        inspect: async (format, _reference) => ({
           exitCode: 0,
           stdout:
             format === '{{println .Manifest.Digest}}'
@@ -183,17 +255,19 @@ describe('pinActionMetadata', () => {
         image:
           'ghcr.io/47ng/actions-clever-cloud@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
       })
-    ).toBe([
-      'name: Example',
-      'description: Example action',
-      'inputs:',
-      '  foo:',
-      '    required: false',
-      'runs:',
-      '  using: docker',
-      '  image: docker://ghcr.io/47ng/actions-clever-cloud@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # keep me',
-      ''
-    ].join('\n'))
+    ).toBe(
+      [
+        'name: Example',
+        'description: Example action',
+        'inputs:',
+        '  foo:',
+        '    required: false',
+        'runs:',
+        '  using: docker',
+        '  image: docker://ghcr.io/47ng/actions-clever-cloud@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # keep me',
+        ''
+      ].join('\n')
+    )
   })
 
   test('fails when the candidate metadata has no docker image to pin', () => {

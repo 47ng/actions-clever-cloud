@@ -14,12 +14,16 @@ const manualPreviewWorkflow = readWorkflow(
 
 describe('candidate image workflow policies', () => {
   test('preview builds watch action metadata and e2e workflow inputs but not docs-only changes', () => {
-    expect(previewWorkflow).toContain('- "action.yml"')
-    expect(previewWorkflow).toContain('- ".github/workflows/pr-preview.yml"')
-    expect(previewWorkflow).toContain(
-      '- ".github/workflows/pr-preview-manual.yml"'
+    expect(previewWorkflow).toMatch(/- ['"]action\.yml['"]/)
+    expect(previewWorkflow).toMatch(
+      /- ['"]\.github\/workflows\/pr-preview\.yml['"]/
     )
-    expect(previewWorkflow).toContain('- ".github/workflows/*e2e*.yml"')
+    expect(previewWorkflow).toMatch(
+      /- ['"]\.github\/workflows\/pr-preview-manual\.yml['"]/
+    )
+    expect(previewWorkflow).toMatch(
+      /- ['"]\.github\/workflows\/\*e2e\*\.yml['"]/
+    )
     expect(previewWorkflow).not.toContain('README.md')
     expect(previewWorkflow).not.toContain('docs/')
   })
@@ -50,9 +54,7 @@ describe('candidate image workflow policies', () => {
       'cache-to: type=gha,mode=max,scope=pr-preview-fork-${{ needs.resolve.outputs.pr_number }}'
     )
 
-    expect(mainWorkflow).toContain(
-      'cache-from: type=gha,scope=release-image'
-    )
+    expect(mainWorkflow).toContain('cache-from: type=gha,scope=release-image')
     expect(mainWorkflow).toContain(
       'cache-to: type=gha,mode=max,scope=release-image'
     )
@@ -62,7 +64,9 @@ describe('candidate image workflow policies', () => {
   })
 
   test('trusted preview workflow verifies the built candidate image and pins action metadata with the helper', () => {
-    expect(previewWorkflow).toContain('name: Verify and pin candidate action metadata')
+    expect(previewWorkflow).toContain(
+      'name: Verify and pin candidate action metadata'
+    )
     expect(previewWorkflow).toContain(
       "import { inspectCandidateImage, pinActionMetadata } from './src/e2e/candidate-image.ts'"
     )
@@ -96,22 +100,42 @@ describe('candidate image workflow policies', () => {
     expect(previewWorkflow).not.toContain(
       'run: echo "tag=pr-${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT'
     )
-    expect(previewWorkflow).toContain('HEAD_SHA: ${{ github.event.pull_request.head.sha }}')
-    expect(previewWorkflow).toContain('PR_NUMBER: ${{ github.event.pull_request.number }}')
-    expect(previewWorkflow).toContain('echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"')
-    expect(previewWorkflow).toContain('echo "tag=pr-$PR_NUMBER" >> "$GITHUB_OUTPUT"')
-    expect(previewWorkflow).toContain('PACKAGE_VERSION: ${{ steps.package.outputs.version }}')
+    expect(previewWorkflow).toContain(
+      'HEAD_SHA: ${{ github.event.pull_request.head.sha }}'
+    )
+    expect(previewWorkflow).toContain(
+      'PR_NUMBER: ${{ github.event.pull_request.number }}'
+    )
+    expect(previewWorkflow).toContain(
+      'echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"'
+    )
+    expect(previewWorkflow).toContain(
+      'echo "tag=pr-$PR_NUMBER" >> "$GITHUB_OUTPUT"'
+    )
+    expect(previewWorkflow).toContain(
+      'PACKAGE_VERSION: ${{ steps.package.outputs.version }}'
+    )
     expect(previewWorkflow).toContain(
       'echo "org.opencontainers.image.version=$PACKAGE_VERSION-pr.$PR_NUMBER"'
     )
     expect(previewWorkflow).toContain(
       'echo "org.opencontainers.image.source=https://github.com/$REPOSITORY/tree/$SHA"'
     )
-    expect(previewWorkflow).toContain('DOCKER_TAG: ${{ steps.docker-tag.outputs.tag }}')
-    expect(previewWorkflow).toContain('echo "ghcr.io/47ng/actions-clever-cloud:$DOCKER_TAG"')
-    expect(previewWorkflow).toContain('STEP_SUMMARY_DIGEST: ${{ steps.candidate.outputs.digest }}')
-    expect(previewWorkflow).toContain('STEP_SUMMARY_TAGS: ${{ steps.docker-labels-tags.outputs.tags }}')
-    expect(previewWorkflow).toContain('STEP_SUMMARY_LABELS: ${{ steps.docker-labels-tags.outputs.labels }}')
+    expect(previewWorkflow).toContain(
+      'DOCKER_TAG: ${{ steps.docker-tag.outputs.tag }}'
+    )
+    expect(previewWorkflow).toContain(
+      'echo "ghcr.io/47ng/actions-clever-cloud:$DOCKER_TAG"'
+    )
+    expect(previewWorkflow).toContain(
+      'STEP_SUMMARY_DIGEST: ${{ steps.candidate.outputs.digest }}'
+    )
+    expect(previewWorkflow).toContain(
+      'STEP_SUMMARY_TAGS: ${{ steps.docker-labels-tags.outputs.tags }}'
+    )
+    expect(previewWorkflow).toContain(
+      'STEP_SUMMARY_LABELS: ${{ steps.docker-labels-tags.outputs.labels }}'
+    )
     expect(previewWorkflow).toContain('echo "$STEP_SUMMARY_TAGS"')
     expect(previewWorkflow).toContain('echo "$STEP_SUMMARY_LABELS"')
     expect(previewWorkflow).not.toContain(
