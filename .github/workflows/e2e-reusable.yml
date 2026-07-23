@@ -59,17 +59,103 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.head_sha }}
+          path: .candidate-source
           persist-credentials: false
 
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.10.0
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version-file: .node-version
+          node-version-file: .candidate-source/.node-version
           cache: pnpm
+          cache-dependency-path: .candidate-source/pnpm-lock.yaml
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
       - name: Install candidate dependencies
+        working-directory: .candidate-source
         run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Verify and pin candidate action metadata
+        id: candidate
+        env:
+          CANDIDATE_IMAGE: ghcr.io/47ng/actions-clever-cloud:git-${{ inputs.head_sha }}
+          EXPECTED_REVISION: ${{ inputs.head_sha }}
+          EXPECTED_SOURCE_REPOSITORY: ${{ github.repository }}
+          OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
+        run: |
+          node --input-type=module <<'EOF'
+          import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+          import { execFile } from 'node:child_process'
+          import path from 'node:path'
+          import { promisify } from 'node:util'
+          import { inspectCandidateImage, pinActionMetadata } from './.candidate-source/src/e2e/candidate-image.ts'
+
+          const execFileAsync = promisify(execFile)
+          const image = process.env.CANDIDATE_IMAGE
+          const expectedRevision = process.env.EXPECTED_REVISION
+          const expectedSourceRepository = process.env.EXPECTED_SOURCE_REPOSITORY
+          const outputActionPath = process.env.OUTPUT_ACTION_PATH
+          const githubOutput = process.env.GITHUB_OUTPUT
+
+          if (
+            !image ||
+            !expectedRevision ||
+            !expectedSourceRepository ||
+            !outputActionPath ||
+            !githubOutput
+          ) {
+            throw new Error('Missing candidate verification environment variables')
+          }
+
+          const inspect = async format => {
+            try {
+              const { stdout, stderr } = await execFileAsync(
+                'docker',
+                ['buildx', 'imagetools', 'inspect', '--format', format, image],
+                { encoding: 'utf8' }
+              )
+              return { exitCode: 0, stdout, stderr }
+            } catch (error) {
+              return {
+                exitCode: error.code ?? 1,
+                stdout: error.stdout ?? '',
+                stderr: error.stderr ?? error.message
+              }
+            }
+          }
+
+          const candidate = await inspectCandidateImage({
+            image,
+            expectedRevision,
+            expectedSourceRepository,
+            inspect
+          })
+
+          if (!candidate) {
+            throw new Error(`Missing candidate image ${image}`)
+          }
+
+          const actionMetadata = await readFile('./.candidate-source/action.yml', 'utf8')
+          const pinnedMetadata = pinActionMetadata({
+            actionMetadata,
+            image: candidate.image
+          })
+
+          await mkdir(path.dirname(outputActionPath), {
+            recursive: true
+          })
+          await writeFile(outputActionPath, pinnedMetadata)
+          await appendFile(
+            githubOutput,
+            `digest=${candidate.digest}\n` +
+              `image=${candidate.image}\n` +
+              `action_metadata_path=${outputActionPath}\n`
+          )
+          EOF
 
       - name: Build run-based app name
         id: app-name
@@ -79,7 +165,7 @@ jobs:
         run: |
           node --input-type=module <<'EOF'
           import { appendFile } from 'node:fs/promises'
-          import { buildE2EApplicationName } from './src/e2e/clever-client.ts'
+          import { buildE2EApplicationName } from './.candidate-source/src/e2e/clever-client.ts'
 
           const runId = process.env.RUN_ID
           const runAttempt = process.env.RUN_ATTEMPT
@@ -93,6 +179,25 @@ jobs:
           await appendFile(githubOutput, `name=${name}\n`)
           EOF
 
+      - name: Create fixture repository
+        id: fixture
+        env:
+          WORKSPACE_DIR: ${{ github.workspace }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { appendFile } from 'node:fs/promises'
+          import { createFixtureRepository } from './.candidate-source/src/e2e/git-fixture.ts'
+
+          const workspaceDir = process.env.WORKSPACE_DIR
+          const githubOutput = process.env.GITHUB_OUTPUT
+          if (!workspaceDir || !githubOutput) {
+            throw new Error('Missing fixture setup outputs')
+          }
+
+          const fixture = await createFixtureRepository({ workspaceDir })
+          await appendFile(githubOutput, `commit=${fixture.commit}\n`)
+          EOF
+
       - name: Create personal Node.js app
         id: create
         env:
@@ -100,24 +205,29 @@ jobs:
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
           CLEVER_E2E_REGION: ${{ vars.CLEVER_E2E_REGION }}
           APP_NAME: ${{ steps.app-name.outputs.name }}
-          APP_ID_FILE: ${{ github.workspace }}/.e2e-app.json
+          APP_ID_FILE: ${{ github.workspace }}/.e2e-state/app.json
         run: |
           node --input-type=module <<'EOF'
-          import { appendFile, writeFile } from 'node:fs/promises'
+          import { appendFile, mkdir, writeFile } from 'node:fs/promises'
           import { execFile } from 'node:child_process'
+          import path from 'node:path'
           import { promisify } from 'node:util'
-          import { createCleverController } from './src/e2e/clever-client.ts'
+          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
 
           const execFileAsync = promisify(execFile)
           const githubOutput = process.env.GITHUB_OUTPUT
           const appName = process.env.APP_NAME
           const appIdFile = process.env.APP_ID_FILE
           const region = process.env.CLEVER_E2E_REGION || 'par'
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/node_modules/.bin/clever`
+          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
 
           if (!githubOutput || !appName || !appIdFile) {
             throw new Error('Missing create-app workflow outputs')
           }
+
+          await mkdir(path.dirname(appIdFile), {
+            recursive: true
+          })
 
           const controller = createCleverController({
             cleverCLI,
@@ -181,26 +291,107 @@ jobs:
           }
           EOF
 
+      - name: Remove provisioning link
+        run: rm -f .clever.json
+
+      - name: Deploy healthy fixture commit
+        id: deploy-healthy
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          setEnv: |
+            CC_HEALTH_CHECK_PATH=/health
+
+      - name: Observe healthy fixture deployment
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          FIXTURE_COMMIT: ${{ steps.fixture.outputs.commit }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { execFile } from 'node:child_process'
+          import { promisify } from 'node:util'
+          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
+          import { waitForHealthyDeployment } from './.candidate-source/src/e2e/deployment-observer.ts'
+
+          const execFileAsync = promisify(execFile)
+          const appId = process.env.APP_ID
+          const expectedCommitID = process.env.FIXTURE_COMMIT
+          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+
+          if (!appId || !expectedCommitID) {
+            throw new Error('Missing deployment observation inputs')
+          }
+
+          const controller = createCleverController({
+            cleverCLI,
+            runCommand: async (cli, args, { timeoutMs }) => {
+              try {
+                const { stdout, stderr } = await execFileAsync(cli, args, {
+                  encoding: 'utf8',
+                  env: process.env,
+                  timeout: timeoutMs,
+                  maxBuffer: 1024 * 1024 * 10,
+                })
+                return { stdout, stderr }
+              } catch (error) {
+                throw new Error(error.stderr?.trim() || error.message)
+              }
+            },
+          })
+
+          const application = await controller.getApplication(appId)
+          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
+
+          await waitForHealthyDeployment({
+            appId,
+            healthURL,
+            expectedScenario: 'healthy',
+            expectedCommitID,
+            listActivity: controller.listActivity,
+            fetchHealth: async url => {
+              const requestController = new AbortController()
+              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
+
+              try {
+                const response = await fetch(url, {
+                  signal: requestController.signal
+                })
+                return {
+                  status: response.status,
+                  json: async () => response.json()
+                }
+              } finally {
+                clearTimeout(timeoutId)
+              }
+            }
+          })
+          EOF
+
       - name: Delete the captured app
-        if: always() && (steps.create.outputs.app_id != '' || hashFiles('.e2e-app.json') != '')
+        if: always() && (steps.create.outputs.app_id != '' || hashFiles('.e2e-state/app.json') != '')
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
           APP_ID: ${{ steps.create.outputs.app_id }}
           APP_NAME: ${{ steps.create.outputs.app_name }}
-          APP_ID_FILE: ${{ github.workspace }}/.e2e-app.json
+          APP_ID_FILE: ${{ github.workspace }}/.e2e-state/app.json
         run: |
           node --input-type=module <<'EOF'
           import { readFile } from 'node:fs/promises'
           import { execFile } from 'node:child_process'
           import { promisify } from 'node:util'
-          import { createCleverController } from './src/e2e/clever-client.ts'
+          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
 
           const execFileAsync = promisify(execFile)
           let appId = process.env.APP_ID
           let appName = process.env.APP_NAME
           const appIdFile = process.env.APP_ID_FILE
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/node_modules/.bin/clever`
+          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
 
           if ((!appId || !appName) && appIdFile) {
             const persisted = JSON.parse(await readFile(appIdFile, 'utf8'))

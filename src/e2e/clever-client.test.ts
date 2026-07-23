@@ -208,6 +208,35 @@ describe('createCleverController', () => {
     )
   })
 
+  test('looks up the exact app ID and returns its deploy URL', async () => {
+    const controller = createCleverController({
+      cleverCLI: '/tmp/node_modules/.bin/clever',
+      runCommand: async () => ({
+        stdout: JSON.stringify([
+          {
+            id: 'orga_123',
+            applications: [
+              {
+                app_id: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+                name: 'actions-clever-cloud-e2e-123-4',
+                deploy_url: 'https://fixture.example.com'
+              }
+            ]
+          }
+        ]),
+        stderr: ''
+      })
+    })
+
+    await expect(
+      controller.getApplication('app_facade42-cafe-babe-cafe-deadf00dbaad')
+    ).resolves.toEqual({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      name: 'actions-clever-cloud-e2e-123-4',
+      deployURL: 'https://fixture.example.com'
+    })
+  })
+
   test('reports the exact name and ID when teardown fails', async () => {
     const controller = createCleverController({
       cleverCLI: '/tmp/node_modules/.bin/clever',

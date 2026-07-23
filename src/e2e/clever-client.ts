@@ -38,6 +38,10 @@ type CreatedApplication = {
   name: string
 }
 
+type RetrievedApplication = CreatedApplication & {
+  deployURL: string
+}
+
 type DeploymentActivity = {
   action?: string
   state?: string
@@ -46,6 +50,7 @@ type DeploymentActivity = {
 type ListedApplication = {
   app_id?: string
   name?: string
+  deploy_url?: string
 }
 
 type ListedOrganisation = {
@@ -132,6 +137,8 @@ export function createCleverController({
   }
 
   return {
+    listActivity,
+
     async createApplication({
       name,
       region
@@ -189,6 +196,22 @@ export function createCleverController({
 
         await sleep(pollIntervalMs)
         elapsedMs += pollIntervalMs
+      }
+    },
+
+    async getApplication(appId: string): Promise<RetrievedApplication> {
+      const match = (await listApplications())
+        .flatMap(organisation => organisation.applications ?? [])
+        .find(application => application.app_id === appId)
+
+      if (!match || !match.name || !match.deploy_url) {
+        throw new Error(`Application ${appId} is missing its name or deploy URL`)
+      }
+
+      return {
+        appId,
+        name: match.name,
+        deployURL: match.deploy_url
       }
     },
 
