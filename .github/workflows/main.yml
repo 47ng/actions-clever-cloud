@@ -192,6 +192,8 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
+          cache-from: type=gha,scope=release-image
+          cache-to: type=gha,mode=max,scope=release-image
           labels: ${{ steps.docker-labels.outputs.labels }}
           tags: ghcr.io/47ng/actions-clever-cloud:git-${{ needs.release.outputs.sha }}
           push: true

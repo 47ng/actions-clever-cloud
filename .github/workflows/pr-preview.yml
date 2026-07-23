@@ -7,10 +7,14 @@ on:
       - "src/**/*.ts"
       - "!src/**/*.test.ts"
       - "Dockerfile"
+      - "action.yml"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "tsconfig.json"
+      - ".github/workflows/pr-preview.yml"
+      - ".github/workflows/pr-preview-manual.yml"
+      - ".github/workflows/*e2e*.yml"
 
 permissions: {}
 
@@ -28,7 +32,7 @@ jobs:
     outputs:
       tag: ${{ steps.docker-tag.outputs.tag }}
       sha: ${{ steps.sha.outputs.sha }}
-      digest: ${{ steps.docker-build-push.outputs.digest }}
+      digest: ${{ steps.candidate.outputs.digest }}
       tags: ${{ steps.docker-labels-tags.outputs.tags }}
       labels: ${{ steps.docker-labels-tags.outputs.labels }}
     steps:
@@ -37,6 +41,10 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .node-version
 
       - name: Get PR head SHA
         id: sha
@@ -101,14 +109,90 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
+          cache-from: type=gha,scope=pr-preview-internal-${{ github.event.pull_request.number }}
+          cache-to: type=gha,mode=max,scope=pr-preview-internal-${{ github.event.pull_request.number }}
           labels: "${{ steps.docker-labels-tags.outputs.labels }}"
           tags: "${{ steps.docker-labels-tags.outputs.tags }}"
           push: true
 
+      - name: Verify and pin candidate action metadata
+        id: candidate
+        env:
+          CANDIDATE_IMAGE: ghcr.io/47ng/actions-clever-cloud:git-${{ steps.sha.outputs.sha }}
+          EXPECTED_REVISION: ${{ steps.sha.outputs.sha }}
+          EXPECTED_SOURCE_REPOSITORY: ${{ github.repository }}
+          OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action.yml
+        run: |
+          node --input-type=module <<'EOF'
+          import { appendFile, readFile, writeFile } from 'node:fs/promises'
+          import { execFile } from 'node:child_process'
+          import { promisify } from 'node:util'
+          import { inspectCandidateImage, pinActionMetadata } from './src/e2e/candidate-image.ts'
+
+          const execFileAsync = promisify(execFile)
+          const image = process.env.CANDIDATE_IMAGE
+          const expectedRevision = process.env.EXPECTED_REVISION
+          const expectedSourceRepository = process.env.EXPECTED_SOURCE_REPOSITORY
+          const outputActionPath = process.env.OUTPUT_ACTION_PATH
+          const githubOutput = process.env.GITHUB_OUTPUT
+
+          if (
+            !image ||
+            !expectedRevision ||
+            !expectedSourceRepository ||
+            !outputActionPath ||
+            !githubOutput
+          ) {
+            throw new Error('Missing candidate verification environment variables')
+          }
+
+          const inspect = async format => {
+            try {
+              const { stdout, stderr } = await execFileAsync(
+                'docker',
+                ['buildx', 'imagetools', 'inspect', '--format', format, image],
+                { encoding: 'utf8' }
+              )
+              return { exitCode: 0, stdout, stderr }
+            } catch (error) {
+              return {
+                exitCode: error.code ?? 1,
+                stdout: error.stdout ?? '',
+                stderr: error.stderr ?? error.message
+              }
+            }
+          }
+
+          const candidate = await inspectCandidateImage({
+            image,
+            expectedRevision,
+            expectedSourceRepository,
+            inspect
+          })
+
+          if (!candidate) {
+            throw new Error(`Missing candidate image ${image}`)
+          }
+
+          const actionMetadata = await readFile('action.yml', 'utf8')
+          const pinnedMetadata = pinActionMetadata({
+            actionMetadata,
+            image: candidate.image
+          })
+
+          await writeFile(outputActionPath, pinnedMetadata)
+          await appendFile(
+            githubOutput,
+            `digest=${candidate.digest}\n` +
+              `image=${candidate.image}\n` +
+              `action_metadata_path=${outputActionPath}\n`
+          )
+          EOF
+
       - name: Generate step summary
         run: |
           echo "## 🐳 &nbsp;Docker image" >> $GITHUB_STEP_SUMMARY
-          echo "Digest: \`${{ steps.docker-build-push.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "Digest: \`${{ steps.candidate.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
           echo "### 📌 &nbsp;Tags" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.docker-labels-tags.outputs.tags }}" >> $GITHUB_STEP_SUMMARY

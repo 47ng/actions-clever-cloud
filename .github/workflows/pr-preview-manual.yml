@@ -212,6 +212,8 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
+          cache-from: type=gha,scope=pr-preview-fork-${{ needs.resolve.outputs.pr_number }}
+          cache-to: type=gha,mode=max,scope=pr-preview-fork-${{ needs.resolve.outputs.pr_number }}
           labels: "${{ steps.meta.outputs.labels }}"
           tags: "${{ steps.meta.outputs.tags }}"
           push: true
