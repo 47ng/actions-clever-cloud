@@ -108,6 +108,8 @@ jobs:
       release_created: ${{ steps.release-please.outputs.release_created }}
       version: ${{ steps.release-please.outputs.version }}
       sha: ${{ steps.release-please.outputs.sha }}
+      prs_created: ${{ steps.release-please.outputs.prs_created }}
+      prs: ${{ steps.release-please.outputs.prs }}
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release-please
@@ -116,6 +118,39 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
           target-branch: master
+
+  dispatch-release-please-candidates:
+    name: Dispatch automatic e2e for Release Please candidates
+    needs: [release]
+    if: needs.release.outputs.prs_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      PRS: ${{ needs.release.outputs.prs }}
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const prs = JSON.parse(process.env.PRS || '[]');
+
+            for (const pr of prs) {
+              if (
+                pr.headBranchName !== 'release-please--branches--master' ||
+                !pr.labels?.includes('autorelease: pending')
+              ) {
+                continue;
+              }
+
+              await github.rest.repos.createDispatchEvent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                event_type: 'release-please-candidate',
+                client_payload: {
+                  pr_number: pr.number,
+                },
+              });
+            }
 
   build:
     name: Build release image

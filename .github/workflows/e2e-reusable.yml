@@ -9,6 +9,15 @@ on:
       pr_number:
         required: true
         type: string
+      candidate_image:
+        required: true
+        type: string
+      candidate_source_repository:
+        required: true
+        type: string
+      caller:
+        required: true
+        type: string
 
 permissions: {}
 
@@ -26,34 +35,44 @@ jobs:
     environment:
       name: clever-cloud-e2e
     steps:
-      - name: Recheck staleness after approval
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      - name: Validate candidate identity inputs
         env:
           HEAD_SHA: ${{ inputs.head_sha }}
           PR_NUMBER: ${{ inputs.pr_number }}
-        with:
-          script: |
-            const headSha = process.env.HEAD_SHA;
-            const prNumber = Number(process.env.PR_NUMBER);
-            const thisRepo = `${context.repo.owner}/${context.repo.repo}`;
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          CANDIDATE_SOURCE_REPOSITORY: ${{ inputs.candidate_source_repository }}
+          CALLER: ${{ inputs.caller }}
+        run: |
+          node --input-type=module <<'EOF'
+          const headSha = process.env.HEAD_SHA
+          const prNumber = process.env.PR_NUMBER
+          const candidateImage = process.env.CANDIDATE_IMAGE
+          const candidateSourceRepository = process.env.CANDIDATE_SOURCE_REPOSITORY
+          const caller = process.env.CALLER
+          const thisRepo = process.env.GITHUB_REPOSITORY
 
-            const { data: pr } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: prNumber,
-            });
+          if (!/^[0-9a-f]{40}$/.test(headSha ?? '')) {
+            throw new Error('head_sha must be a full 40-character lowercase hex commit SHA.')
+          }
 
-            if (pr.state !== "open") {
-              core.setFailed(`PR #${prNumber} is no longer open.`);
-              return;
-            }
+          if (!/^\d+$/.test(prNumber ?? '')) {
+            throw new Error('pr_number must be a decimal pull request number.')
+          }
 
-            if (pr.head.repo.full_name !== thisRepo || pr.head.sha !== headSha) {
-              core.setFailed(
-                `PR #${prNumber} is stale. Expected ${headSha}, found ${pr.head.sha}. Dispatch again with the current head.`,
-              );
-              return;
-            }
+          if (!/^ghcr\.io\/47ng\/actions-clever-cloud@sha256:[0-9a-f]{64}$/.test(candidateImage ?? '')) {
+            throw new Error('candidate_image must be pinned to a canonical sha256 digest.')
+          }
+
+          if (!thisRepo || candidateSourceRepository !== thisRepo) {
+            throw new Error(
+              `candidate_source_repository must match ${thisRepo}, got ${candidateSourceRepository ?? '(missing)'}`
+            )
+          }
+
+          if (caller !== 'manual' && caller !== 'automatic') {
+            throw new Error(`caller must be manual or automatic, got ${caller ?? '(missing)'}`)
+          }
+          EOF
 
       - name: Checkout candidate source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -72,89 +91,37 @@ jobs:
           cache: pnpm
           cache-dependency-path: .candidate-source/pnpm-lock.yaml
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
-
       - name: Install candidate dependencies
         working-directory: .candidate-source
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Verify and pin candidate action metadata
-        id: candidate
         env:
-          CANDIDATE_IMAGE: ghcr.io/47ng/actions-clever-cloud:git-${{ inputs.head_sha }}
-          EXPECTED_REVISION: ${{ inputs.head_sha }}
-          EXPECTED_SOURCE_REPOSITORY: ${{ github.repository }}
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
           OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
         run: |
           node --input-type=module <<'EOF'
-          import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
-          import { execFile } from 'node:child_process'
+          import { mkdir, readFile, writeFile } from 'node:fs/promises'
           import path from 'node:path'
-          import { promisify } from 'node:util'
-          import { inspectCandidateImage, pinActionMetadata } from './.candidate-source/src/e2e/candidate-image.ts'
+          import { pinActionMetadata } from './.candidate-source/src/e2e/candidate-image.ts'
 
-          const execFileAsync = promisify(execFile)
           const image = process.env.CANDIDATE_IMAGE
-          const expectedRevision = process.env.EXPECTED_REVISION
-          const expectedSourceRepository = process.env.EXPECTED_SOURCE_REPOSITORY
           const outputActionPath = process.env.OUTPUT_ACTION_PATH
-          const githubOutput = process.env.GITHUB_OUTPUT
 
-          if (
-            !image ||
-            !expectedRevision ||
-            !expectedSourceRepository ||
-            !outputActionPath ||
-            !githubOutput
-          ) {
-            throw new Error('Missing candidate verification environment variables')
-          }
-
-          const inspect = async format => {
-            try {
-              const { stdout, stderr } = await execFileAsync(
-                'docker',
-                ['buildx', 'imagetools', 'inspect', '--format', format, image],
-                { encoding: 'utf8' }
-              )
-              return { exitCode: 0, stdout, stderr }
-            } catch (error) {
-              return {
-                exitCode: error.code ?? 1,
-                stdout: error.stdout ?? '',
-                stderr: error.stderr ?? error.message
-              }
-            }
-          }
-
-          const candidate = await inspectCandidateImage({
-            image,
-            expectedRevision,
-            expectedSourceRepository,
-            inspect
-          })
-
-          if (!candidate) {
-            throw new Error(`Missing candidate image ${image}`)
+          if (!image || !outputActionPath) {
+            throw new Error('Missing candidate pinning environment variables')
           }
 
           const actionMetadata = await readFile('./.candidate-source/action.yml', 'utf8')
           const pinnedMetadata = pinActionMetadata({
             actionMetadata,
-            image: candidate.image
+            image
           })
 
           await mkdir(path.dirname(outputActionPath), {
             recursive: true
           })
           await writeFile(outputActionPath, pinnedMetadata)
-          await appendFile(
-            githubOutput,
-            `digest=${candidate.digest}\n` +
-              `image=${candidate.image}\n` +
-              `action_metadata_path=${outputActionPath}\n`
-          )
           EOF
 
       - name: Build run-based app name
@@ -198,7 +165,64 @@ jobs:
           await appendFile(githubOutput, `commit=${fixture.commit}\n`)
           EOF
 
+      - name: Recheck staleness after approval
+        id: candidate-state
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          HEAD_SHA: ${{ inputs.head_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          CALLER: ${{ inputs.caller }}
+        with:
+          script: |
+            const headSha = process.env.HEAD_SHA;
+            const prNumber = Number(process.env.PR_NUMBER);
+            const caller = process.env.CALLER;
+            const thisRepo = `${context.repo.owner}/${context.repo.repo}`;
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+
+            const isStale =
+              pr.state !== "open" ||
+              pr.head.repo.full_name !== thisRepo ||
+              pr.head.sha !== headSha;
+
+            const isAutomaticCandidate =
+              caller === "automatic" &&
+              (
+                pr.draft ||
+                pr.user.login !== "github-actions[bot]" ||
+                pr.head.ref !== "release-please--branches--master" ||
+                !pr.labels.some((label) => label.name === "autorelease: pending")
+              );
+
+            if (isStale || isAutomaticCandidate) {
+              if (caller === "automatic") {
+                core.setOutput("proceed", "false");
+                await core.summary
+                  .addHeading("Superseded")
+                  .addRaw('superseded')
+                  .addEOL()
+                  .addRaw(
+                    `Pull request #${prNumber} no longer matches the approved candidate identity for ${headSha}.`,
+                  )
+                  .write();
+                return;
+              }
+
+              core.setFailed(
+                `PR #${prNumber} is stale. Expected ${headSha}, found ${pr.head.sha}. Dispatch again with the current head.`,
+              );
+              return;
+            }
+
+            core.setOutput("proceed", "true");
+
       - name: Create personal Node.js app
+        if: steps.candidate-state.outputs.proceed == 'true'
         id: create
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
@@ -292,9 +316,11 @@ jobs:
           EOF
 
       - name: Remove provisioning link
+        if: steps.candidate-state.outputs.proceed == 'true'
         run: rm -f .clever.json
 
       - name: Deploy healthy fixture commit
+        if: steps.candidate-state.outputs.proceed == 'true'
         id: deploy-healthy
         uses: ./.candidate-action
         env:
@@ -306,6 +332,7 @@ jobs:
             CC_HEALTH_CHECK_PATH=/health
 
       - name: Observe healthy fixture deployment
+        if: steps.candidate-state.outputs.proceed == 'true'
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}

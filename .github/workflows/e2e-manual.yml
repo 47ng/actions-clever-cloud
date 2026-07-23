@@ -20,6 +20,7 @@ jobs:
     outputs:
       head_sha: ${{ steps.resolve.outputs.head_sha }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
+      candidate_source_repository: ${{ steps.resolve.outputs.candidate_source_repository }}
     steps:
       - name: Resolve current internal pull request head
         id: resolve
@@ -70,10 +71,121 @@ jobs:
 
             core.setOutput("head_sha", headSha);
             core.setOutput("pr_number", String(matches[0].number));
+            core.setOutput("candidate_source_repository", thisRepo);
+
+  candidate:
+    name: Resolve verified candidate image
+    needs: resolve
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+    outputs:
+      digest: ${{ steps.candidate.outputs.digest }}
+      image: ${{ steps.candidate.outputs.image }}
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve verified candidate image
+        id: candidate
+        env:
+          CANDIDATE_IMAGE: ghcr.io/47ng/actions-clever-cloud:git-${{ needs.resolve.outputs.head_sha }}
+          EXPECTED_REVISION: ${{ needs.resolve.outputs.head_sha }}
+          EXPECTED_SOURCE_REPOSITORY: ${{ needs.resolve.outputs.candidate_source_repository }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { appendFile } from 'node:fs/promises'
+          import { execFile } from 'node:child_process'
+          import { promisify } from 'node:util'
+
+          const execFileAsync = promisify(execFile)
+          const image = process.env.CANDIDATE_IMAGE
+          const expectedRevision = process.env.EXPECTED_REVISION
+          const expectedSourceRepository = process.env.EXPECTED_SOURCE_REPOSITORY
+          const githubOutput = process.env.GITHUB_OUTPUT
+
+          if (!image || !expectedRevision || !expectedSourceRepository || !githubOutput) {
+            throw new Error('Missing candidate verification environment variables')
+          }
+
+          const inspectFailure = stderr =>
+            new Error(
+              `Failed to inspect ${image}: ${stderr || 'unknown registry inspection error'}`
+            )
+          const digestRegex = /^sha256:[0-9a-f]{64}$/
+
+          const inspect = async (format, reference = image) => {
+            try {
+              const { stdout, stderr } = await execFileAsync(
+                'docker',
+                ['buildx', 'imagetools', 'inspect', '--format', format, reference],
+                { encoding: 'utf8' }
+              )
+              return { exitCode: 0, stdout, stderr }
+            } catch (error) {
+              return {
+                exitCode: error.code ?? 1,
+                stdout: error.stdout ?? '',
+                stderr: error.stderr ?? error.message
+              }
+            }
+          }
+
+          const digestResult = await inspect('{{println .Manifest.Digest}}')
+          if (digestResult.exitCode !== 0) {
+            throw inspectFailure(digestResult.stderr)
+          }
+
+          const digest = digestResult.stdout.trim()
+          if (!digestRegex.test(digest)) {
+            throw new Error(`Invalid candidate image digest: ${digest}`)
+          }
+
+          const pinnedImage = image.replace(/:[^:@]+$/, `@${digest}`)
+          const labelsResult = await inspect('{{json .Image.Config.Labels}}', pinnedImage)
+          if (labelsResult.exitCode !== 0) {
+            throw inspectFailure(labelsResult.stderr)
+          }
+
+          let labels
+          try {
+            labels = JSON.parse(labelsResult.stdout)
+          } catch {
+            throw new Error(`Invalid candidate image labels for ${image}`)
+          }
+
+          const actualRevision = labels['org.opencontainers.image.revision']
+          if (actualRevision !== expectedRevision) {
+            throw new Error(
+              `Candidate image revision mismatch: expected ${expectedRevision}, got ${actualRevision ?? '(missing)'}`
+            )
+          }
+
+          const expectedSource = `https://github.com/${expectedSourceRepository}/tree/${expectedRevision}`
+          const actualSource = labels['org.opencontainers.image.source']
+          if (actualSource !== expectedSource) {
+            throw new Error(
+              `Candidate image source mismatch: expected ${expectedSource}, got ${actualSource ?? '(missing)'}`
+            )
+          }
+
+          await appendFile(
+            githubOutput,
+            `digest=${digest}\n` +
+              `image=${pinnedImage}\n`
+          )
+          EOF
 
   create-and-delete:
     name: Create and delete app
-    needs: resolve
+    needs: [resolve, candidate]
     uses: ./.github/workflows/e2e-reusable.yml
     permissions:
       contents: read
@@ -81,3 +193,6 @@ jobs:
     with:
       head_sha: ${{ needs.resolve.outputs.head_sha }}
       pr_number: ${{ needs.resolve.outputs.pr_number }}
+      candidate_image: ${{ needs.candidate.outputs.image }}
+      candidate_source_repository: ${{ needs.resolve.outputs.candidate_source_repository }}
+      caller: manual
