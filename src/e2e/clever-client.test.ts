@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { buildE2EApplicationName, createCleverController } from './clever-client'
 
 describe('buildE2EApplicationName', () => {
@@ -261,6 +261,268 @@ describe('createCleverController', () => {
     })
   })
 
+  test('refuses to cancel when another deployment is active for the app', async () => {
+    const controller = createCleverController({
+      cleverCLI: '/tmp/node_modules/.bin/clever',
+      runCommand: async (_cli, args) => {
+        if (args[0] === 'activity') {
+          return {
+            stdout: JSON.stringify([
+              {
+                uuid: 'deployment-timeout',
+                action: 'DEPLOY',
+                state: 'WIP',
+                commit: 'commit-timeout'
+              },
+              {
+                uuid: 'deployment-other',
+                action: 'DEPLOY',
+                state: 'RUNNING',
+                commit: 'commit-other'
+              }
+            ]),
+            stderr: ''
+          }
+        }
+
+        throw new Error('cancel-deploy should not run when the active deployment is ambiguous')
+      }
+    })
+
+    await expect(
+      controller.cancelDeployment({
+        appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+        deploymentId: 'deployment-timeout'
+      })
+    ).rejects.toThrow(
+      'Cannot cancel deployment deployment-timeout on app_facade42-cafe-babe-cafe-deadf00dbaad because 2 deployments are currently active'
+    )
+  })
+
+  test('enforces the cancellation deadline against wall-clock time, not only sleep time', async () => {
+    const sleep = vi.fn(async () => {})
+    const dateNowSpy = vi.spyOn(Date, 'now')
+    let activityCalls = 0
+
+    dateNowSpy.mockImplementation(() => {
+      activityCalls += 1
+      return activityCalls === 1 ? 0 : 11
+    })
+
+    try {
+      const controller = createCleverController({
+        cleverCLI: '/tmp/node_modules/.bin/clever',
+        runCommand: async (_cli, args) => {
+          if (args[0] === 'cancel-deploy') {
+            return { stdout: '', stderr: '' }
+          }
+
+          return {
+            stdout: JSON.stringify([
+              {
+                uuid: 'deployment-timeout',
+                action: 'DEPLOY',
+                state: 'WIP',
+                commit: 'commit-timeout'
+              }
+            ]),
+            stderr: ''
+          }
+        },
+        sleep,
+        settleTimeoutMs: 10,
+        pollIntervalMs: 5
+      })
+
+      await expect(
+        controller.cancelDeployment({
+          appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+          deploymentId: 'deployment-timeout'
+        })
+      ).rejects.toThrow(
+        'Timed out while waiting for deployment deployment-timeout on app_facade42-cafe-babe-cafe-deadf00dbaad to reach CANCELLED. Last state: WIP'
+      )
+
+      expect(sleep).not.toHaveBeenCalled()
+    } finally {
+      dateNowSpy.mockRestore()
+    }
+  })
+
+  test('enforces the cancellation deadline before issuing cancel-deploy', async () => {
+    const dateNowSpy = vi.spyOn(Date, 'now')
+    let cancelCalls = 0
+
+    const nowValues = [0, 11]
+    dateNowSpy.mockImplementation(() => nowValues.shift() ?? 11)
+
+    try {
+      const controller = createCleverController({
+        cleverCLI: '/tmp/node_modules/.bin/clever',
+        runCommand: async (_cli, args) => {
+          if (args[0] === 'activity') {
+            return {
+              stdout: JSON.stringify([
+                {
+                  uuid: 'deployment-timeout',
+                  action: 'DEPLOY',
+                  state: 'WIP',
+                  commit: 'commit-timeout'
+                }
+              ]),
+              stderr: ''
+            }
+          }
+
+          cancelCalls += 1
+          return { stdout: '', stderr: '' }
+        },
+        settleTimeoutMs: 10,
+        pollIntervalMs: 5
+      })
+
+      await expect(
+        controller.cancelDeployment({
+          appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+          deploymentId: 'deployment-timeout'
+        })
+      ).rejects.toThrow(
+        'Timed out while waiting for deployment deployment-timeout on app_facade42-cafe-babe-cafe-deadf00dbaad to reach CANCELLED. Last state: WIP'
+      )
+
+      expect(cancelCalls).toBe(0)
+    } finally {
+      dateNowSpy.mockRestore()
+    }
+  })
+
+  test('cancels the exact timed-out deployment and waits for its final cancelled state', async () => {
+    const calls: Array<{
+      cli: string
+      args: string[]
+      timeoutMs: number
+    }> = []
+    let activityCalls = 0
+
+    const controller = createCleverController({
+      cleverCLI: '/tmp/node_modules/.bin/clever',
+      runCommand: async (cli, args, { timeoutMs }) => {
+        calls.push({ cli, args, timeoutMs })
+
+        if (args[0] === 'cancel-deploy') {
+          return { stdout: '', stderr: '' }
+        }
+
+        activityCalls += 1
+        return {
+          stdout: JSON.stringify(
+            activityCalls === 1
+              ? [
+                  {
+                    uuid: 'deployment-other',
+                    action: 'DEPLOY',
+                    state: 'CANCELLED',
+                    commit: 'commit-other'
+                  },
+                  {
+                    uuid: 'deployment-timeout',
+                    action: 'DEPLOY',
+                    state: 'WIP',
+                    commit: 'commit-timeout'
+                  }
+                ]
+              : [
+                  {
+                    uuid: 'deployment-other',
+                    action: 'DEPLOY',
+                    state: 'CANCELLED',
+                    commit: 'commit-other'
+                  },
+                  {
+                    uuid: 'deployment-timeout',
+                    action: 'DEPLOY',
+                    state: 'CANCELLED',
+                    commit: 'commit-timeout'
+                  }
+                ]
+          ),
+          stderr: ''
+        }
+      },
+      sleep: async () => {},
+      settleTimeoutMs: 2,
+      pollIntervalMs: 1
+    })
+
+    await expect(
+      controller.cancelDeployment({
+        appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+        deploymentId: 'deployment-timeout'
+      })
+    ).resolves.toEqual({
+      uuid: 'deployment-timeout',
+      action: 'DEPLOY',
+      state: 'CANCELLED',
+      commit: 'commit-timeout'
+    })
+
+    expect(calls).toEqual([
+      {
+        cli: '/tmp/node_modules/.bin/clever',
+        args: ['activity', '--app', 'app_facade42-cafe-babe-cafe-deadf00dbaad', '--format', 'json'],
+        timeoutMs: 2
+      },
+      {
+        cli: '/tmp/node_modules/.bin/clever',
+        args: ['cancel-deploy', '--app', 'app_facade42-cafe-babe-cafe-deadf00dbaad'],
+        timeoutMs: 2
+      },
+      {
+        cli: '/tmp/node_modules/.bin/clever',
+        args: ['activity', '--app', 'app_facade42-cafe-babe-cafe-deadf00dbaad', '--format', 'json'],
+        timeoutMs: 2
+      }
+    ])
+  })
+
+  test('fails with a useful deadline error when a timed-out deployment never reaches CANCELLED', async () => {
+    let activityCalls = 0
+
+    const controller = createCleverController({
+      cleverCLI: '/tmp/node_modules/.bin/clever',
+      runCommand: async (_cli, args) => {
+        if (args[0] === 'cancel-deploy') {
+          return { stdout: '', stderr: '' }
+        }
+
+        activityCalls += 1
+        return {
+          stdout: JSON.stringify([
+            {
+              uuid: 'deployment-timeout',
+              action: 'DEPLOY',
+              state: activityCalls === 1 ? 'WIP' : 'QUEUED',
+              commit: 'commit-timeout'
+            }
+          ]),
+          stderr: ''
+        }
+      },
+      sleep: async () => {},
+      settleTimeoutMs: 2,
+      pollIntervalMs: 1
+    })
+
+    await expect(
+      controller.cancelDeployment({
+        appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+        deploymentId: 'deployment-timeout'
+      })
+    ).rejects.toThrow(
+      'Timed out while waiting for deployment deployment-timeout on app_facade42-cafe-babe-cafe-deadf00dbaad to reach CANCELLED. Last state: QUEUED'
+    )
+  })
+
   test('reports the exact name and ID when teardown fails', async () => {
     const controller = createCleverController({
       cleverCLI: '/tmp/node_modules/.bin/clever',
@@ -328,6 +590,83 @@ describe('createCleverController', () => {
     ).rejects.toThrow(
       'Failed to delete actions-clever-cloud-e2e-123-4 (app_facade42-cafe-babe-cafe-deadf00dbaad): Timed out while waiting for deployment cancellation for app_facade42-cafe-babe-cafe-deadf00dbaad'
     )
+  })
+
+  test('teardown cancels queued deployments before deleting the captured app ID', async () => {
+    const calls: Array<{
+      cli: string
+      args: string[]
+      timeoutMs: number
+    }> = []
+    let activityCalls = 0
+
+    const controller = createCleverController({
+      cleverCLI: '/tmp/node_modules/.bin/clever',
+      runCommand: async (cli, args, { timeoutMs }) => {
+        calls.push({ cli, args, timeoutMs })
+
+        if (args[0] === 'activity') {
+          activityCalls += 1
+          return {
+            stdout: JSON.stringify(
+              activityCalls === 1
+                ? [{ uuid: 'dep_123', action: 'DEPLOY', state: 'QUEUED' }]
+                : [{ uuid: 'dep_123', action: 'DEPLOY', state: 'CANCELLED' }]
+            ),
+            stderr: ''
+          }
+        }
+
+        if (args[0] === 'cancel-deploy') {
+          return { stdout: '', stderr: '' }
+        }
+
+        if (args[0] === 'delete') {
+          return { stdout: '', stderr: '' }
+        }
+
+        return {
+          stdout: JSON.stringify([{ id: 'orga_123', applications: [] }]),
+          stderr: ''
+        }
+      },
+      sleep: async () => {}
+    })
+
+    await expect(
+      controller.deleteApplication({
+        appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+        name: 'actions-clever-cloud-e2e-123-4'
+      })
+    ).resolves.toBeUndefined()
+
+    expect(calls).toEqual([
+      {
+        cli: '/tmp/node_modules/.bin/clever',
+        args: ['activity', '--app', 'app_facade42-cafe-babe-cafe-deadf00dbaad', '--format', 'json'],
+        timeoutMs: 30_000
+      },
+      {
+        cli: '/tmp/node_modules/.bin/clever',
+        args: ['cancel-deploy', '--app', 'app_facade42-cafe-babe-cafe-deadf00dbaad'],
+        timeoutMs: 30_000
+      },
+      {
+        cli: '/tmp/node_modules/.bin/clever',
+        args: ['activity', '--app', 'app_facade42-cafe-babe-cafe-deadf00dbaad', '--format', 'json'],
+        timeoutMs: 30_000
+      },
+      {
+        cli: '/tmp/node_modules/.bin/clever',
+        args: ['delete', '--app', 'app_facade42-cafe-babe-cafe-deadf00dbaad', '--yes'],
+        timeoutMs: 30_000
+      },
+      {
+        cli: '/tmp/node_modules/.bin/clever',
+        args: ['applications', 'list', '--format', 'json'],
+        timeoutMs: 30_000
+      }
+    ])
   })
 
   test('cancels active deployments, deletes the captured app ID, and verifies absence', async () => {

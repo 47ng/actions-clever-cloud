@@ -484,6 +484,42 @@ test('timeout fires: kills the deploy and moves on without failing', async () =>
   expect(setFailed).not.toHaveBeenCalled()
 })
 
+test('timeout writes the documented success message into the quiet deployment log file', async () => {
+  const fileChunks: string[] = []
+  const fileStream = new PassThrough()
+  fileStream.setEncoding('utf8')
+  fileStream.on('data', chunk => {
+    fileChunks.push(String(chunk))
+  })
+
+  const openSpy = vi.spyOn(fs, 'open').mockResolvedValue({
+    createWriteStream: () => fileStream
+  } as Awaited<ReturnType<typeof fs.open>>)
+
+  try {
+    vi.useFakeTimers()
+    const child = makeFakeChild()
+    spawnMock.mockReturnValue(child)
+
+    const finishedRun = run({
+      token: 'token',
+      secret: 'secret',
+      cleverCLI: CLEVER_CLI,
+      timeout: 1800,
+      quiet: true,
+      logFile: '/tmp/deploy.log'
+    })
+    await vi.advanceTimersByTimeAsync(1800 * 1000)
+    await finishedRun
+
+    expect(fileChunks.join('')).toContain(
+      'Deployment timed out, moving on with workflow run'
+    )
+  } finally {
+    openSpy.mockRestore()
+  }
+})
+
 test('timeout waits for asynchronous final output before closing the tee', async () => {
   const stdoutSpy = vi
     .spyOn(process.stdout, 'write')

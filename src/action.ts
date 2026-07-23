@@ -239,6 +239,9 @@ export async function run({
             child.unref()
           }
         }
+        if (quiet && logFile && outputStream) {
+          outputStream.stream.write('Deployment timed out, moving on with workflow run\n')
+        }
         core.info('Deployment timed out, moving on with workflow run')
         return
       }

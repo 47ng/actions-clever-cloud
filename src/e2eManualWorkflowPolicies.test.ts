@@ -158,6 +158,42 @@ describe('manual e2e workflow policies', () => {
     expect(resultsIndex).toBeGreaterThan(observeForceIndex)
   })
 
+  test('the reusable workflow ends with a slow-build child commit that times out, records the documented success contract, cancels by commit, and keeps the forced healthy commit live', () => {
+    expect(reusableWorkflow).toContain('name: Create slow-build fixture commit')
+    expect(reusableWorkflow).toContain('label: \'slow-build-child\'')
+    expect(reusableWorkflow).toContain('name: Deploy slow-build fixture commit with timeout')
+    expect(reusableWorkflow).toContain('timeout: 60')
+    expect(reusableWorkflow).toContain('E2E_SCENARIO=slow-build')
+    expect(reusableWorkflow).toContain('E2E_BUILD_DELAY_MS=180000')
+    expect(reusableWorkflow).toContain('name: Assert timeout outcome and contract message')
+    expect(reusableWorkflow).toContain('ACTION_OUTCOME: ${{ steps.timeout-deploy.outcome }}')
+    expect(reusableWorkflow).toContain('Expected timed-out deployment action to succeed')
+    expect(reusableWorkflow).toContain('Deployment timed out, moving on with workflow run')
+    expect(reusableWorkflow).toContain('name: Cancel timed-out deployment and confirm forced commit stays live')
+    expect(reusableWorkflow).toContain(
+      "import { cancelTimedOutDeploymentPreservesLiveApp } from './.candidate-source/src/e2e/deployment-observer.ts'"
+    )
+    expect(reusableWorkflow).toContain('expectedCancelledCommitID')
+    expect(reusableWorkflow).toContain('controller.cancelDeployment({ appId, deploymentId, timeoutMs })')
+    expect(reusableWorkflow).toContain('previousCommitID: previousCommitId')
+    expect(reusableWorkflow).toContain('previousDeploymentID: previousDeploymentId')
+    expect(reusableWorkflow).toContain('settleTimeoutMs: 600_000')
+    expect(reusableWorkflow).toContain('pollIntervalMs: 5_000')
+
+    const observeForceIndex = reusableWorkflow.indexOf('name: Observe forced divergent deployment')
+    const slowBuildCommitIndex = reusableWorkflow.indexOf('name: Create slow-build fixture commit')
+    const timeoutDeployIndex = reusableWorkflow.indexOf('name: Deploy slow-build fixture commit with timeout')
+    const timeoutAssertIndex = reusableWorkflow.indexOf('name: Assert timeout outcome and contract message')
+    const timeoutObserveIndex = reusableWorkflow.indexOf('name: Cancel timed-out deployment and confirm forced commit stays live')
+    const resultsIndex = reusableWorkflow.indexOf('name: Write structured scenario results')
+
+    expect(slowBuildCommitIndex).toBeGreaterThan(observeForceIndex)
+    expect(timeoutDeployIndex).toBeGreaterThan(slowBuildCommitIndex)
+    expect(timeoutAssertIndex).toBeGreaterThan(timeoutDeployIndex)
+    expect(timeoutObserveIndex).toBeGreaterThan(timeoutAssertIndex)
+    expect(resultsIndex).toBeGreaterThan(timeoutObserveIndex)
+  })
+
   test('the reusable workflow preserves production through build and startup failures, then recovers in order', () => {
     expect(reusableWorkflow).toContain('name: Create build-failure fixture commit')
     expect(reusableWorkflow).toContain('name: Deploy build-failure fixture commit')

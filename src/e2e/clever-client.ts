@@ -45,6 +45,8 @@ type RetrievedApplication = CreatedApplication & {
 type DeploymentActivity = {
   action?: string
   state?: string
+  uuid?: string
+  commit?: string
 }
 
 type ListedApplication = {
@@ -69,6 +71,7 @@ const APP_ID_REGEX =
 const COMMAND_TIMEOUT_MS = 30_000
 const DEFAULT_SETTLE_TIMEOUT_MS = 10 * 60_000
 const DEFAULT_POLL_INTERVAL_MS = 5_000
+const IN_PROGRESS_STATES = new Set(['WIP', 'PENDING', 'QUEUED', 'RUNNING'])
 
 export function buildE2EApplicationName({
   runId,
@@ -87,38 +90,103 @@ export function createCleverController({
   settleTimeoutMs = DEFAULT_SETTLE_TIMEOUT_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS
 }: CleverControllerOptions) {
-  async function listActivity(appId: string): Promise<DeploymentActivity[]> {
+  async function listActivity(
+    appId: string,
+    timeoutMs = COMMAND_TIMEOUT_MS
+  ): Promise<DeploymentActivity[]> {
     const result = await runCommand(
       cleverCLI,
       ['activity', '--app', appId, '--format', 'json'],
-      { timeoutMs: COMMAND_TIMEOUT_MS }
+      { timeoutMs }
     )
 
     return JSON.parse(result.stdout) as DeploymentActivity[]
   }
 
-  async function waitForCancelledDeployment(appId: string): Promise<void> {
-    let elapsedMs = 0
+  async function readActiveDeployments(
+    appId: string,
+    timeoutMs = COMMAND_TIMEOUT_MS
+  ): Promise<DeploymentActivity[]> {
+    return (await listActivity(appId, timeoutMs)).filter(
+      deployment =>
+        deployment.action === 'DEPLOY' &&
+        IN_PROGRESS_STATES.has(deployment.state ?? '')
+    )
+  }
+
+  async function waitForCancelledDeployment(
+    appId: string,
+    timeoutMs = settleTimeoutMs
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMs
 
     for (;;) {
-      const activity = await listActivity(appId)
-      const activeDeployment = activity.find(
-        deployment =>
-          deployment.action === 'DEPLOY' && deployment.state === 'WIP'
-      )
+      const activeDeployment = (
+        await readActiveDeployments(
+          appId,
+          Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
+        )
+      ).at(0)
 
-      if (!activeDeployment) {
-        return
-      }
-
-      if (elapsedMs >= settleTimeoutMs) {
+      if (Date.now() >= deadline) {
         throw new Error(
           `Timed out while waiting for deployment cancellation for ${appId}`
         )
       }
 
-      await sleep(pollIntervalMs)
-      elapsedMs += pollIntervalMs
+      if (!activeDeployment) {
+        return
+      }
+
+      await sleepUntilNextPoll({
+        sleep,
+        pollIntervalMs,
+        deadlineAt: deadline
+      })
+    }
+  }
+
+  async function waitForDeploymentState({
+    appId,
+    deploymentId,
+    expectedState,
+    timeoutMs = settleTimeoutMs
+  }: {
+    appId: string
+    deploymentId: string
+    expectedState: string
+    timeoutMs?: number
+  }): Promise<DeploymentActivity> {
+    const deadline = Date.now() + timeoutMs
+    let lastObservedState = '(missing)'
+
+    for (;;) {
+      const deployment = (
+        await listActivity(
+          appId,
+          Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
+        )
+      ).find(activity => activity.uuid === deploymentId)
+
+      if (deployment?.state) {
+        lastObservedState = deployment.state
+      }
+
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Timed out while waiting for deployment ${deploymentId} on ${appId} to reach ${expectedState}. Last state: ${lastObservedState}`
+        )
+      }
+
+      if (deployment?.state === expectedState) {
+        return deployment
+      }
+
+      await sleepUntilNextPoll({
+        sleep,
+        pollIntervalMs,
+        deadlineAt: deadline
+      })
     }
   }
 
@@ -145,6 +213,48 @@ export function createCleverController({
 
   return {
     listActivity,
+
+    async cancelDeployment({
+      appId,
+      deploymentId,
+      timeoutMs = settleTimeoutMs
+    }: {
+      appId: string
+      deploymentId: string
+      timeoutMs?: number
+    }): Promise<DeploymentActivity> {
+      const deadline = Date.now() + timeoutMs
+      const activeDeployments = await readActiveDeployments(
+        appId,
+        Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
+      )
+
+      if (
+        activeDeployments.length !== 1 ||
+        activeDeployments[0]?.uuid !== deploymentId
+      ) {
+        throw new Error(
+          `Cannot cancel deployment ${deploymentId} on ${appId} because ${activeDeployments.length} deployments are currently active`
+        )
+      }
+
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Timed out while waiting for deployment ${deploymentId} on ${appId} to reach CANCELLED. Last state: ${activeDeployments[0]?.state ?? '(missing)'}`
+        )
+      }
+
+      await runCommand(cleverCLI, ['cancel-deploy', '--app', appId], {
+        timeoutMs: Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
+      })
+
+      return waitForDeploymentState({
+        appId,
+        deploymentId,
+        expectedState: 'CANCELLED',
+        timeoutMs: remainingBeforeDeadline(deadline)
+      })
+    },
 
     async createApplication({
       name,
@@ -176,7 +286,7 @@ export function createCleverController({
     },
 
     async findApplicationByName(name: string): Promise<CreatedApplication> {
-      let elapsedMs = 0
+      const deadline = Date.now() + settleTimeoutMs
 
       for (;;) {
         const matches = (await listApplications())
@@ -197,12 +307,11 @@ export function createCleverController({
           throw new Error(`Expected exactly one app named ${name}, found ${matches.length}`)
         }
 
-        if (elapsedMs >= settleTimeoutMs) {
+        if (Date.now() >= deadline) {
           throw new Error(`Timed out while waiting for application ${name}`)
         }
 
-        await sleep(pollIntervalMs)
-        elapsedMs += pollIntervalMs
+        await sleep(Math.min(pollIntervalMs, Math.max(0, deadline - Date.now())))
       }
     },
 
@@ -240,17 +349,17 @@ export function createCleverController({
       name
     }: DeleteApplicationOptions): Promise<void> {
       try {
-        const activity = await listActivity(appId)
-        const hasActiveDeployment = activity.some(
-          deployment =>
-            deployment.action === 'DEPLOY' && deployment.state === 'WIP'
+        const deadline = Date.now() + settleTimeoutMs
+        const activeDeployments = await readActiveDeployments(
+          appId,
+          Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
         )
 
-        if (hasActiveDeployment) {
+        if (activeDeployments.length > 0) {
           await runCommand(cleverCLI, ['cancel-deploy', '--app', appId], {
-            timeoutMs: COMMAND_TIMEOUT_MS
+            timeoutMs: Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
           })
-          await waitForCancelledDeployment(appId)
+          await waitForCancelledDeployment(appId, remainingBeforeDeadline(deadline))
         }
 
         await runCommand(cleverCLI, ['delete', '--app', appId, '--yes'], {
@@ -264,6 +373,22 @@ export function createCleverController({
       }
     }
   }
+}
+
+function remainingBeforeDeadline(deadlineAt: number): number {
+  return Math.max(0, deadlineAt - Date.now())
+}
+
+async function sleepUntilNextPoll({
+  sleep,
+  pollIntervalMs,
+  deadlineAt
+}: {
+  sleep: Sleep
+  pollIntervalMs: number
+  deadlineAt: number
+}): Promise<void> {
+  await sleep(Math.min(pollIntervalMs, remainingBeforeDeadline(deadlineAt)))
 }
 
 async function defaultSleep(timeoutMs: number): Promise<void> {

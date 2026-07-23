@@ -75,7 +75,19 @@ createServer((request, response) => {
 `
 
 const FIXTURE_POSTINSTALL_SOURCE = `console.log('${FIXTURE_BUILD_MARKER}')\n`
-const FIXTURE_POST_BUILD_HOOK_SOURCE = `if ((process.env.E2E_SCENARIO ?? 'healthy') === 'build-failure') {
+const FIXTURE_POST_BUILD_HOOK_SOURCE = `const scenario = process.env.E2E_SCENARIO ?? 'healthy'
+
+if (scenario === 'slow-build') {
+  const delayMs = Number(process.env.E2E_BUILD_DELAY_MS ?? '180000')
+
+  if (!Number.isInteger(delayMs) || delayMs < 0) {
+    throw new Error('Invalid E2E_BUILD_DELAY_MS value')
+  }
+
+  await new Promise(resolve => setTimeout(resolve, delayMs))
+}
+
+if (scenario === 'build-failure') {
   console.log('${FIXTURE_BUILD_FAILURE_MARKER}')
   process.exitCode = 1
 }

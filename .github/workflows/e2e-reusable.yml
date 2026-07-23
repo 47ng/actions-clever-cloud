@@ -1953,6 +1953,178 @@ jobs:
           )
           EOF
 
+      - name: Create slow-build fixture commit
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: slow-build-commit
+        env:
+          WORKSPACE_DIR: ${{ github.workspace }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { appendFile } from 'node:fs/promises'
+          import { createHealthyFixtureCommit } from './.candidate-source/src/e2e/git-fixture.ts'
+
+          const workspaceDir = process.env.WORKSPACE_DIR
+          const githubOutput = process.env.GITHUB_OUTPUT
+
+          if (!workspaceDir || !githubOutput) {
+            throw new Error('Missing slow-build fixture commit outputs')
+          }
+
+          const commit = await createHealthyFixtureCommit({
+            workspaceDir,
+            label: 'slow-build-child'
+          })
+
+          await appendFile(githubOutput, `commit=${commit}\n`)
+          EOF
+
+      - name: Deploy slow-build fixture commit with timeout
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: timeout-deploy
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 60
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/012-timeout.log
+          setEnv: |
+            CC_HEALTH_CHECK_PATH=/health
+            CC_POST_BUILD_HOOK=node scripts/post-build-hook.mjs
+            E2E_SCENARIO=slow-build
+            E2E_BUILD_DELAY_MS=180000
+
+      - name: Assert timeout outcome and contract message
+        if: always() && steps.candidate-state.outputs.proceed == 'true' && steps.timeout-deploy.outcome != 'skipped'
+        id: assert-timeout-deploy
+        env:
+          ACTION_OUTCOME: ${{ steps.timeout-deploy.outcome }}
+          LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/012-timeout.log
+        run: |
+          node --input-type=module <<'EOF'
+          import { readFile } from 'node:fs/promises'
+
+          const actionOutcome = process.env.ACTION_OUTCOME
+          const logPath = process.env.LOG_PATH
+
+          if (!actionOutcome || !logPath) {
+            throw new Error('Missing timeout assertion inputs')
+          }
+
+          if (actionOutcome !== 'success') {
+            throw new Error('Expected timed-out deployment action to succeed')
+          }
+
+          const logContent = await readFile(logPath, 'utf8')
+          if (!logContent.includes('Deployment timed out, moving on with workflow run')) {
+            throw new Error(
+              'Expected timed-out deployment log to contain the documented timeout message'
+            )
+          }
+          EOF
+
+      - name: Cancel timed-out deployment and confirm forced commit stays live
+        if: always() && steps.candidate-state.outputs.proceed == 'true' && steps.timeout-deploy.outcome != 'skipped'
+        id: observe-timeout-deploy
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          EXPECTED_CANCELLED_COMMIT_ID: ${{ steps.slow-build-commit.outputs.commit }}
+          PREVIOUS_INSTANCE_ID: ${{ steps.observe-divergent-force.outputs.instance_id }}
+          PREVIOUS_COMMIT_ID: ${{ steps.observe-divergent-force.outputs.commit_id }}
+          PREVIOUS_DEPLOYMENT_ID: ${{ steps.observe-divergent-force.outputs.deployment_id }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { execFile } from 'node:child_process'
+          import { appendFile } from 'node:fs/promises'
+          import { promisify } from 'node:util'
+          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
+          import { cancelTimedOutDeploymentPreservesLiveApp } from './.candidate-source/src/e2e/deployment-observer.ts'
+
+          const execFileAsync = promisify(execFile)
+          const appId = process.env.APP_ID
+          const expectedCancelledCommitID = process.env.EXPECTED_CANCELLED_COMMIT_ID
+          const previousInstanceId = process.env.PREVIOUS_INSTANCE_ID
+          const previousCommitId = process.env.PREVIOUS_COMMIT_ID
+          const previousDeploymentId = process.env.PREVIOUS_DEPLOYMENT_ID
+          const githubOutput = process.env.GITHUB_OUTPUT
+          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+
+          if (
+            !appId ||
+            !expectedCancelledCommitID ||
+            !previousInstanceId ||
+            !previousCommitId ||
+            !previousDeploymentId ||
+            !githubOutput
+          ) {
+            throw new Error('Missing timeout observation inputs')
+          }
+
+          const controller = createCleverController({
+            cleverCLI,
+            runCommand: async (cli, args, { timeoutMs }) => {
+              try {
+                const { stdout, stderr } = await execFileAsync(cli, args, {
+                  encoding: 'utf8',
+                  env: process.env,
+                  timeout: timeoutMs,
+                  maxBuffer: 1024 * 1024 * 10,
+                })
+                return { stdout, stderr }
+              } catch (error) {
+                throw new Error(error.stderr?.trim() || error.message)
+              }
+            },
+          })
+
+          const application = await controller.getApplication(appId)
+          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
+          const result = await cancelTimedOutDeploymentPreservesLiveApp({
+            appId,
+            healthURL,
+            expectedCancelledCommitID,
+            expectedScenario: 'healthy',
+            previousCommitID: previousCommitId,
+            previousDeploymentID: previousDeploymentId,
+            listActivity: controller.listActivity,
+            cancelDeployment: async (appId, deploymentId, timeoutMs) =>
+              controller.cancelDeployment({ appId, deploymentId, timeoutMs }),
+            fetchHealth: async url => {
+              const requestController = new AbortController()
+              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
+
+              try {
+                const response = await fetch(url, {
+                  signal: requestController.signal
+                })
+                return {
+                  status: response.status,
+                  json: async () => response.json()
+                }
+              } finally {
+                clearTimeout(timeoutId)
+              }
+            },
+            settleTimeoutMs: 600_000,
+            pollIntervalMs: 5_000
+          })
+
+          if (result.health.INSTANCE_ID !== previousInstanceId) {
+            throw new Error('Expected timed-out deployment to preserve the prior healthy forced instance ID')
+          }
+
+          await appendFile(
+            githubOutput,
+            `instance_id=${result.health.INSTANCE_ID ?? ''}\n` +
+              `deployment_id=${result.cancelledDeployment.uuid ?? ''}\n` +
+              `commit_id=${result.cancelledDeployment.commit ?? expectedCancelledCommitID}\n`,
+          )
+          EOF
+
       - name: Write structured scenario results
         if: always() && steps.candidate-state.outputs.proceed == 'true'
         env:
@@ -2006,6 +2178,14 @@ jobs:
           DIVERGENT_FORCE_INSTANCE_ID: ${{ steps.observe-divergent-force.outputs.instance_id }}
           DIVERGENT_FORCE_COMMIT_ID: ${{ steps.observe-divergent-force.outputs.commit_id }}
           DIVERGENT_FORCE_DEPLOYMENT_ID: ${{ steps.observe-divergent-force.outputs.deployment_id }}
+          TIMEOUT_DEPLOY_OUTCOME: ${{ steps.timeout-deploy.outcome }}
+          ASSERT_TIMEOUT_DEPLOY_OUTCOME: ${{ steps.assert-timeout-deploy.outcome }}
+          OBSERVE_TIMEOUT_DEPLOY_OUTCOME: ${{ steps.observe-timeout-deploy.outcome }}
+          TIMEOUT_COMMIT: ${{ steps.slow-build-commit.outputs.commit }}
+          TIMEOUT_INSTANCE_ID: ${{ steps.observe-timeout-deploy.outputs.instance_id }}
+          TIMEOUT_COMMIT_ID: ${{ steps.observe-timeout-deploy.outputs.commit_id }}
+          TIMEOUT_DEPLOYMENT_ID: ${{ steps.observe-timeout-deploy.outputs.deployment_id }}
+          TIMEOUT_BASELINE_INSTANCE_ID: ${{ steps.observe-divergent-force.outputs.instance_id }}
           SAME_COMMIT_BASELINE_INSTANCE_ID: ${{ steps.observe-env.outputs.instance_id }}
           SAME_COMMIT_BASELINE_COMMIT_ID: ${{ steps.observe-env.outputs.commit_id }}
           SAME_COMMIT_BASELINE_DEPLOYMENT_ID: ${{ steps.observe-env.outputs.deployment_id }}
@@ -2224,6 +2404,25 @@ jobs:
                     null,
                   deploymentId: process.env.DIVERGENT_FORCE_DEPLOYMENT_ID || null,
                   candidateActionLogs: ['candidate-action/011-divergent-force.log']
+                },
+                {
+                  name: 'timeout-cancelled',
+                  outcome: buildSuccessfulScenarioOutcome(
+                    process.env.TIMEOUT_DEPLOY_OUTCOME,
+                    process.env.ASSERT_TIMEOUT_DEPLOY_OUTCOME,
+                    process.env.OBSERVE_TIMEOUT_DEPLOY_OUTCOME
+                  ),
+                  baselineInstanceId: process.env.TIMEOUT_BASELINE_INSTANCE_ID || null,
+                  instanceId:
+                    process.env.TIMEOUT_INSTANCE_ID ||
+                    process.env.TIMEOUT_BASELINE_INSTANCE_ID ||
+                    null,
+                  commitId:
+                    process.env.TIMEOUT_COMMIT_ID ||
+                    process.env.TIMEOUT_COMMIT ||
+                    null,
+                  deploymentId: process.env.TIMEOUT_DEPLOYMENT_ID || null,
+                  candidateActionLogs: ['candidate-action/012-timeout.log']
                 }
               ]
             })
@@ -2249,6 +2448,7 @@ jobs:
           RECOVERY_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/009-recovery.log
           DIVERGENT_NO_FORCE_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/010-divergent-no-force.log
           DIVERGENT_FORCE_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/011-divergent-force.log
+          TIMEOUT_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/012-timeout.log
         run: |
           node --input-type=module <<'EOF'
           import { constants } from 'node:fs'
@@ -2268,6 +2468,7 @@ jobs:
           const recoveryLogPath = process.env.RECOVERY_LOG_PATH
           const divergentNoForceLogPath = process.env.DIVERGENT_NO_FORCE_LOG_PATH
           const divergentForceLogPath = process.env.DIVERGENT_FORCE_LOG_PATH
+          const timeoutLogPath = process.env.TIMEOUT_LOG_PATH
           const token = process.env.CLEVER_TOKEN
           const secret = process.env.CLEVER_SECRET
 
@@ -2285,6 +2486,7 @@ jobs:
             !recoveryLogPath ||
             !divergentNoForceLogPath ||
             !divergentForceLogPath ||
+            !timeoutLogPath ||
             !token ||
             !secret
           ) {
@@ -2342,6 +2544,10 @@ jobs:
             {
               sourcePath: divergentForceLogPath,
               artifactPath: 'candidate-action/011-divergent-force.log'
+            },
+            {
+              sourcePath: timeoutLogPath,
+              artifactPath: 'candidate-action/012-timeout.log'
             }
           ]) {
             try {

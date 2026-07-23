@@ -36,6 +36,7 @@ describe('e2e failure evidence workflow policies', () => {
     expect(reusableWorkflow).toContain('logFile: .e2e-artifacts/candidate-action/009-recovery.log')
     expect(reusableWorkflow).toContain('logFile: .e2e-artifacts/candidate-action/010-divergent-no-force.log')
     expect(reusableWorkflow).toContain('logFile: .e2e-artifacts/candidate-action/011-divergent-force.log')
+    expect(reusableWorkflow).toContain('logFile: .e2e-artifacts/candidate-action/012-timeout.log')
     expect(reusableWorkflow).toContain("candidateActionLogs: ['candidate-action/001-deploy-healthy.log']")
     expect(reusableWorkflow).toContain("candidateActionLogs: ['candidate-action/002-deploy-env.log']")
     expect(reusableWorkflow).toContain("candidateActionLogs: ['candidate-action/003-same-commit-error.log']")
@@ -47,6 +48,7 @@ describe('e2e failure evidence workflow policies', () => {
     expect(reusableWorkflow).toContain("candidateActionLogs: ['candidate-action/009-recovery.log']")
     expect(reusableWorkflow).toContain("candidateActionLogs: ['candidate-action/010-divergent-no-force.log']")
     expect(reusableWorkflow).toContain("candidateActionLogs: ['candidate-action/011-divergent-force.log']")
+    expect(reusableWorkflow).toContain("candidateActionLogs: ['candidate-action/012-timeout.log']")
     expect(reusableWorkflow).toContain("steps.prepare-failure-evidence.outcome == 'success'")
     expect(reusableWorkflow).toContain("steps.verify-failure-evidence.outcome == 'success'")
     expect(reusableWorkflow).toContain('candidate-action/007-build-failure.log')
@@ -54,6 +56,7 @@ describe('e2e failure evidence workflow policies', () => {
     expect(reusableWorkflow).toContain('candidate-action/009-recovery.log')
     expect(reusableWorkflow).toContain('candidate-action/010-divergent-no-force.log')
     expect(reusableWorkflow).toContain('candidate-action/011-divergent-force.log')
+    expect(reusableWorkflow).toContain('candidate-action/012-timeout.log')
     expect(reusableWorkflow).toContain('retention-days: 3')
     expect(reusableWorkflow).toContain('name: clever-cloud-e2e-failure-${{ github.run_id }}-${{ github.run_attempt }}')
 

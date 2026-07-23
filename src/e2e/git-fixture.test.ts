@@ -199,6 +199,45 @@ test('resets to a known ancestor and creates a real divergent commit instead of 
   )
 })
 
+test('creates the slow-build child commit on top of the forced healthy commit', async () => {
+  const workspaceDir = await createTemporaryWorkspace()
+  const remoteDir = await createTemporaryWorkspace()
+
+  await mkdir(path.join(workspaceDir, '.candidate-source'), { recursive: true })
+  await mkdir(path.join(workspaceDir, '.candidate-action'), { recursive: true })
+  await createFixtureRepository({ workspaceDir })
+  const healthyTwoCommit = await createHealthyFixtureCommit({
+    workspaceDir,
+    label: 'healthy-2'
+  })
+  await createHealthyFixtureCommit({
+    workspaceDir,
+    label: 'healthy-3'
+  })
+
+  await runGit(remoteDir, ['init', '--bare'])
+  await runGit(workspaceDir, ['remote', 'add', 'origin', remoteDir])
+  await runGit(workspaceDir, ['push', '--set-upstream', 'origin', 'master'])
+
+  const forcedHealthyCommit = await createDivergentFixtureCommit({
+    workspaceDir,
+    ancestorCommit: healthyTwoCommit,
+    label: 'healthy-force'
+  })
+  const slowBuildChildCommit = await createHealthyFixtureCommit({
+    workspaceDir,
+    label: 'slow-build-child'
+  })
+
+  expect(slowBuildChildCommit).not.toBe(forcedHealthyCommit)
+  await expect(runGit(workspaceDir, ['rev-parse', `${slowBuildChildCommit}^`])).resolves.toBe(
+    forcedHealthyCommit
+  )
+  await expect(runGit(workspaceDir, ['show', 'HEAD:fixture-version.txt'])).resolves.toBe(
+    'slow-build-child'
+  )
+})
+
 test('the generated post-build hook fails deterministically for the build-failure scenario', async () => {
   const workspaceDir = await createTemporaryWorkspace()
   await mkdir(path.join(workspaceDir, '.candidate-source'), { recursive: true })
@@ -231,6 +270,31 @@ test('the generated post-build hook fails deterministically for the build-failur
   expect(exitCode).toBe(1)
   expect(stdout).toContain(FIXTURE_BUILD_FAILURE_MARKER)
   expect(stderr).toBe('')
+})
+
+test('the generated post-build hook can delay a slow-build child commit by a bounded amount', async () => {
+  const workspaceDir = await createTemporaryWorkspace()
+  await mkdir(path.join(workspaceDir, '.candidate-source'), { recursive: true })
+  await mkdir(path.join(workspaceDir, '.candidate-action'), { recursive: true })
+  await createFixtureRepository({ workspaceDir })
+
+  const startedAt = Date.now()
+  const child = spawn(process.execPath, ['scripts/post-build-hook.mjs'], {
+    cwd: workspaceDir,
+    env: {
+      ...process.env,
+      E2E_SCENARIO: 'slow-build',
+      E2E_BUILD_DELAY_MS: '60'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+  children.push(child)
+
+  const [exitCode] = await once(child, 'exit')
+  children.splice(children.indexOf(child), 1)
+
+  expect(exitCode).toBe(0)
+  expect(Date.now() - startedAt).toBeGreaterThanOrEqual(50)
 })
 
 test('the generated fixture server fails from the application process for the startup-failure scenario', async () => {
