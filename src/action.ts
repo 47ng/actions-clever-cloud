@@ -27,6 +27,49 @@ async function checkForShallowCopy(): Promise<void> {
   }
 }
 
+async function getLinkedAppAlias(
+  cleverCLI: string,
+  appID: string,
+  execOptions: ExecOptions
+): Promise<string | undefined> {
+  let stdout = ''
+  await exec(cleverCLI, ['applications', '--json'], {
+    ...execOptions,
+    silent: true,
+    listeners: {
+      stdout: (data: Buffer) => (stdout += data.toString())
+    }
+  })
+
+  let applications: unknown
+  try {
+    applications = JSON.parse(stdout)
+  } catch {
+    throw new Error('Clever CLI returned invalid linked application data')
+  }
+  if (!Array.isArray(applications)) {
+    throw new Error('Clever CLI returned invalid linked application data')
+  }
+
+  const linkedApplication = applications.find(
+    (application): application is { app_id: string; alias?: unknown } =>
+      typeof application === 'object' &&
+      application !== null &&
+      'app_id' in application &&
+      application.app_id === appID
+  )
+  if (!linkedApplication) {
+    return undefined
+  }
+  if (
+    typeof linkedApplication.alias !== 'string' ||
+    linkedApplication.alias.length === 0
+  ) {
+    throw new Error(`Application ${appID} is linked without a valid alias`)
+  }
+  return linkedApplication.alias
+}
+
 export async function run({
   appID,
   alias,
@@ -64,13 +107,19 @@ export async function run({
     // environment variables (virtual "$env" profile); no login call needed.
 
     // There is an issue when there is a .clever.json file present
-    // and only the appID is passed: link will work, but deploy will need
-    // an alias to know which app to publish. In this case, we set the alias
-    // to the appID, and the alias argument is ignored if also specified.
+    // and only the appID is passed: deploy needs an alias to know which app
+    // to publish. Reuse an existing link when possible; clever link rejects
+    // duplicate app IDs, including when they use a different alias.
     if (appID) {
-      core.debug(`Linking ${appID}`)
-      await exec(cleverCLI, ['link', appID, '--alias', appID], execOptions)
-      alias = appID
+      const linkedAlias = await getLinkedAppAlias(cleverCLI, appID, execOptions)
+      if (linkedAlias) {
+        core.debug(`Application ${appID} is already linked as ${linkedAlias}`)
+        alias = linkedAlias
+      } else {
+        core.debug(`Linking ${appID}`)
+        await exec(cleverCLI, ['link', appID, '--alias', appID], execOptions)
+        alias = appID
+      }
     }
 
     // If there are environment variables to pass to the application,
@@ -105,9 +154,7 @@ export async function run({
     }
 
     const args = ['deploy']
-    if (appID) {
-      args.push('--alias', appID)
-    } else if (alias) {
+    if (alias) {
       args.push('--alias', alias)
     }
 

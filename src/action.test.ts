@@ -63,7 +63,18 @@ function makeFakeChild() {
 beforeEach(() => {
   vi.clearAllMocks()
   // Reset to default success behavior
-  execMock.mockResolvedValue(0)
+  execMock.mockImplementation(
+    (
+      _cli: string,
+      args: string[],
+      options?: { listeners?: { stdout?: (data: Buffer) => void } }
+    ) => {
+      if (args[0] === 'applications') {
+        options?.listeners?.stdout?.(Buffer.from('[]\n'))
+      }
+      return Promise.resolve(0)
+    }
+  )
   spawnMock.mockImplementation(() => {
     const child = makeFakeChild()
     setImmediate(() => {
@@ -170,7 +181,7 @@ test('deploy application with app ID', async () => {
     cleverCLI: CLEVER_CLI
   })
   expectCleverCLICallWithArgs(
-    1,
+    2,
     'link',
     'app_facade42-cafe-babe-cafe-deadf00dbaad',
     '--alias',
@@ -183,6 +194,110 @@ test('deploy application with app ID', async () => {
   )
 })
 
+test('reuses an existing app link with the requested alias', async () => {
+  const appID = 'app_facade42-cafe-babe-cafe-deadf00dbaad'
+  execMock.mockImplementation(
+    (
+      _cli: string,
+      args: string[],
+      options?: { listeners?: { stdout?: (data: Buffer) => void } }
+    ) => {
+      if (args[0] === 'applications') {
+        options?.listeners?.stdout?.(
+          Buffer.from(JSON.stringify([{ app_id: appID, alias: appID }]))
+        )
+        return Promise.resolve(0)
+      }
+      if (args[0] === 'link') {
+        return Promise.reject(
+          new Error(
+            `Application ${appID} is already linked with alias ${appID}`
+          )
+        )
+      }
+      return Promise.resolve(0)
+    }
+  )
+
+  await run({
+    token: 'token',
+    secret: 'secret',
+    appID,
+    cleverCLI: CLEVER_CLI
+  })
+
+  expect(execMock.mock.calls.some(call => call[1]?.[0] === 'link')).toBe(false)
+  expectDeploySpawnWithArgs('deploy', '--alias', appID)
+  expect(setFailed).not.toHaveBeenCalled()
+})
+
+test('reuses a pre-existing alias for an app that is already linked', async () => {
+  const appID = 'app_facade42-cafe-babe-cafe-deadf00dbaad'
+  execMock.mockImplementation(
+    (
+      _cli: string,
+      args: string[],
+      options?: { listeners?: { stdout?: (data: Buffer) => void } }
+    ) => {
+      if (args[0] === 'applications') {
+        options?.listeners?.stdout?.(
+          Buffer.from(JSON.stringify([{ app_id: appID, alias: 'review-app' }]))
+        )
+        return Promise.resolve(0)
+      }
+      if (args[0] === 'link') {
+        return Promise.reject(
+          new Error(
+            `Application ${appID} is already linked with alias review-app`
+          )
+        )
+      }
+      return Promise.resolve(0)
+    }
+  )
+
+  await run({
+    token: 'token',
+    secret: 'secret',
+    appID,
+    cleverCLI: CLEVER_CLI
+  })
+
+  expect(execMock.mock.calls.some(call => call[1]?.[0] === 'link')).toBe(false)
+  expectDeploySpawnWithArgs('deploy', '--alias', 'review-app')
+  expect(setFailed).not.toHaveBeenCalled()
+})
+
+test('does not swallow unrelated link failures', async () => {
+  const appID = 'app_facade42-cafe-babe-cafe-deadf00dbaad'
+  execMock.mockImplementation(
+    (
+      _cli: string,
+      args: string[],
+      options?: { listeners?: { stdout?: (data: Buffer) => void } }
+    ) => {
+      if (args[0] === 'applications') {
+        options?.listeners?.stdout?.(Buffer.from('[]'))
+        return Promise.resolve(0)
+      }
+      if (args[0] === 'link') {
+        return Promise.reject(new Error('Clever API is unavailable'))
+      }
+      return Promise.resolve(0)
+    }
+  )
+
+  await run({
+    token: 'token',
+    secret: 'secret',
+    appID,
+    cleverCLI: CLEVER_CLI
+  })
+
+  expect(setFailed).toHaveBeenCalledWith('Clever API is unavailable')
+  expect(spawnMock).not.toHaveBeenCalled()
+})
+
 test('when both app ID and alias are provided, appID takes precedence', async () => {
   await run({
     token: 'token',
@@ -192,7 +307,7 @@ test('when both app ID and alias are provided, appID takes precedence', async ()
     cleverCLI: CLEVER_CLI
   })
   expectCleverCLICallWithArgs(
-    1,
+    2,
     'link',
     'app_facade42-cafe-babe-cafe-deadf00dbaad',
     '--alias',
@@ -236,14 +351,14 @@ test('passing extra env variables, using appID', async () => {
     }
   })
   expectCleverCLICallWithArgs(
-    1,
+    2,
     'link',
     'app_facade42-cafe-babe-cafe-deadf00dbaad',
     '--alias',
     'app_facade42-cafe-babe-cafe-deadf00dbaad'
   )
   expectCleverCLICallWithArgs(
-    2,
+    3,
     'env',
     'set',
     '--alias',
@@ -252,7 +367,7 @@ test('passing extra env variables, using appID', async () => {
     'bar'
   )
   expectCleverCLICallWithArgs(
-    3,
+    4,
     'env',
     'set',
     '--alias',
@@ -553,7 +668,7 @@ test('force deploy application', async () => {
     force: true
   })
   expectCleverCLICallWithArgs(
-    1,
+    2,
     'link',
     'app_facade42-cafe-babe-cafe-deadf00dbaad',
     '--alias',
