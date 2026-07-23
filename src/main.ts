@@ -1,31 +1,52 @@
-import * as core from '@actions/core'
-import { exec } from '@actions/exec'
-import { run } from './action'
-import { processArguments } from './arguments'
+import fs from 'node:fs/promises'
+import { cleverClient } from './clever'
+import { parseConfig } from './config'
+import { deploy } from './deployment'
+import { checkForShallowCopy, fixGitDubiousOwnership } from './git'
+import { gitHubHost, type Host } from './github'
+import { createDeployLog, type DeployLog } from './output'
 
 async function main(): Promise<void> {
+  const host = gitHubHost()
+  let log: DeployLog | undefined
   try {
     await fixGitDubiousOwnership()
-    const args = processArguments()
-    return await run(args)
+    const config = parseConfig()
+    log = await createDeployLog(
+      { quiet: config.quiet ?? false, logFile: config.logFile },
+      host
+    )
+    const cwd = await resolveDeployPath(config.deployPath, host)
+    host.debug(`Clever CLI path: ${config.cleverCLI}`)
+    const clever = cleverClient({ cliPath: config.cleverCLI, cwd, log, host })
+    await deploy(config, { clever, git: { checkForShallowCopy }, host })
   } catch (error) {
-    if (error instanceof Error) {
-      core.setFailed(error.message)
-    } else {
-      core.setFailed(String(error))
+    host.fail(error instanceof Error ? error.message : String(error))
+  } finally {
+    // Close the tee so its buffered carry-over line (if any) and the log
+    // file get flushed, even when the timeout path returns early or the
+    // deploy throws.
+    if (log) {
+      log.stream.end()
+      await log.done()
     }
   }
 }
 
-// https://www.kenmuse.com/blog/avoiding-dubious-ownership-in-dev-containers/
-function fixGitDubiousOwnership() {
-  return exec('git', [
-    'config',
-    '--global',
-    '--add',
-    'safe.directory',
-    '/github/workspace'
-  ])
+async function resolveDeployPath(
+  deployPath: string | undefined,
+  host: Host
+): Promise<string | undefined> {
+  if (!deployPath) {
+    return undefined
+  }
+  try {
+    await fs.access(deployPath)
+  } catch {
+    throw new Error(`Deploy path does not exist: ${deployPath}`)
+  }
+  host.info(`Running Clever CLI from directory: ${deployPath}`)
+  return deployPath
 }
 
 if (import.meta.main) {
