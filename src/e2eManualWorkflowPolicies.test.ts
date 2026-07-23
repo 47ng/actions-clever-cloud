@@ -152,6 +152,15 @@ describe('manual e2e workflow policies', () => {
     expect(reusableWorkflow).not.toContain('clever login')
   })
 
+  test('the protected reusable workflow does not restore shared pnpm caches before running credentialed candidate code', () => {
+    expect(reusableWorkflow).toContain('uses: actions/setup-node@')
+    expect(reusableWorkflow).not.toContain('cache: pnpm')
+    expect(reusableWorkflow).not.toContain('cache-dependency-path: .candidate-source/pnpm-lock.yaml')
+    expect(reusableWorkflow).toContain(
+      'pnpm install --frozen-lockfile --ignore-scripts'
+    )
+  })
+
   test('the reusable workflow rejects divergent history without force, then deploys the same commit with force by app ID', () => {
     expect(reusableWorkflow).toContain('name: Capture force baseline state')
     expect(reusableWorkflow).toContain('name: Create divergent fixture commit')
