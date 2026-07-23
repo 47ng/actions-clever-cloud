@@ -24,6 +24,11 @@ describe('e2e failure evidence workflow policies', () => {
     expect(reusableWorkflow).not.toContain('name: Verify failure evidence after teardown')
     expect(reusableWorkflow).toContain('id: delete-app')
     expect(reusableWorkflow).toContain('failure_evidence_ready=true')
+    expect(reusableWorkflow).toContain('name: Write GitHub step summary')
+    expect(reusableWorkflow).toContain(
+      "import { buildSuiteStepSummary } from './.candidate-source/src/e2e/evidence.ts'"
+    )
+    expect(reusableWorkflow).toContain('GITHUB_STEP_SUMMARY')
     expect(reusableWorkflow).toContain("steps.delete-app.outputs.failure_evidence_ready == 'true'")
     expect(reusableWorkflow).toContain('name: Upload failure evidence')
     expect(reusableWorkflow).toContain('logFile: .e2e-artifacts/candidate-action/001-deploy-healthy.log')
@@ -69,17 +74,23 @@ describe('e2e failure evidence workflow policies', () => {
 
     const resultsIndex = reusableWorkflow.indexOf('name: Write structured scenario results')
     const deleteIndex = reusableWorkflow.indexOf('name: Delete the captured app')
+    const summaryIndex = reusableWorkflow.indexOf('name: Write GitHub step summary')
     const uploadIndex = reusableWorkflow.indexOf('name: Upload failure evidence')
 
     expect(resultsIndex).toBeGreaterThan(-1)
     expect(deleteIndex).toBeGreaterThan(resultsIndex)
-    expect(uploadIndex).toBeGreaterThan(deleteIndex)
+    expect(summaryIndex).toBeGreaterThan(deleteIndex)
+    expect(uploadIndex).toBeGreaterThan(summaryIndex)
 
-    const deleteStep = reusableWorkflow.slice(deleteIndex, uploadIndex)
+    const deleteStep = reusableWorkflow.slice(deleteIndex, summaryIndex)
     expect(deleteStep).toContain('CLEVER_TOKEN')
     expect(deleteStep).toContain('CLEVER_SECRET')
     expect(deleteStep).toContain('OUTPUT_DIR: ${{ github.workspace }}/.e2e-artifacts/upload')
     expect(deleteStep).toContain('RESULTS_PATH: ${{ github.workspace }}/.e2e-state/suite-results.json')
+    expect(deleteStep).toContain('for (;;) {')
+    expect(deleteStep).toContain('if (activeDeployments.length === 0) {')
+    expect(deleteStep).toContain('returnSettled: true')
+    expect(deleteStep).toContain('await waitForDeploymentState({')
     expect(deleteStep).not.toContain("from './.candidate-source/")
 
     const uploadStep = reusableWorkflow.slice(uploadIndex, reusableWorkflow.length)

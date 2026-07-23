@@ -6,6 +6,7 @@ import { expect, test } from 'vitest'
 import {
   buildExpectedFailureOutcome,
   buildSuiteResults,
+  buildSuiteStepSummary,
   buildSuccessfulScenarioOutcome,
   prepareFailureEvidence,
   redactArtifactContent,
@@ -84,6 +85,80 @@ test('writes structured results with scenario outcomes, app identity, commit IDs
       }
     ]
   })
+})
+
+test('builds a safe GitHub step summary with app identity and per-scenario outcomes', () => {
+  const summary = buildSuiteStepSummary({
+    suiteResults: buildSuiteResults({
+      app: {
+        id: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+        name: 'actions|clever\n<script>alert(1)</script>'
+      },
+      scenarios: [
+        {
+          name: 'deploy|healthy\nfixture',
+          outcome: 'success',
+          baselineInstanceId: null,
+          instanceId: 'instance-123',
+          commitId: 'commit|123',
+          deploymentId: 'deployment-123',
+          candidateActionLogs: ['candidate-action/001-deploy-healthy.log']
+        },
+        {
+          name: 'timeout',
+          outcome: 'failure',
+          baselineInstanceId: 'instance-123',
+          instanceId: 'instance-123',
+          commitId: 'commit-timeout',
+          deploymentId: 'deployment-timeout',
+          candidateActionLogs: ['candidate-action/012-timeout.log|tail']
+        }
+      ]
+    }),
+    caller: 'manual',
+    teardownOutcome: 'success',
+    failureEvidenceReady: true
+  })
+
+  expect(summary).toContain('# Clever Cloud E2E summary')
+  expect(summary).toContain('Caller: manual')
+  expect(summary).toContain('actions|clever<br>&lt;script&gt;alert(1)&lt;/script&gt;')
+  expect(summary).toContain('app_facade42-cafe-babe-cafe-deadf00dbaad')
+  expect(summary).toContain('| deploy\\|healthy<br>fixture | success | commit\\|123 |')
+  expect(summary).toContain('| timeout | failure |')
+  expect(summary).toContain('candidate-action/012-timeout.log\\|tail')
+  expect(summary).toContain('Failure evidence: ready')
+  expect(summary).not.toContain('<script>')
+  expect(summary).not.toContain('healthValue')
+})
+
+test('rejects malformed suite results before writing the GitHub step summary', () => {
+  expect(() =>
+    buildSuiteStepSummary({
+      suiteResults: {
+        app: {
+          id: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+          name: 'actions-clever-cloud-e2e-123-4'
+        },
+        scenarios: [
+          {
+            name: 'timeout',
+            outcome: 'unexpected',
+            baselineInstanceId: null,
+            instanceId: null,
+            commitId: null,
+            deploymentId: null,
+            candidateActionLogs: []
+          }
+        ]
+      },
+      caller: 'manual',
+      teardownOutcome: 'success',
+      failureEvidenceReady: true
+    })
+  ).toThrow(
+    'suite results.scenarios[0].outcome must be success, failure, or skipped'
+  )
 })
 
 test('redacts raw and encoded credentials before scanning artifacts', () => {

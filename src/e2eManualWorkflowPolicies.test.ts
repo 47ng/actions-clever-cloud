@@ -94,15 +94,19 @@ describe('manual e2e workflow policies', () => {
     expect(reusableWorkflow).not.toContain('::add-mask::')
     expect(reusableWorkflow).toContain('requestController.abort()')
     expect(reusableWorkflow).toContain("const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`")
+    expect(reusableWorkflow).toContain(
+      "import {\n            createApplicationWithRecovery,\n            createCleverController\n          } from './.candidate-source/src/e2e/clever-client.ts'"
+    )
+    expect(reusableWorkflow).toContain('commandError.code = error.code')
+    expect(reusableWorkflow).toContain('commandError.signal = error.signal')
+    expect(reusableWorkflow).toContain('commandError.killed = error.killed')
+    expect(reusableWorkflow).toContain('application = await createApplicationWithRecovery(')
     expect(reusableWorkflow).toContain("controller.getApplication(appId)")
     expect(reusableWorkflow).toContain("await deleteApplication({ appId, name: appName })")
     expect(reusableWorkflow).toContain("['delete', '--app', appId, '--yes']")
     expect(reusableWorkflow).toContain('Invalid captured app ID for teardown')
-    expect(reusableWorkflow).toContain("controller.findApplicationByName(appName)")
-    expect(reusableWorkflow).toContain('appId: recoveredApplication.appId')
-    expect(reusableWorkflow).toContain('name: recoveredApplication.name')
     expect(reusableWorkflow).toContain(
-      'await controller.deleteApplication({\n                appId: recoveredApplication.appId,\n                name: recoveredApplication.name,'
+      'await controller.deleteApplication({\n              appId: application.appId,\n              name: application.name,'
     )
     expect(reusableWorkflow).toContain('CALLER: ${{ inputs.caller }}')
     expect(reusableWorkflow).toContain('pr.head.sha !== headSha')
@@ -199,6 +203,8 @@ describe('manual e2e workflow policies', () => {
     )
     expect(reusableWorkflow).toContain('expectedCancelledCommitID')
     expect(reusableWorkflow).toContain('controller.cancelDeployment({ appId, deploymentId, timeoutMs })')
+    expect(reusableWorkflow).toContain("const CANCELLABLE_STATES = new Set(['WIP'])")
+    expect(reusableWorkflow).toContain('to become the latest WIP deployment')
     expect(reusableWorkflow).toContain('previousCommitID: previousCommitId')
     expect(reusableWorkflow).toContain('previousDeploymentID: previousDeploymentId')
     expect(reusableWorkflow).toContain('settleTimeoutMs: 600_000')

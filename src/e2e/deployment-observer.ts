@@ -24,6 +24,7 @@ const DEFAULT_HEALTH_CHECK_TIMEOUT_MS = 10_000
 const SUCCESS_STATES = new Set(['SUCCESS', 'SUCCEEDED', 'DONE'])
 const FAILED_STATES = new Set(['FAIL', 'FAILED', 'ERROR', 'FAILURE'])
 const IN_PROGRESS_STATES = new Set(['WIP', 'PENDING', 'QUEUED', 'RUNNING'])
+const CANCELLABLE_STATES = new Set(['WIP'])
 
 export async function confirmNoNewDeploymentActivity({
   appId,
@@ -495,7 +496,7 @@ async function waitForCancellableDeployment({
       entry =>
         entry.action === 'DEPLOY' &&
         entry.commit === expectedCommitID &&
-        IN_PROGRESS_STATES.has(entry.state ?? '') &&
+        CANCELLABLE_STATES.has(entry.state ?? '') &&
         typeof entry.uuid === 'string' &&
         entry.uuid.length > 0
     )

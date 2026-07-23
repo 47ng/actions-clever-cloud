@@ -37,6 +37,10 @@ public and remote values without printing it.
 The same deployment runs with `quiet: true` and writes raw output to a log file so the
 suite can check the fixture build and startup markers.
 
+Each proceeded reusable run also writes a GitHub step summary.
+That summary includes the caller, safe app identity, teardown outcome, failure-evidence status,
+and one row per scenario with its outcome, commit, deployment, and candidate log path.
+
 ## App naming
 
 Each run creates one app named `actions-clever-cloud-e2e-<run-id>-<attempt>`.
@@ -49,18 +53,18 @@ Download that artifact from the workflow run page if you need to inspect a live 
 It contains:
 
 - `suite-results.json` with scenario outcomes, app identity, commit IDs, deployment IDs, and candidate action log paths
-- `candidate-action/001-deploy-healthy.log` when the candidate action produced that log file
-- `candidate-action/002-deploy-env.log` when the quiet environment-check deployment produced that log file
+- `candidate-action/*.log` for any captured candidate action logs, including `001-deploy-healthy.log` through `012-timeout.log`
 
 If evidence preparation fails its redaction scan, the workflow skips the upload and fails the run so you can inspect the job log instead.
 
 ## Teardown and manual cleanup
 
 Teardown always targets the captured app ID.
-It cancels any active deployment for that app, deletes the app by exact ID, and checks that the app no longer appears in Clever Cloud.
+It loops until no deployment is still active, waiting for each latest deployment to reach `WIP`, cancelling it, then deleting the app by exact ID and checking that the app no longer appears in Clever Cloud.
 If cleanup fails, the workflow reports the exact app name and ID so you can remove it by hand.
 
 For manual recovery, first download the failure evidence artifact if one exists.
+If `clever cancel-deploy` reports that the latest deployment is not in `WIP`, wait for that deployment to reach `WIP` and retry.
 Then use the reported app ID with Clever Tools from a trusted shell:
 
 ```bash

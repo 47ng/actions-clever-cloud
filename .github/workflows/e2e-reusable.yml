@@ -269,7 +269,10 @@ jobs:
           import { execFile } from 'node:child_process'
           import path from 'node:path'
           import { promisify } from 'node:util'
-          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
+          import {
+            createApplicationWithRecovery,
+            createCleverController
+          } from './.candidate-source/src/e2e/clever-client.ts'
 
           const execFileAsync = promisify(execFile)
           const githubOutput = process.env.GITHUB_OUTPUT
@@ -298,40 +301,19 @@ jobs:
                 })
                 return { stdout, stderr }
               } catch (error) {
-                throw new Error(error.stderr?.trim() || error.message)
+                const commandError = new Error(error.stderr?.trim() || error.message)
+                commandError.code = error.code
+                commandError.signal = error.signal
+                commandError.killed = error.killed
+                throw commandError
               }
             },
           })
 
-          let application
-
-          try {
-            application = await controller.createApplication({
-              name: appName,
-              region,
-            })
-          } catch (error) {
-            const recoveredApplication = await controller.findApplicationByName(appName)
-
-            try {
-              await writeFile(
-                appIdFile,
-                JSON.stringify({
-                  appId: recoveredApplication.appId,
-                  name: recoveredApplication.name,
-                }),
-                'utf8',
-              )
-            } catch (writeError) {
-              await controller.deleteApplication({
-                appId: recoveredApplication.appId,
-                name: recoveredApplication.name,
-              })
-              throw writeError
-            }
-
-            throw error
-          }
+          const application = await createApplicationWithRecovery(controller, {
+            name: appName,
+            region,
+          })
 
           try {
             await writeFile(appIdFile, JSON.stringify(application), 'utf8')
@@ -2528,6 +2510,7 @@ jobs:
           const SETTLE_TIMEOUT_MS = 10 * 60_000
           const POLL_INTERVAL_MS = 5_000
           const IN_PROGRESS_STATES = new Set(['WIP', 'PENDING', 'QUEUED', 'RUNNING'])
+          const CANCELLABLE_STATES = new Set(['WIP'])
 
           function messageFrom(error) {
             return error instanceof Error ? error.message : String(error)
@@ -2594,48 +2577,173 @@ jobs:
             }
           }
 
-          async function waitForCancelledDeployment(appId, timeoutMs = SETTLE_TIMEOUT_MS) {
+          async function waitForDeploymentState({
+            appId,
+            deploymentId,
+            expectedState,
+            timeoutMs = SETTLE_TIMEOUT_MS
+          }) {
             const deadline = Date.now() + timeoutMs
+            let lastObservedState = '(missing)'
 
             for (;;) {
-              const activeDeployment = (
-                await readActiveDeployments(
+              const deployment = (
+                await listActivity(
                   appId,
                   Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
                 )
-              ).at(0)
+              ).find(activity => activity.uuid === deploymentId)
+
+              if (deployment?.state) {
+                lastObservedState = deployment.state
+              }
 
               if (Date.now() >= deadline) {
                 throw new Error(
-                  `Timed out while waiting for deployment cancellation for ${appId}`
+                  `Timed out while waiting for deployment ${deploymentId} on ${appId} to reach ${expectedState}. Last state: ${lastObservedState}`
                 )
               }
 
-              if (!activeDeployment) {
-                return
+              if (deployment?.state === expectedState) {
+                return deployment
               }
 
               await sleepUntilNextPoll(deadline)
             }
           }
 
-          async function deleteApplication({ appId, name }) {
-            try {
-              const deadline = Date.now() + SETTLE_TIMEOUT_MS
-              const activeDeployments = await readActiveDeployments(
+          async function waitForLatestCancellableDeployment({
+            appId,
+            deploymentId,
+            timeoutMs = SETTLE_TIMEOUT_MS,
+            returnSettled = false
+          }) {
+            const deadline = Date.now() + timeoutMs
+            let lastObservedState = '(missing)'
+
+            for (;;) {
+              const activity = await listActivity(
                 appId,
                 Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
               )
+              const activeDeployments = activity.filter(
+                deployment =>
+                  deployment.action === 'DEPLOY' &&
+                  IN_PROGRESS_STATES.has(deployment.state ?? '')
+              )
+              const latestActiveDeployment = activeDeployments[0]
+              const matchingDeployment = activity.find(
+                deployment => deployment.uuid === deploymentId
+              )
 
-              if (activeDeployments.length > 0) {
+              if (matchingDeployment?.state) {
+                lastObservedState = matchingDeployment.state
+              }
+
+              if (
+                matchingDeployment?.uuid === deploymentId &&
+                matchingDeployment.state &&
+                !IN_PROGRESS_STATES.has(matchingDeployment.state)
+              ) {
+                if (returnSettled) {
+                  return null
+                }
+
+                throw new Error(
+                  `Deployment ${deploymentId} on ${appId} reached ${matchingDeployment.state} before it could be cancelled`
+                )
+              }
+
+              if (Date.now() >= deadline) {
+                throw new Error(
+                  `Timed out while waiting for deployment ${deploymentId} on ${appId} to become the latest WIP deployment. Last state: ${lastObservedState}`
+                )
+              }
+
+              if (
+                latestActiveDeployment?.uuid === deploymentId &&
+                CANCELLABLE_STATES.has(latestActiveDeployment.state ?? '')
+              ) {
+                return latestActiveDeployment
+              }
+
+              await sleepUntilNextPoll(deadline)
+            }
+          }
+
+          async function cancelDeployment({
+            appId,
+            deploymentId,
+            timeoutMs = SETTLE_TIMEOUT_MS
+          }) {
+            const deadline = Date.now() + timeoutMs
+            const cancellableDeployment = await waitForLatestCancellableDeployment({
+              appId,
+              deploymentId,
+              timeoutMs: remainingBeforeDeadline(deadline)
+            })
+
+            if (!cancellableDeployment) {
+              throw new Error(
+                `Deployment ${deploymentId} on ${appId} settled before it could be cancelled`
+              )
+            }
+
+            await runCleverCommand(
+              ['cancel-deploy', '--app', appId],
+              Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
+            )
+
+            return waitForDeploymentState({
+              appId,
+              deploymentId,
+              expectedState: 'CANCELLED',
+              timeoutMs: remainingBeforeDeadline(deadline)
+            })
+          }
+
+          async function deleteApplication({ appId, name }) {
+            try {
+              const deadline = Date.now() + SETTLE_TIMEOUT_MS
+
+              for (;;) {
+                const activeDeployments = await readActiveDeployments(
+                  appId,
+                  Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
+                )
+
+                if (activeDeployments.length === 0) {
+                  break
+                }
+
+                const latestActiveDeployment = activeDeployments[0]
+
+                if (!latestActiveDeployment?.uuid) {
+                  throw new Error(`Missing active deployment ID for ${appId}`)
+                }
+
+                const cancellableDeployment = await waitForLatestCancellableDeployment({
+                  appId,
+                  deploymentId: latestActiveDeployment.uuid,
+                  timeoutMs: remainingBeforeDeadline(deadline),
+                  returnSettled: true
+                })
+
+                if (!cancellableDeployment) {
+                  continue
+                }
+
                 await runCleverCommand(
                   ['cancel-deploy', '--app', appId],
                   Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
                 )
-                await waitForCancelledDeployment(
+
+                await waitForDeploymentState({
                   appId,
-                  remainingBeforeDeadline(deadline)
-                )
+                  deploymentId: cancellableDeployment.uuid,
+                  expectedState: 'CANCELLED',
+                  timeoutMs: remainingBeforeDeadline(deadline)
+                })
               }
 
               await runCleverCommand(['delete', '--app', appId, '--yes'])
@@ -2878,6 +2986,54 @@ jobs:
             }
             throw new Error(errors.join('\n'))
           }
+          EOF
+
+      - name: Write GitHub step summary
+        if: always() && steps.candidate-state.outputs.proceed == 'true'
+        env:
+          RESULTS_PATH: ${{ github.workspace }}/.e2e-state/suite-results.json
+          CALLER: ${{ inputs.caller }}
+          TEARDOWN_OUTCOME: ${{ steps.delete-app.outcome }}
+          FAILURE_EVIDENCE_READY: ${{ steps.delete-app.outputs.failure_evidence_ready }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { appendFile, readFile } from 'node:fs/promises'
+          import { buildSuiteStepSummary } from './.candidate-source/src/e2e/evidence.ts'
+
+          const resultsPath = process.env.RESULTS_PATH
+          const caller = process.env.CALLER
+          const teardownOutcome = process.env.TEARDOWN_OUTCOME
+          const summaryPath = process.env.GITHUB_STEP_SUMMARY
+
+          if (!resultsPath || !caller || !teardownOutcome || !summaryPath) {
+            throw new Error('Missing GitHub step summary inputs')
+          }
+
+          let suiteResults = {
+            app: {
+              id: null,
+              name: null,
+            },
+            scenarios: [],
+          }
+
+          try {
+            suiteResults = JSON.parse(await readFile(resultsPath, 'utf8'))
+          } catch (error) {
+            if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') {
+              throw error
+            }
+          }
+
+          await appendFile(
+            summaryPath,
+            buildSuiteStepSummary({
+              suiteResults,
+              caller,
+              teardownOutcome,
+              failureEvidenceReady: process.env.FAILURE_EVIDENCE_READY === 'true'
+            })
+          )
           EOF
 
       - name: Upload failure evidence

@@ -945,7 +945,7 @@ test('times out when a health request stalls after deploy success', async () => 
   )
 })
 
-test('cancels the timed-out deployment matched by commit and keeps the prior healthy forced commit live', async () => {
+test('waits for the timed-out deployment matched by commit to reach WIP, then keeps the prior healthy forced commit live', async () => {
   const baselineActivity = [
     {
       action: 'DEPLOY',
@@ -955,6 +955,7 @@ test('cancels the timed-out deployment matched by commit and keeps the prior hea
     }
   ]
   let activityCalls = 0
+  const sleep = vi.fn(async () => {})
 
   await expect(
     cancelTimedOutDeploymentPreservesLiveApp({
@@ -977,12 +978,28 @@ test('cancels the timed-out deployment matched by commit and keeps the prior hea
               ...baselineActivity,
               {
                 action: 'DEPLOY',
-                state: 'WIP',
+                state: 'QUEUED',
                 uuid: 'deployment-timeout',
                 commit: 'commit-timeout'
               }
             ]
-          : baselineActivity
+          : activityCalls === 2
+            ? [
+                {
+                  action: 'DEPLOY',
+                  state: 'SUCCESS',
+                  uuid: 'deployment-old',
+                  commit: 'commit-old'
+                },
+                ...baselineActivity,
+                {
+                  action: 'DEPLOY',
+                  state: 'WIP',
+                  uuid: 'deployment-timeout',
+                  commit: 'commit-timeout'
+                }
+              ]
+            : baselineActivity
       },
       cancelDeployment: async (appId, deploymentId) => {
         expect(appId).toBe('app_facade42-cafe-babe-cafe-deadf00dbaad')
@@ -1005,8 +1022,8 @@ test('cancels the timed-out deployment matched by commit and keeps the prior hea
           CC_COMMIT_ID: 'commit-forced'
         })
       }),
-      sleep: async () => {},
-      settleTimeoutMs: 2,
+      sleep,
+      settleTimeoutMs: 3,
       pollIntervalMs: 1
     })
   ).resolves.toEqual({
@@ -1025,6 +1042,8 @@ test('cancels the timed-out deployment matched by commit and keeps the prior hea
       CC_COMMIT_ID: 'commit-forced'
     }
   })
+
+  expect(sleep).toHaveBeenCalledOnce()
 })
 
 test('uses one wall-clock deadline across timeout deployment discovery, cancellation, and health checks', async () => {

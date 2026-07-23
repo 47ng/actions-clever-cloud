@@ -54,6 +54,40 @@ export function buildSuiteResults(results: SuiteResults): SuiteResults {
   return results
 }
 
+export function buildSuiteStepSummary({
+  suiteResults,
+  caller,
+  teardownOutcome,
+  failureEvidenceReady
+}: {
+  suiteResults: unknown
+  caller: string
+  teardownOutcome: string
+  failureEvidenceReady: boolean
+}): string {
+  const normalizedSuiteResults = normalizeSuiteResults(suiteResults)
+  const lines = [
+    '# Clever Cloud E2E summary',
+    '',
+    `Caller: ${escapeSummaryText(caller)}`,
+    `App name: ${escapeSummaryText(normalizedSuiteResults.app.name ?? '(unavailable)')}`,
+    `App ID: ${escapeSummaryText(normalizedSuiteResults.app.id ?? '(unavailable)')}`,
+    `Teardown: ${escapeSummaryText(teardownOutcome)}`,
+    `Failure evidence: ${failureEvidenceReady ? 'ready' : 'not prepared'}`,
+    '',
+    '| Scenario | Outcome | Commit | Deployment | Logs |',
+    '| --- | --- | --- | --- | --- |'
+  ]
+
+  for (const scenario of normalizedSuiteResults.scenarios) {
+    lines.push(
+      `| ${escapeSummaryTableCell(scenario.name)} | ${escapeSummaryTableCell(scenario.outcome)} | ${escapeSummaryTableCell(scenario.commitId ?? '-')} | ${escapeSummaryTableCell(scenario.deploymentId ?? '-')} | ${escapeSummaryTableCell(scenario.candidateActionLogs.join(', ') || '-')} |`
+    )
+  }
+
+  return `${lines.join('\n')}\n`
+}
+
 export async function prepareFailureEvidence({
   outputDir,
   candidates,
@@ -145,6 +179,112 @@ export async function writeSuiteResults(
   })
 
   await writeFile(resultsPath, JSON.stringify(results, null, 2), 'utf8')
+}
+
+function normalizeSuiteResults(value: unknown): SuiteResults {
+  const record = readRecord(value, 'suite results')
+  const appRecord = readRecord(record.app, 'suite results.app')
+  const scenariosValue = record.scenarios
+
+  if (!Array.isArray(scenariosValue)) {
+    throw new Error('suite results.scenarios must be an array')
+  }
+
+  return {
+    app: {
+      id: readNullableString(appRecord.id, 'suite results.app.id'),
+      name: readNullableString(appRecord.name, 'suite results.app.name')
+    },
+    scenarios: scenariosValue.map((scenario, index) => {
+      const scenarioRecord = readRecord(
+        scenario,
+        `suite results.scenarios[${index}]`
+      )
+      const outcome = readString(
+        scenarioRecord.outcome,
+        `suite results.scenarios[${index}].outcome`
+      )
+
+      if (
+        outcome !== 'success' &&
+        outcome !== 'failure' &&
+        outcome !== 'skipped'
+      ) {
+        throw new Error(
+          `suite results.scenarios[${index}].outcome must be success, failure, or skipped`
+        )
+      }
+
+      return {
+        name: readString(scenarioRecord.name, `suite results.scenarios[${index}].name`),
+        outcome,
+        baselineInstanceId: readNullableString(
+          scenarioRecord.baselineInstanceId,
+          `suite results.scenarios[${index}].baselineInstanceId`
+        ),
+        instanceId: readNullableString(
+          scenarioRecord.instanceId,
+          `suite results.scenarios[${index}].instanceId`
+        ),
+        commitId: readNullableString(
+          scenarioRecord.commitId,
+          `suite results.scenarios[${index}].commitId`
+        ),
+        deploymentId: readNullableString(
+          scenarioRecord.deploymentId,
+          `suite results.scenarios[${index}].deploymentId`
+        ),
+        candidateActionLogs: readStringArray(
+          scenarioRecord.candidateActionLogs,
+          `suite results.scenarios[${index}].candidateActionLogs`
+        )
+      }
+    })
+  }
+}
+
+function readRecord(value: unknown, field: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${field} must be an object`)
+  }
+
+  return value as Record<string, unknown>
+}
+
+function readString(value: unknown, field: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(`${field} must be a string`)
+  }
+
+  return value
+}
+
+function readNullableString(value: unknown, field: string): string | null {
+  if (value === null || value === undefined) {
+    return null
+  }
+
+  return readString(value, field)
+}
+
+function readStringArray(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || value.some(entry => typeof entry !== 'string')) {
+    throw new Error(`${field} must be an array of strings`)
+  }
+
+  return value
+}
+
+function escapeSummaryText(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replace(/\r?\n/g, '<br>')
+}
+
+function escapeSummaryTableCell(value: string): string {
+  return escapeSummaryText(value).replaceAll('|', '\\|')
 }
 
 function buildSensitivePatterns(credentials: {

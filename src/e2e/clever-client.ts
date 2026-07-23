@@ -38,6 +38,13 @@ type CreatedApplication = {
   name: string
 }
 
+type CreateApplicationController = {
+  createApplication: (
+    options: CreateApplicationOptions
+  ) => Promise<CreatedApplication>
+  findApplicationByName: (name: string) => Promise<CreatedApplication>
+}
+
 type RetrievedApplication = CreatedApplication & {
   deployURL: string
 }
@@ -72,6 +79,46 @@ const COMMAND_TIMEOUT_MS = 30_000
 const DEFAULT_SETTLE_TIMEOUT_MS = 10 * 60_000
 const DEFAULT_POLL_INTERVAL_MS = 5_000
 const IN_PROGRESS_STATES = new Set(['WIP', 'PENDING', 'QUEUED', 'RUNNING'])
+const CANCELLABLE_STATES = new Set(['WIP'])
+
+export class RecoverableCreateApplicationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RecoverableCreateApplicationError'
+  }
+}
+
+function isRecoverableCreateCommandFailure(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+
+  return (
+    error instanceof Error &&
+    ((('code' in error && error.code === 'ETIMEDOUT') ||
+      ('signal' in error && typeof error.signal === 'string')) ||
+      ('killed' in error && error.killed === true))
+  )
+}
+
+export async function createApplicationWithRecovery(
+  controller: CreateApplicationController,
+  options: CreateApplicationOptions
+): Promise<CreatedApplication> {
+  try {
+    return await controller.createApplication(options)
+  } catch (error) {
+    if (!(error instanceof RecoverableCreateApplicationError)) {
+      throw error
+    }
+
+    try {
+      return await controller.findApplicationByName(options.name)
+    } catch {
+      throw error
+    }
+  }
+}
 
 export function buildE2EApplicationName({
   runId,
@@ -112,38 +159,6 @@ export function createCleverController({
         deployment.action === 'DEPLOY' &&
         IN_PROGRESS_STATES.has(deployment.state ?? '')
     )
-  }
-
-  async function waitForCancelledDeployment(
-    appId: string,
-    timeoutMs = settleTimeoutMs
-  ): Promise<void> {
-    const deadline = Date.now() + timeoutMs
-
-    for (;;) {
-      const activeDeployment = (
-        await readActiveDeployments(
-          appId,
-          Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
-        )
-      ).at(0)
-
-      if (Date.now() >= deadline) {
-        throw new Error(
-          `Timed out while waiting for deployment cancellation for ${appId}`
-        )
-      }
-
-      if (!activeDeployment) {
-        return
-      }
-
-      await sleepUntilNextPoll({
-        sleep,
-        pollIntervalMs,
-        deadlineAt: deadline
-      })
-    }
   }
 
   async function waitForDeploymentState({
@@ -190,6 +205,74 @@ export function createCleverController({
     }
   }
 
+  async function waitForLatestCancellableDeployment({
+    appId,
+    deploymentId,
+    timeoutMs = settleTimeoutMs,
+    returnSettled = false
+  }: {
+    appId: string
+    deploymentId: string
+    timeoutMs?: number
+    returnSettled?: boolean
+  }): Promise<(DeploymentActivity & { uuid: string }) | null> {
+    const deadline = Date.now() + timeoutMs
+    let lastObservedState = '(missing)'
+
+    for (;;) {
+      const activity = await listActivity(
+        appId,
+        Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
+      )
+      const activeDeployments = activity.filter(
+        deployment =>
+          deployment.action === 'DEPLOY' &&
+          IN_PROGRESS_STATES.has(deployment.state ?? '')
+      )
+      const latestActiveDeployment = activeDeployments[0]
+      const matchingDeployment = activity.find(
+        deployment => deployment.uuid === deploymentId
+      )
+
+      if (matchingDeployment?.state) {
+        lastObservedState = matchingDeployment.state
+      }
+
+      if (
+        matchingDeployment?.uuid === deploymentId &&
+        matchingDeployment.state &&
+        !IN_PROGRESS_STATES.has(matchingDeployment.state)
+      ) {
+        if (returnSettled) {
+          return null
+        }
+
+        throw new Error(
+          `Deployment ${deploymentId} on ${appId} reached ${matchingDeployment.state} before it could be cancelled`
+        )
+      }
+
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Timed out while waiting for deployment ${deploymentId} on ${appId} to become the latest WIP deployment. Last state: ${lastObservedState}`
+        )
+      }
+
+      if (
+        latestActiveDeployment?.uuid === deploymentId &&
+        CANCELLABLE_STATES.has(latestActiveDeployment.state ?? '')
+      ) {
+        return latestActiveDeployment as DeploymentActivity & { uuid: string }
+      }
+
+      await sleepUntilNextPoll({
+        sleep,
+        pollIntervalMs,
+        deadlineAt: deadline
+      })
+    }
+  }
+
   async function listApplications(): Promise<ListedOrganisation[]> {
     const result = await runCommand(
       cleverCLI,
@@ -211,72 +294,93 @@ export function createCleverController({
     }
   }
 
-  return {
-    listActivity,
+  async function cancelDeployment({
+    appId,
+    deploymentId,
+    timeoutMs = settleTimeoutMs
+  }: {
+    appId: string
+    deploymentId: string
+    timeoutMs?: number
+  }): Promise<DeploymentActivity> {
+    const deadline = Date.now() + timeoutMs
 
-    async cancelDeployment({
+    const cancellableDeployment = await waitForLatestCancellableDeployment({
       appId,
       deploymentId,
-      timeoutMs = settleTimeoutMs
-    }: {
-      appId: string
-      deploymentId: string
-      timeoutMs?: number
-    }): Promise<DeploymentActivity> {
-      const deadline = Date.now() + timeoutMs
-      const activeDeployments = await readActiveDeployments(
-        appId,
-        Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
+      timeoutMs: remainingBeforeDeadline(deadline)
+    })
+
+    if (!cancellableDeployment) {
+      throw new Error(
+        `Deployment ${deploymentId} on ${appId} settled before it could be cancelled`
       )
+    }
 
-      if (
-        activeDeployments.length !== 1 ||
-        activeDeployments[0]?.uuid !== deploymentId
-      ) {
-        throw new Error(
-          `Cannot cancel deployment ${deploymentId} on ${appId} because ${activeDeployments.length} deployments are currently active`
-        )
-      }
+    await runCommand(cleverCLI, ['cancel-deploy', '--app', appId], {
+      timeoutMs: Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
+    })
 
-      if (Date.now() >= deadline) {
-        throw new Error(
-          `Timed out while waiting for deployment ${deploymentId} on ${appId} to reach CANCELLED. Last state: ${activeDeployments[0]?.state ?? '(missing)'}`
-        )
-      }
+    return waitForDeploymentState({
+      appId,
+      deploymentId,
+      expectedState: 'CANCELLED',
+      timeoutMs: remainingBeforeDeadline(deadline)
+    })
+  }
 
-      await runCommand(cleverCLI, ['cancel-deploy', '--app', appId], {
-        timeoutMs: Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
-      })
-
-      return waitForDeploymentState({
-        appId,
-        deploymentId,
-        expectedState: 'CANCELLED',
-        timeoutMs: remainingBeforeDeadline(deadline)
-      })
-    },
+  return {
+    listActivity,
+    cancelDeployment,
 
     async createApplication({
       name,
       region
     }: CreateApplicationOptions): Promise<CreatedApplication> {
-      const result = await runCommand(
-        cleverCLI,
-        ['create', '--type', 'node', '--region', region, '--format', 'json', name],
-        { timeoutMs: COMMAND_TIMEOUT_MS }
-      )
+      let result: CommandResult
 
-      const created = JSON.parse(result.stdout) as {
+      try {
+        result = await runCommand(
+          cleverCLI,
+          ['create', '--type', 'node', '--region', region, '--format', 'json', name],
+          { timeoutMs: COMMAND_TIMEOUT_MS }
+        )
+      } catch (error) {
+        if (isRecoverableCreateCommandFailure(error)) {
+          throw new RecoverableCreateApplicationError(
+            error instanceof Error ? error.message : String(error)
+          )
+        }
+
+        throw error
+      }
+
+      let created: {
         id?: string
         name?: string
       }
 
+      try {
+        created = JSON.parse(result.stdout) as {
+          id?: string
+          name?: string
+        }
+      } catch {
+        throw new RecoverableCreateApplicationError(
+          'Clever create did not return valid JSON'
+        )
+      }
+
       if (!created.id || !APP_ID_REGEX.test(created.id)) {
-        throw new Error('Clever create did not return a valid app ID')
+        throw new RecoverableCreateApplicationError(
+          'Clever create did not return a valid app ID'
+        )
       }
 
       if (created.name !== name) {
-        throw new Error(`Clever create returned an unexpected app name: ${created.name}`)
+        throw new RecoverableCreateApplicationError(
+          `Clever create returned an unexpected app name: ${created.name}`
+        )
       }
 
       return {
@@ -294,7 +398,8 @@ export function createCleverController({
           .filter(application => application.name === name)
 
         if (matches.length === 1) {
-          const appId = matches[0].app_id
+          const match = matches[0]
+          const appId = match?.app_id
 
           if (!appId || !APP_ID_REGEX.test(appId)) {
             throw new Error(`Clever applications did not return a valid app ID for ${name}`)
@@ -350,16 +455,47 @@ export function createCleverController({
     }: DeleteApplicationOptions): Promise<void> {
       try {
         const deadline = Date.now() + settleTimeoutMs
-        const activeDeployments = await readActiveDeployments(
-          appId,
-          Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
-        )
 
-        if (activeDeployments.length > 0) {
-          await runCommand(cleverCLI, ['cancel-deploy', '--app', appId], {
-            timeoutMs: Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
+        for (;;) {
+          const activeDeployments = await readActiveDeployments(
+            appId,
+            Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
+          )
+
+          if (activeDeployments.length === 0) {
+            break
+          }
+
+          const latestActiveDeployment = activeDeployments[0]
+
+          if (!latestActiveDeployment?.uuid) {
+            throw new Error(`Missing active deployment ID for ${appId}`)
+          }
+
+          const cancellableDeployment = await waitForLatestCancellableDeployment({
+            appId,
+            deploymentId: latestActiveDeployment.uuid,
+            timeoutMs: remainingBeforeDeadline(deadline),
+            returnSettled: true
           })
-          await waitForCancelledDeployment(appId, remainingBeforeDeadline(deadline))
+
+          if (!cancellableDeployment) {
+            continue
+          }
+
+          await runCommand(cleverCLI, ['cancel-deploy', '--app', appId], {
+            timeoutMs: Math.min(
+              COMMAND_TIMEOUT_MS,
+              Math.max(1, remainingBeforeDeadline(deadline))
+            )
+          })
+
+          await waitForDeploymentState({
+            appId,
+            deploymentId: cancellableDeployment.uuid,
+            expectedState: 'CANCELLED',
+            timeoutMs: remainingBeforeDeadline(deadline)
+          })
         }
 
         await runCommand(cleverCLI, ['delete', '--app', appId, '--yes'], {
