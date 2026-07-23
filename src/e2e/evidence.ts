@@ -10,6 +10,12 @@ const IMAGE_REFERENCE_REGEX =
 
 type StepOutcome = 'success' | 'failure' | 'skipped' | string | undefined
 
+type EvidenceCredentials = {
+  token: string
+  secret: string
+  healthValue?: string | null
+}
+
 export type SuiteResults = {
   candidate: {
     headSha: string | null
@@ -110,10 +116,7 @@ export async function prepareFailureEvidence({
     sourcePath: string
     artifactPath: string
   }>
-  credentials: {
-    token: string
-    secret: string
-  }
+  credentials: EvidenceCredentials
 }): Promise<void> {
   await rm(outputDir, {
     force: true,
@@ -142,10 +145,7 @@ export async function verifyPreparedFailureEvidence({
   credentials
 }: {
   outputDir: string
-  credentials: {
-    token: string
-    secret: string
-  }
+  credentials: EvidenceCredentials
 }): Promise<void> {
   for (const filePath of await listPreparedEvidenceFiles(outputDir)) {
     scanArtifactContent(await readFile(filePath, 'utf8'), credentials)
@@ -154,10 +154,7 @@ export async function verifyPreparedFailureEvidence({
 
 export function redactArtifactContent(
   content: string,
-  credentials: {
-    token: string
-    secret: string
-  }
+  credentials: EvidenceCredentials
 ): string {
   let redacted = content
 
@@ -170,10 +167,7 @@ export function redactArtifactContent(
 
 export function scanArtifactContent(
   content: string,
-  credentials: {
-    token: string
-    secret: string
-  }
+  credentials: EvidenceCredentials
 ): void {
   for (const pattern of buildSensitivePatterns(credentials)) {
     if (content.includes(pattern)) {
@@ -335,12 +329,14 @@ function escapeSummaryTableCell(value: string): string {
   return escapeSummaryText(value).replaceAll('|', '\\|')
 }
 
-function buildSensitivePatterns(credentials: {
-  token: string
-  secret: string
-}): string[] {
+function buildSensitivePatterns(credentials: EvidenceCredentials): string[] {
   const combined = `${credentials.token}:${credentials.secret}`
-  const values = [credentials.token, credentials.secret, combined]
+  const values = [
+    credentials.token,
+    credentials.secret,
+    combined,
+    credentials.healthValue
+  ].filter((value): value is string => Boolean(value))
 
   return Array.from(
     new Set(

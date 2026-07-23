@@ -93,13 +93,32 @@ describe('e2e failure evidence workflow policies', () => {
     const deleteStep = reusableWorkflow.slice(deleteIndex, summaryIndex)
     expect(deleteStep).toContain('CLEVER_TOKEN')
     expect(deleteStep).toContain('CLEVER_SECRET')
+    expect(deleteStep).toContain('E2E_HEALTH_VALUE: ${{ steps.health-value.outputs.value }}')
     expect(deleteStep).toContain('OUTPUT_DIR: ${{ github.workspace }}/.e2e-artifacts/upload')
     expect(deleteStep).toContain('RESULTS_PATH: ${{ github.workspace }}/.e2e-state/suite-results.json')
+    expect(deleteStep).toContain('const healthValue = process.env.E2E_HEALTH_VALUE')
+    expect(deleteStep).toContain('const credentials = { token, secret, healthValue }')
+    expect(deleteStep).toContain('credentials.healthValue')
+    expect(deleteStep).toContain('scanArtifactContent(redacted, credentials)')
+    expect(deleteStep).toContain("await appendFile(githubOutput, 'failure_evidence_ready=true\\n')")
+    expect(deleteStep).toContain('Failure evidence verification failed:')
+    expect(deleteStep).not.toContain('!healthValue')
     expect(deleteStep).toContain('for (;;) {')
     expect(deleteStep).toContain('if (activeDeployments.length === 0) {')
     expect(deleteStep).toContain('returnSettled: true')
     expect(deleteStep).toContain('await waitForDeploymentState({')
     expect(deleteStep).not.toContain("from './.candidate-source/")
+
+    const verifyReadyIndex = deleteStep.indexOf('await verifyPreparedFailureEvidence({')
+    const markReadyIndex = deleteStep.indexOf(
+      "await appendFile(githubOutput, 'failure_evidence_ready=true\\n')"
+    )
+
+    expect(verifyReadyIndex).toBeGreaterThan(-1)
+    expect(markReadyIndex).toBeGreaterThan(verifyReadyIndex)
+
+    const summaryStep = reusableWorkflow.slice(summaryIndex, uploadIndex)
+    expect(summaryStep).not.toContain('E2E_HEALTH_VALUE')
 
     const uploadStep = reusableWorkflow.slice(uploadIndex, reusableWorkflow.length)
     expect(uploadStep).not.toContain('CLEVER_TOKEN')

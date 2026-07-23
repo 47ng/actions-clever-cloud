@@ -2454,6 +2454,7 @@ jobs:
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          E2E_HEALTH_VALUE: ${{ steps.health-value.outputs.value }}
           APP_ID: ${{ steps.create.outputs.app_id }}
           APP_NAME: ${{ steps.create.outputs.app_name }}
           APP_ID_FILE: ${{ github.workspace }}/.e2e-state/app.json
@@ -2509,6 +2510,7 @@ jobs:
           const timeoutLogPath = process.env.TIMEOUT_LOG_PATH
           const token = process.env.CLEVER_TOKEN
           const secret = process.env.CLEVER_SECRET
+          const healthValue = process.env.E2E_HEALTH_VALUE
           let appId = process.env.APP_ID
           let appName = process.env.APP_NAME
           const appIdFile = process.env.APP_ID_FILE
@@ -2785,7 +2787,12 @@ jobs:
 
           function buildSensitivePatterns(credentials) {
             const combined = `${credentials.token}:${credentials.secret}`
-            const values = [credentials.token, credentials.secret, combined]
+            const values = [
+              credentials.token,
+              credentials.secret,
+              combined,
+              credentials.healthValue
+            ].filter(Boolean)
 
             return Array.from(
               new Set(
@@ -2957,7 +2964,7 @@ jobs:
             return candidates
           }
 
-          const credentials = { token, secret }
+          const credentials = { token, secret, healthValue }
           const errors = []
           let evidencePrepared = false
 

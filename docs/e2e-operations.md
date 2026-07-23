@@ -34,7 +34,8 @@ No step calls `clever login`.
 After the first healthy deploy, the suite generates one random 16-byte base64 value,
 checks that it keeps its `==` padding, sends it through `setEnv`, and compares the
 public and remote values without printing it.
-The suite never records that generated health value in the summary or failure evidence.
+The suite never records the raw generated health value in the summary, and redacts it
+from uploaded failure evidence with the Clever credentials.
 The same deployment runs with `quiet: true` and writes raw output to a log file so the
 suite can check the fixture build and startup markers.
 
@@ -57,7 +58,7 @@ It contains:
 - `suite-results.json` with the exact candidate head SHA, the pinned candidate image digest and reference, scenario outcomes, app identity, commit IDs, deployment IDs, and candidate action log paths
 - `candidate-action/*.log` for any captured candidate action logs, including `001-deploy-healthy.log` through `012-timeout.log`
 
-If evidence preparation fails its redaction scan, the workflow skips the upload and fails the run so you can inspect the job log instead.
+If evidence preparation fails its redaction scan for the token, secret, or generated health value, the workflow skips the upload and fails the run so you can inspect the job log instead.
 
 ## Teardown and manual cleanup
 

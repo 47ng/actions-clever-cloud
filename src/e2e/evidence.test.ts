@@ -192,18 +192,30 @@ test('rejects malformed suite results before writing the GitHub step summary', (
   )
 })
 
-test('redacts raw and encoded credentials before scanning artifacts', () => {
+test('redacts raw and encoded credentials and the health value before scanning artifacts', () => {
   const token = 'token-123'
   const secret = 'secret-456'
+  const healthValue = 'ABEiM0RVZneImaq7zN3u/w=='
   const joined = `${token}:${secret}`
   const encodedSecret = encodeURIComponent(secret)
   const encodedJoined = Buffer.from(joined, 'utf8').toString('base64')
+  const encodedHealthValue = Buffer.from(healthValue, 'utf8').toString('base64')
 
   const redacted = redactArtifactContent(
-    [token, secret, joined, encodedSecret, encodedJoined].join('\n'),
+    [
+      token,
+      secret,
+      joined,
+      encodedSecret,
+      encodedJoined,
+      healthValue,
+      encodeURIComponent(healthValue),
+      encodedHealthValue
+    ].join('\n'),
     {
       token,
-      secret
+      secret,
+      healthValue
     }
   )
 
@@ -212,7 +224,11 @@ test('redacts raw and encoded credentials before scanning artifacts', () => {
   expect(redacted).not.toContain(joined)
   expect(redacted).not.toContain(encodedSecret)
   expect(redacted).not.toContain(encodedJoined)
-  expect(() => scanArtifactContent(redacted, { token, secret })).not.toThrow()
+  expect(redacted).not.toContain(healthValue)
+  expect(redacted).not.toContain(encodedHealthValue)
+  expect(() =>
+    scanArtifactContent(redacted, { token, secret, healthValue })
+  ).not.toThrow()
 })
 
 test('prepares redacted failure evidence under safe artifact identifiers', async () => {
@@ -220,7 +236,11 @@ test('prepares redacted failure evidence under safe artifact identifiers', async
   const sourcePath = path.join(directory, 'source.log')
   const outputDir = path.join(directory, 'upload')
 
-  await writeFile(sourcePath, 'token-123\nplain output\n', 'utf8')
+  await writeFile(
+    sourcePath,
+    'token-123\nABEiM0RVZneImaq7zN3u/w==\nplain output\n',
+    'utf8'
+  )
 
   await prepareFailureEvidence({
     outputDir,
@@ -232,32 +252,46 @@ test('prepares redacted failure evidence under safe artifact identifiers', async
     ],
     credentials: {
       token: 'token-123',
-      secret: 'secret-456'
+      secret: 'secret-456',
+      healthValue: 'ABEiM0RVZneImaq7zN3u/w=='
     }
   })
 
   await expect(
     readFile(path.join(outputDir, 'candidate-action/001-deploy-healthy.log'), 'utf8')
-  ).resolves.toBe('[REDACTED]\nplain output\n')
+  ).resolves.toBe('[REDACTED]\n[REDACTED]\nplain output\n')
 })
 
-test('redacts common base64url credential forms before scanning artifacts', () => {
+test('redacts common base64url credential and health value forms before scanning artifacts', () => {
   const token = 'token?123'
   const secret = 'secret?456'
+  const healthValue = 'ABEiM0RVZneImaq7zN3u/w=='
   const joined = `${token}:${secret}`
   const encodedJoined = Buffer.from(joined, 'utf8')
     .toString('base64')
     .replaceAll('+', '-')
     .replaceAll('/', '_')
     .replace(/=+$/u, '')
+  const encodedHealthValue = Buffer.from(healthValue, 'utf8')
+    .toString('base64')
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replace(/=+$/u, '')
 
-  const redacted = redactArtifactContent(encodedJoined, {
-    token,
-    secret
-  })
+  const redacted = redactArtifactContent(
+    [encodedJoined, encodedHealthValue].join('\n'),
+    {
+      token,
+      secret,
+      healthValue
+    }
+  )
 
   expect(redacted).not.toContain(encodedJoined)
-  expect(() => scanArtifactContent(redacted, { token, secret })).not.toThrow()
+  expect(redacted).not.toContain(encodedHealthValue)
+  expect(() =>
+    scanArtifactContent(redacted, { token, secret, healthValue })
+  ).not.toThrow()
 })
 
 test('fails scanning when an artifact still contains a raw credential', () => {
@@ -318,14 +352,19 @@ test('fails verification when a file appears after failure evidence preparation'
     }
   })
 
-  await writeFile(path.join(outputDir, 'late.log'), 'token-123\n', 'utf8')
+  await writeFile(
+    path.join(outputDir, 'late.log'),
+    'ABEiM0RVZneImaq7zN3u/w==\n',
+    'utf8'
+  )
 
   await expect(
     verifyPreparedFailureEvidence({
       outputDir,
       credentials: {
         token: 'token-123',
-        secret: 'secret-456'
+        secret: 'secret-456',
+        healthValue: 'ABEiM0RVZneImaq7zN3u/w=='
       }
     })
   ).rejects.toThrow('Artifact still contains redaction target content')
