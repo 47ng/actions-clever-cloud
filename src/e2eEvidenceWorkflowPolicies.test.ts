@@ -13,14 +13,30 @@ describe('e2e failure evidence workflow policies', () => {
     expect(reusableWorkflow).toContain('name: Prepare evidence directories')
     expect(reusableWorkflow).toContain('name: Write structured scenario results')
     expect(reusableWorkflow).toContain(
+      "import {\n            buildExpectedFailureOutcome,\n            buildSuccessfulScenarioOutcome,\n            buildSuiteResults,\n            writeSuiteResults\n          } from './.candidate-source/src/e2e/evidence.ts'"
+    )
+    expect(reusableWorkflow).toContain(
+      'outcome: buildExpectedFailureOutcome({'
+    )
+    expect(reusableWorkflow).toContain('baselineInstanceId: null')
+    expect(reusableWorkflow).toContain('instanceId:')
+    expect(reusableWorkflow).toContain(
       "name: Prepare failure evidence\n        if: always() && steps.candidate-state.outputs.proceed == 'true'"
     )
     expect(reusableWorkflow).toContain('name: Verify failure evidence after teardown')
     expect(reusableWorkflow).toContain('name: Upload failure evidence')
     expect(reusableWorkflow).toContain('logFile: .e2e-artifacts/candidate-action/001-deploy-healthy.log')
     expect(reusableWorkflow).toContain('logFile: .e2e-artifacts/candidate-action/002-deploy-env.log')
+    expect(reusableWorkflow).toContain('logFile: .e2e-artifacts/candidate-action/003-same-commit-error.log')
+    expect(reusableWorkflow).toContain('logFile: .e2e-artifacts/candidate-action/004-same-commit-ignore.log')
+    expect(reusableWorkflow).toContain('logFile: .e2e-artifacts/candidate-action/005-same-commit-restart.log')
+    expect(reusableWorkflow).toContain('logFile: .e2e-artifacts/candidate-action/006-same-commit-rebuild.log')
     expect(reusableWorkflow).toContain("candidateActionLogs: ['candidate-action/001-deploy-healthy.log']")
     expect(reusableWorkflow).toContain("candidateActionLogs: ['candidate-action/002-deploy-env.log']")
+    expect(reusableWorkflow).toContain("candidateActionLogs: ['candidate-action/003-same-commit-error.log']")
+    expect(reusableWorkflow).toContain("candidateActionLogs: ['candidate-action/004-same-commit-ignore.log']")
+    expect(reusableWorkflow).toContain("candidateActionLogs: ['candidate-action/005-same-commit-restart.log']")
+    expect(reusableWorkflow).toContain("candidateActionLogs: ['candidate-action/006-same-commit-rebuild.log']")
     expect(reusableWorkflow).toContain("steps.prepare-failure-evidence.outcome == 'success'")
     expect(reusableWorkflow).toContain("steps.verify-failure-evidence.outcome == 'success'")
     expect(reusableWorkflow).toContain('retention-days: 3')

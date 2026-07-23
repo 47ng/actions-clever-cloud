@@ -23,11 +23,91 @@ const DEFAULT_POLL_INTERVAL_MS = 5_000
 const DEFAULT_HEALTH_CHECK_TIMEOUT_MS = 10_000
 const SUCCESS_STATES = new Set(['SUCCESS', 'SUCCEEDED', 'DONE'])
 
+export async function confirmNoNewDeploymentActivity({
+  appId,
+  previousActivity,
+  listActivity,
+  sleep = defaultSleep,
+  settleTimeoutMs = DEFAULT_SETTLE_TIMEOUT_MS,
+  pollIntervalMs = DEFAULT_POLL_INTERVAL_MS
+}: {
+  appId: string
+  previousActivity: DeploymentActivity[]
+  listActivity: (appId: string) => Promise<DeploymentActivity[]>
+  sleep?: Sleep
+  settleTimeoutMs?: number
+  pollIntervalMs?: number
+}): Promise<DeploymentActivity[]> {
+  let elapsedMs = 0
+  const previousSnapshot = previousActivity.map(serializeActivity)
+
+  for (;;) {
+    const activity = await listActivity(appId)
+
+    if (!hasMatchingActivitySnapshot(previousSnapshot, activity)) {
+      throw new Error(`Observed unexpected deployment activity change for ${appId}`)
+    }
+
+    if (elapsedMs >= settleTimeoutMs) {
+      return activity
+    }
+
+    await sleep(pollIntervalMs)
+    elapsedMs += pollIntervalMs
+  }
+}
+
+export async function waitForNewSuccessfulDeploymentActivity({
+  appId,
+  expectedCommitID,
+  previousActivity,
+  listActivity,
+  sleep = defaultSleep,
+  settleTimeoutMs = DEFAULT_SETTLE_TIMEOUT_MS,
+  pollIntervalMs = DEFAULT_POLL_INTERVAL_MS
+}: {
+  appId: string
+  expectedCommitID: string
+  previousActivity: DeploymentActivity[]
+  listActivity: (appId: string) => Promise<DeploymentActivity[]>
+  sleep?: Sleep
+  settleTimeoutMs?: number
+  pollIntervalMs?: number
+}): Promise<DeploymentActivity> {
+  let elapsedMs = 0
+  const previousSnapshot = new Set(previousActivity.map(serializeActivity))
+
+  for (;;) {
+    const activity = await listActivity(appId)
+    const deployment = activity.find(
+      entry =>
+        entry.action === 'DEPLOY' &&
+        entry.commit === expectedCommitID &&
+        SUCCESS_STATES.has(entry.state ?? '') &&
+        !previousSnapshot.has(serializeActivity(entry))
+    )
+
+    if (deployment?.uuid) {
+      return deployment
+    }
+
+    if (elapsedMs >= settleTimeoutMs) {
+      throw new Error(
+        `Timed out while waiting for a new successful deployment activity for ${appId}`
+      )
+    }
+
+    await sleep(pollIntervalMs)
+    elapsedMs += pollIntervalMs
+  }
+}
+
 export async function waitForHealthyDeployment({
   appId,
   healthURL,
   expectedScenario,
   expectedCommitID,
+  expectedDeploymentID,
   listActivity,
   fetchHealth,
   lookupEnvironmentValue,
@@ -41,6 +121,7 @@ export async function waitForHealthyDeployment({
   healthURL: string
   expectedScenario: string
   expectedCommitID: string
+  expectedDeploymentID?: string
   listActivity: (appId: string) => Promise<DeploymentActivity[]>
   fetchHealth: (url: string) => Promise<HealthResponse>
   lookupEnvironmentValue?: (appId: string, name: string) => Promise<string | null>
@@ -56,7 +137,10 @@ export async function waitForHealthyDeployment({
   for (;;) {
     const activity = await listActivity(appId)
     const deployment = activity.find(
-      entry => entry.action === 'DEPLOY' && entry.commit === expectedCommitID
+      entry =>
+        entry.action === 'DEPLOY' &&
+        entry.commit === expectedCommitID &&
+        (!expectedDeploymentID || entry.uuid === expectedDeploymentID)
     )
 
     if (deployment && SUCCESS_STATES.has(deployment.state ?? '')) {
@@ -169,6 +253,27 @@ function readNullableString(value: unknown): string | null {
   }
 
   return value
+}
+
+function hasMatchingActivitySnapshot(
+  previousSnapshot: string[],
+  activity: DeploymentActivity[]
+): boolean {
+  const currentSnapshot = activity.map(serializeActivity)
+
+  return (
+    previousSnapshot.length === currentSnapshot.length &&
+    previousSnapshot.every((entry, index) => entry === currentSnapshot[index])
+  )
+}
+
+function serializeActivity(activity: DeploymentActivity): string {
+  return JSON.stringify({
+    action: activity.action ?? null,
+    state: activity.state ?? null,
+    uuid: activity.uuid ?? null,
+    commit: activity.commit ?? null
+  })
 }
 
 async function defaultSleep(timeoutMs: number): Promise<void> {

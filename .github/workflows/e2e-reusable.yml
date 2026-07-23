@@ -430,7 +430,8 @@ jobs:
 
           await appendFile(
             githubOutput,
-            `deployment_id=${health.CC_DEPLOYMENT_ID ?? ''}\n` +
+            `instance_id=${health.INSTANCE_ID ?? ''}\n` +
+              `deployment_id=${health.CC_DEPLOYMENT_ID ?? ''}\n` +
               `commit_id=${health.CC_COMMIT_ID ?? ''}\n`,
           )
           EOF
@@ -577,7 +578,8 @@ jobs:
 
           await appendFile(
             githubOutput,
-            `deployment_id=${health.CC_DEPLOYMENT_ID ?? ''}\n` +
+            `instance_id=${health.INSTANCE_ID ?? ''}\n` +
+              `deployment_id=${health.CC_DEPLOYMENT_ID ?? ''}\n` +
               `commit_id=${health.CC_COMMIT_ID ?? ''}\n`,
           )
           EOF
@@ -609,6 +611,540 @@ jobs:
           }
           EOF
 
+      - name: Capture same-commit baseline state
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: same-commit-baseline
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/same-commit-state.json
+          BASELINE_INSTANCE_ID: ${{ steps.observe-env.outputs.instance_id }}
+          BASELINE_DEPLOYMENT_ID: ${{ steps.observe-env.outputs.deployment_id }}
+          BASELINE_COMMIT_ID: ${{ steps.observe-env.outputs.commit_id }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { execFile } from 'node:child_process'
+          import { writeFile } from 'node:fs/promises'
+          import { promisify } from 'node:util'
+          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
+
+          const execFileAsync = promisify(execFile)
+          const appId = process.env.APP_ID
+          const statePath = process.env.STATE_PATH
+          const instanceId = process.env.BASELINE_INSTANCE_ID
+          const deploymentId = process.env.BASELINE_DEPLOYMENT_ID
+          const commitId = process.env.BASELINE_COMMIT_ID
+          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+
+          if (!appId || !statePath || !instanceId || !deploymentId || !commitId) {
+            throw new Error('Missing same-commit baseline inputs')
+          }
+
+          const controller = createCleverController({
+            cleverCLI,
+            runCommand: async (cli, args, { timeoutMs }) => {
+              try {
+                const { stdout, stderr } = await execFileAsync(cli, args, {
+                  encoding: 'utf8',
+                  env: process.env,
+                  timeout: timeoutMs,
+                  maxBuffer: 1024 * 1024 * 10,
+                })
+                return { stdout, stderr }
+              } catch (error) {
+                throw new Error(error.stderr?.trim() || error.message)
+              }
+            },
+          })
+
+          await writeFile(
+            statePath,
+            JSON.stringify(
+              {
+                activity: await controller.listActivity(appId),
+                instanceId,
+                deploymentId,
+                commitId,
+              },
+              null,
+              2,
+            ),
+            'utf8',
+          )
+          EOF
+
+      - name: Deploy same commit with default error policy
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: same-commit-error
+        continue-on-error: true
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/003-same-commit-error.log
+
+      - name: Assert same-commit error outcome and activity
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: assert-same-commit-error
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          ACTION_OUTCOME: ${{ steps.same-commit-error.outcome }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/same-commit-state.json
+          LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/003-same-commit-error.log
+        run: |
+          node --input-type=module <<'EOF'
+          import { execFile } from 'node:child_process'
+          import { readFile } from 'node:fs/promises'
+          import { promisify } from 'node:util'
+          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
+          import { confirmNoNewDeploymentActivity } from './.candidate-source/src/e2e/deployment-observer.ts'
+
+          const execFileAsync = promisify(execFile)
+          const appId = process.env.APP_ID
+          const actionOutcome = process.env.ACTION_OUTCOME
+          const statePath = process.env.STATE_PATH
+          const logPath = process.env.LOG_PATH
+          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+
+          if (!appId || !actionOutcome || !statePath || !logPath) {
+            throw new Error('Missing same-commit error assertion inputs')
+          }
+
+          if (actionOutcome !== 'failure') {
+            throw new Error('Expected the default same-commit policy to fail')
+          }
+
+          const previousState = JSON.parse(await readFile(statePath, 'utf8'))
+          const controller = createCleverController({
+            cleverCLI,
+            runCommand: async (cli, args, { timeoutMs }) => {
+              try {
+                const { stdout, stderr } = await execFileAsync(cli, args, {
+                  encoding: 'utf8',
+                  env: process.env,
+                  timeout: timeoutMs,
+                  maxBuffer: 1024 * 1024 * 10,
+                })
+                return { stdout, stderr }
+              } catch (error) {
+                throw new Error(error.stderr?.trim() || error.message)
+              }
+            },
+          })
+
+          await confirmNoNewDeploymentActivity({
+            appId,
+            previousActivity: previousState.activity,
+            listActivity: controller.listActivity,
+            settleTimeoutMs: 15_000,
+            pollIntervalMs: 5_000,
+          })
+
+          const logContent = await readFile(logPath, 'utf8')
+          if (!logContent.includes('Remote HEAD has the same commit as the one to push')) {
+            throw new Error(
+              'Expected default same-commit error log to mention the known same-commit message'
+            )
+          }
+          EOF
+
+      - name: Deploy same commit with ignore policy
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: same-commit-ignore
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/004-same-commit-ignore.log
+          sameCommitPolicy: ignore
+
+      - name: Observe same-commit ignore state
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: observe-same-commit-ignore
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          ACTION_OUTCOME: ${{ steps.same-commit-ignore.outcome }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/same-commit-state.json
+        run: |
+          node --input-type=module <<'EOF'
+          import { execFile } from 'node:child_process'
+          import { appendFile, readFile } from 'node:fs/promises'
+          import { promisify } from 'node:util'
+          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
+          import { confirmNoNewDeploymentActivity, waitForHealthyDeployment, waitForNewSuccessfulDeploymentActivity } from './.candidate-source/src/e2e/deployment-observer.ts'
+
+          const execFileAsync = promisify(execFile)
+          const appId = process.env.APP_ID
+          const actionOutcome = process.env.ACTION_OUTCOME
+          const statePath = process.env.STATE_PATH
+          const githubOutput = process.env.GITHUB_OUTPUT
+          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+
+          if (!appId || !actionOutcome || !statePath || !githubOutput) {
+            throw new Error('Missing same-commit ignore observation inputs')
+          }
+
+          if (actionOutcome !== 'success') {
+            throw new Error('Expected sameCommitPolicy: ignore to succeed')
+          }
+
+          const previousState = JSON.parse(await readFile(statePath, 'utf8'))
+          const controller = createCleverController({
+            cleverCLI,
+            runCommand: async (cli, args, { timeoutMs }) => {
+              try {
+                const { stdout, stderr } = await execFileAsync(cli, args, {
+                  encoding: 'utf8',
+                  env: process.env,
+                  timeout: timeoutMs,
+                  maxBuffer: 1024 * 1024 * 10,
+                })
+                return { stdout, stderr }
+              } catch (error) {
+                throw new Error(error.stderr?.trim() || error.message)
+              }
+            },
+          })
+
+          await confirmNoNewDeploymentActivity({
+            appId,
+            previousActivity: previousState.activity,
+            listActivity: controller.listActivity,
+            settleTimeoutMs: 15_000,
+            pollIntervalMs: 5_000,
+          })
+
+          const application = await controller.getApplication(appId)
+          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
+          const health = await waitForHealthyDeployment({
+            appId,
+            healthURL,
+            expectedScenario: 'healthy',
+            expectedCommitID: previousState.commitId,
+            expectedDeploymentID: previousState.deploymentId,
+            listActivity: controller.listActivity,
+            fetchHealth: async url => {
+              const requestController = new AbortController()
+              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
+
+              try {
+                const response = await fetch(url, {
+                  signal: requestController.signal
+                })
+                return {
+                  status: response.status,
+                  json: async () => response.json()
+                }
+              } finally {
+                clearTimeout(timeoutId)
+              }
+            }
+          })
+
+          if (health.INSTANCE_ID !== previousState.instanceId) {
+            throw new Error('Expected sameCommitPolicy: ignore to keep the same instance ID')
+          }
+          if (health.CC_DEPLOYMENT_ID !== previousState.deploymentId) {
+            throw new Error('Expected sameCommitPolicy: ignore to keep the same deployment ID')
+          }
+          if (health.CC_COMMIT_ID !== previousState.commitId) {
+            throw new Error('Expected sameCommitPolicy: ignore to keep the same commit ID')
+          }
+
+          await appendFile(
+            githubOutput,
+            `instance_id=${health.INSTANCE_ID ?? ''}\n` +
+              `deployment_id=${health.CC_DEPLOYMENT_ID ?? ''}\n` +
+              `commit_id=${health.CC_COMMIT_ID ?? ''}\n`,
+          )
+          EOF
+
+      - name: Deploy same commit with restart policy
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: same-commit-restart
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/005-same-commit-restart.log
+          sameCommitPolicy: restart
+
+      - name: Observe same-commit restart state
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: observe-same-commit-restart
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          ACTION_OUTCOME: ${{ steps.same-commit-restart.outcome }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/same-commit-state.json
+          LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/005-same-commit-restart.log
+        run: |
+          node --input-type=module <<'EOF'
+          import { execFile } from 'node:child_process'
+          import { appendFile, readFile, writeFile } from 'node:fs/promises'
+          import { promisify } from 'node:util'
+          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
+          import { confirmNoNewDeploymentActivity, waitForHealthyDeployment, waitForNewSuccessfulDeploymentActivity } from './.candidate-source/src/e2e/deployment-observer.ts'
+          import { FIXTURE_BUILD_MARKER } from './.candidate-source/src/e2e/fixture-app.ts'
+
+          const execFileAsync = promisify(execFile)
+          const appId = process.env.APP_ID
+          const actionOutcome = process.env.ACTION_OUTCOME
+          const statePath = process.env.STATE_PATH
+          const logPath = process.env.LOG_PATH
+          const githubOutput = process.env.GITHUB_OUTPUT
+          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+
+          if (!appId || !actionOutcome || !statePath || !logPath || !githubOutput) {
+            throw new Error('Missing same-commit restart observation inputs')
+          }
+
+          if (actionOutcome !== 'success') {
+            throw new Error('Expected sameCommitPolicy: restart to succeed')
+          }
+
+          const previousState = JSON.parse(await readFile(statePath, 'utf8'))
+          const controller = createCleverController({
+            cleverCLI,
+            runCommand: async (cli, args, { timeoutMs }) => {
+              try {
+                const { stdout, stderr } = await execFileAsync(cli, args, {
+                  encoding: 'utf8',
+                  env: process.env,
+                  timeout: timeoutMs,
+                  maxBuffer: 1024 * 1024 * 10,
+                })
+                return { stdout, stderr }
+              } catch (error) {
+                throw new Error(error.stderr?.trim() || error.message)
+              }
+            },
+          })
+
+          const deployment = await waitForNewSuccessfulDeploymentActivity({
+            appId,
+            expectedCommitID: previousState.commitId,
+            previousActivity: previousState.activity,
+            listActivity: controller.listActivity,
+          })
+
+          const application = await controller.getApplication(appId)
+          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
+          const health = await waitForHealthyDeployment({
+            appId,
+            healthURL,
+            expectedScenario: 'healthy',
+            expectedCommitID: previousState.commitId,
+            expectedDeploymentID: deployment.uuid,
+            listActivity: controller.listActivity,
+            fetchHealth: async url => {
+              const requestController = new AbortController()
+              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
+
+              try {
+                const response = await fetch(url, {
+                  signal: requestController.signal
+                })
+                return {
+                  status: response.status,
+                  json: async () => response.json()
+                }
+              } finally {
+                clearTimeout(timeoutId)
+              }
+            }
+          })
+
+          if (!health.INSTANCE_ID) {
+            throw new Error('Expected sameCommitPolicy: restart to report a new instance ID')
+          }
+          if (health.INSTANCE_ID === previousState.instanceId) {
+            throw new Error('Expected sameCommitPolicy: restart to change the instance ID')
+          }
+          if (health.CC_DEPLOYMENT_ID === previousState.deploymentId) {
+            throw new Error('Expected sameCommitPolicy: restart to change the deployment ID')
+          }
+          if (health.CC_COMMIT_ID !== previousState.commitId) {
+            throw new Error('Expected sameCommitPolicy: restart to keep the same commit ID')
+          }
+
+          const logContent = await readFile(logPath, 'utf8')
+          if (logContent.includes(FIXTURE_BUILD_MARKER)) {
+            throw new Error('Expected restart to reuse cache without a new install marker')
+          }
+
+          const activity = await controller.listActivity(appId)
+          await writeFile(
+            statePath,
+            JSON.stringify(
+              {
+                activity,
+                instanceId: health.INSTANCE_ID,
+                deploymentId: health.CC_DEPLOYMENT_ID,
+                commitId: health.CC_COMMIT_ID,
+              },
+              null,
+              2,
+            ),
+            'utf8',
+          )
+
+          await appendFile(
+            githubOutput,
+            `instance_id=${health.INSTANCE_ID ?? ''}\n` +
+              `deployment_id=${health.CC_DEPLOYMENT_ID ?? ''}\n` +
+              `commit_id=${health.CC_COMMIT_ID ?? ''}\n`,
+          )
+          EOF
+
+      - name: Deploy same commit with rebuild policy
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: same-commit-rebuild
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/006-same-commit-rebuild.log
+          sameCommitPolicy: rebuild
+
+      - name: Observe same-commit rebuild state
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: observe-same-commit-rebuild
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          ACTION_OUTCOME: ${{ steps.same-commit-rebuild.outcome }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/same-commit-state.json
+          LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/006-same-commit-rebuild.log
+        run: |
+          node --input-type=module <<'EOF'
+          import { execFile } from 'node:child_process'
+          import { appendFile, readFile } from 'node:fs/promises'
+          import { promisify } from 'node:util'
+          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
+          import { confirmNoNewDeploymentActivity, waitForHealthyDeployment, waitForNewSuccessfulDeploymentActivity } from './.candidate-source/src/e2e/deployment-observer.ts'
+          import { FIXTURE_BUILD_MARKER } from './.candidate-source/src/e2e/fixture-app.ts'
+
+          const execFileAsync = promisify(execFile)
+          const appId = process.env.APP_ID
+          const actionOutcome = process.env.ACTION_OUTCOME
+          const statePath = process.env.STATE_PATH
+          const logPath = process.env.LOG_PATH
+          const githubOutput = process.env.GITHUB_OUTPUT
+          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+
+          if (!appId || !actionOutcome || !statePath || !logPath || !githubOutput) {
+            throw new Error('Missing same-commit rebuild observation inputs')
+          }
+
+          if (actionOutcome !== 'success') {
+            throw new Error('Expected sameCommitPolicy: rebuild to succeed')
+          }
+
+          const previousState = JSON.parse(await readFile(statePath, 'utf8'))
+          const controller = createCleverController({
+            cleverCLI,
+            runCommand: async (cli, args, { timeoutMs }) => {
+              try {
+                const { stdout, stderr } = await execFileAsync(cli, args, {
+                  encoding: 'utf8',
+                  env: process.env,
+                  timeout: timeoutMs,
+                  maxBuffer: 1024 * 1024 * 10,
+                })
+                return { stdout, stderr }
+              } catch (error) {
+                throw new Error(error.stderr?.trim() || error.message)
+              }
+            },
+          })
+
+          const deployment = await waitForNewSuccessfulDeploymentActivity({
+            appId,
+            expectedCommitID: previousState.commitId,
+            previousActivity: previousState.activity,
+            listActivity: controller.listActivity,
+          })
+
+          const application = await controller.getApplication(appId)
+          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
+          const health = await waitForHealthyDeployment({
+            appId,
+            healthURL,
+            expectedScenario: 'healthy',
+            expectedCommitID: previousState.commitId,
+            expectedDeploymentID: deployment.uuid,
+            listActivity: controller.listActivity,
+            fetchHealth: async url => {
+              const requestController = new AbortController()
+              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
+
+              try {
+                const response = await fetch(url, {
+                  signal: requestController.signal
+                })
+                return {
+                  status: response.status,
+                  json: async () => response.json()
+                }
+              } finally {
+                clearTimeout(timeoutId)
+              }
+            }
+          })
+
+          if (!health.INSTANCE_ID) {
+            throw new Error('Expected sameCommitPolicy: rebuild to report a new instance ID')
+          }
+          if (health.INSTANCE_ID === previousState.instanceId) {
+            throw new Error('Expected sameCommitPolicy: rebuild to change the instance ID')
+          }
+          if (health.CC_DEPLOYMENT_ID === previousState.deploymentId) {
+            throw new Error('Expected sameCommitPolicy: rebuild to change the deployment ID')
+          }
+          if (health.CC_COMMIT_ID !== previousState.commitId) {
+            throw new Error('Expected sameCommitPolicy: rebuild to keep the same commit ID')
+          }
+
+          const logContent = await readFile(logPath, 'utf8')
+          if (!logContent.includes('without using cache')) {
+            throw new Error('Expected sameCommitPolicy: rebuild to report without using cache')
+          }
+          if (!logContent.includes(FIXTURE_BUILD_MARKER)) {
+            throw new Error('Expected sameCommitPolicy: rebuild to emit a new install marker')
+          }
+
+          await appendFile(
+            githubOutput,
+            `instance_id=${health.INSTANCE_ID ?? ''}\n` +
+              `deployment_id=${health.CC_DEPLOYMENT_ID ?? ''}\n` +
+              `commit_id=${health.CC_COMMIT_ID ?? ''}\n`,
+          )
+          EOF
+
       - name: Write structured scenario results
         if: always() && steps.candidate-state.outputs.proceed == 'true'
         env:
@@ -617,18 +1153,47 @@ jobs:
           DEPLOY_HEALTHY_OUTCOME: ${{ steps.deploy-healthy.outcome }}
           OBSERVE_HEALTHY_OUTCOME: ${{ steps.observe-healthy.outcome }}
           HEALTHY_COMMIT: ${{ steps.fixture.outputs.commit }}
+          HEALTHY_OBSERVED_INSTANCE_ID: ${{ steps.observe-healthy.outputs.instance_id }}
           HEALTHY_OBSERVED_COMMIT_ID: ${{ steps.observe-healthy.outputs.commit_id }}
           HEALTHY_OBSERVED_DEPLOYMENT_ID: ${{ steps.observe-healthy.outputs.deployment_id }}
           DEPLOY_ENV_OUTCOME: ${{ steps.deploy-env.outcome }}
           OBSERVE_ENV_OUTCOME: ${{ steps.observe-env.outcome }}
           VERIFY_ENV_LOG_OUTCOME: ${{ steps.verify-env-log.outcome }}
           ENV_COMMIT: ${{ steps.second-healthy.outputs.commit }}
+          ENV_OBSERVED_INSTANCE_ID: ${{ steps.observe-env.outputs.instance_id }}
           ENV_OBSERVED_COMMIT_ID: ${{ steps.observe-env.outputs.commit_id }}
           ENV_OBSERVED_DEPLOYMENT_ID: ${{ steps.observe-env.outputs.deployment_id }}
+          SAME_COMMIT_ERROR_OUTCOME: ${{ steps.same-commit-error.outcome }}
+          ASSERT_SAME_COMMIT_ERROR_OUTCOME: ${{ steps.assert-same-commit-error.outcome }}
+          SAME_COMMIT_IGNORE_OUTCOME: ${{ steps.same-commit-ignore.outcome }}
+          OBSERVE_SAME_COMMIT_IGNORE_OUTCOME: ${{ steps.observe-same-commit-ignore.outcome }}
+          SAME_COMMIT_RESTART_OUTCOME: ${{ steps.same-commit-restart.outcome }}
+          OBSERVE_SAME_COMMIT_RESTART_OUTCOME: ${{ steps.observe-same-commit-restart.outcome }}
+          SAME_COMMIT_REBUILD_OUTCOME: ${{ steps.same-commit-rebuild.outcome }}
+          OBSERVE_SAME_COMMIT_REBUILD_OUTCOME: ${{ steps.observe-same-commit-rebuild.outcome }}
+          SAME_COMMIT_BASELINE_INSTANCE_ID: ${{ steps.observe-env.outputs.instance_id }}
+          SAME_COMMIT_BASELINE_COMMIT_ID: ${{ steps.observe-env.outputs.commit_id }}
+          SAME_COMMIT_BASELINE_DEPLOYMENT_ID: ${{ steps.observe-env.outputs.deployment_id }}
+          SAME_COMMIT_IGNORE_INSTANCE_ID: ${{ steps.observe-same-commit-ignore.outputs.instance_id }}
+          SAME_COMMIT_IGNORE_COMMIT_ID: ${{ steps.observe-same-commit-ignore.outputs.commit_id }}
+          SAME_COMMIT_IGNORE_DEPLOYMENT_ID: ${{ steps.observe-same-commit-ignore.outputs.deployment_id }}
+          SAME_COMMIT_RESTART_BASELINE_INSTANCE_ID: ${{ steps.observe-env.outputs.instance_id }}
+          SAME_COMMIT_RESTART_INSTANCE_ID: ${{ steps.observe-same-commit-restart.outputs.instance_id }}
+          SAME_COMMIT_RESTART_COMMIT_ID: ${{ steps.observe-same-commit-restart.outputs.commit_id }}
+          SAME_COMMIT_RESTART_DEPLOYMENT_ID: ${{ steps.observe-same-commit-restart.outputs.deployment_id }}
+          SAME_COMMIT_REBUILD_BASELINE_INSTANCE_ID: ${{ steps.observe-same-commit-restart.outputs.instance_id }}
+          SAME_COMMIT_REBUILD_INSTANCE_ID: ${{ steps.observe-same-commit-rebuild.outputs.instance_id }}
+          SAME_COMMIT_REBUILD_COMMIT_ID: ${{ steps.observe-same-commit-rebuild.outputs.commit_id }}
+          SAME_COMMIT_REBUILD_DEPLOYMENT_ID: ${{ steps.observe-same-commit-rebuild.outputs.deployment_id }}
         run: |
           node --input-type=module <<'EOF'
           import { readFile } from 'node:fs/promises'
-          import { buildSuiteResults, writeSuiteResults } from './.candidate-source/src/e2e/evidence.ts'
+          import {
+            buildExpectedFailureOutcome,
+            buildSuccessfulScenarioOutcome,
+            buildSuiteResults,
+            writeSuiteResults
+          } from './.candidate-source/src/e2e/evidence.ts'
 
           const appIdFile = process.env.APP_ID_FILE
           const resultsPath = process.env.RESULTS_PATH
@@ -656,14 +1221,6 @@ jobs:
             }
           }
 
-          function scenarioOutcome(...outcomes) {
-            return outcomes.every(outcome => outcome === 'success')
-              ? 'success'
-              : outcomes.every(outcome => outcome === 'skipped')
-                ? 'skipped'
-                : 'failure'
-          }
-
           await writeSuiteResults(
             resultsPath,
             buildSuiteResults({
@@ -671,10 +1228,12 @@ jobs:
               scenarios: [
                 {
                   name: 'deploy-healthy-fixture-commit',
-                  outcome: scenarioOutcome(
+                  outcome: buildSuccessfulScenarioOutcome(
                     process.env.DEPLOY_HEALTHY_OUTCOME,
                     process.env.OBSERVE_HEALTHY_OUTCOME
                   ),
+                  baselineInstanceId: null,
+                  instanceId: process.env.HEALTHY_OBSERVED_INSTANCE_ID || null,
                   commitId:
                     process.env.HEALTHY_OBSERVED_COMMIT_ID ||
                     process.env.HEALTHY_COMMIT ||
@@ -684,17 +1243,78 @@ jobs:
                 },
                 {
                   name: 'deploy-healthy-fixture-env-check',
-                  outcome: scenarioOutcome(
+                  outcome: buildSuccessfulScenarioOutcome(
                     process.env.DEPLOY_ENV_OUTCOME,
                     process.env.OBSERVE_ENV_OUTCOME,
                     process.env.VERIFY_ENV_LOG_OUTCOME
                   ),
+                  baselineInstanceId: null,
+                  instanceId: process.env.ENV_OBSERVED_INSTANCE_ID || null,
                   commitId:
                     process.env.ENV_OBSERVED_COMMIT_ID ||
                     process.env.ENV_COMMIT ||
                     null,
                   deploymentId: process.env.ENV_OBSERVED_DEPLOYMENT_ID || null,
                   candidateActionLogs: ['candidate-action/002-deploy-env.log']
+                },
+                {
+                  name: 'same-commit-error',
+                  outcome: buildExpectedFailureOutcome({
+                    actionOutcome: process.env.SAME_COMMIT_ERROR_OUTCOME,
+                    assertionOutcome: process.env.ASSERT_SAME_COMMIT_ERROR_OUTCOME
+                  }),
+                  baselineInstanceId: process.env.SAME_COMMIT_BASELINE_INSTANCE_ID || null,
+                  instanceId: process.env.SAME_COMMIT_BASELINE_INSTANCE_ID || null,
+                  commitId: process.env.SAME_COMMIT_BASELINE_COMMIT_ID || null,
+                  deploymentId: null,
+                  candidateActionLogs: ['candidate-action/003-same-commit-error.log']
+                },
+                {
+                  name: 'same-commit-ignore',
+                  outcome: buildSuccessfulScenarioOutcome(
+                    process.env.SAME_COMMIT_IGNORE_OUTCOME,
+                    process.env.OBSERVE_SAME_COMMIT_IGNORE_OUTCOME
+                  ),
+                  baselineInstanceId: process.env.SAME_COMMIT_BASELINE_INSTANCE_ID || null,
+                  instanceId:
+                    process.env.SAME_COMMIT_IGNORE_INSTANCE_ID ||
+                    process.env.SAME_COMMIT_BASELINE_INSTANCE_ID ||
+                    null,
+                  commitId:
+                    process.env.SAME_COMMIT_IGNORE_COMMIT_ID ||
+                    process.env.SAME_COMMIT_BASELINE_COMMIT_ID ||
+                    null,
+                  deploymentId:
+                    process.env.SAME_COMMIT_IGNORE_DEPLOYMENT_ID ||
+                    process.env.SAME_COMMIT_BASELINE_DEPLOYMENT_ID ||
+                    null,
+                  candidateActionLogs: ['candidate-action/004-same-commit-ignore.log']
+                },
+                {
+                  name: 'same-commit-restart',
+                  outcome: buildSuccessfulScenarioOutcome(
+                    process.env.SAME_COMMIT_RESTART_OUTCOME,
+                    process.env.OBSERVE_SAME_COMMIT_RESTART_OUTCOME
+                  ),
+                  baselineInstanceId:
+                    process.env.SAME_COMMIT_RESTART_BASELINE_INSTANCE_ID || null,
+                  instanceId: process.env.SAME_COMMIT_RESTART_INSTANCE_ID || null,
+                  commitId: process.env.SAME_COMMIT_RESTART_COMMIT_ID || null,
+                  deploymentId: process.env.SAME_COMMIT_RESTART_DEPLOYMENT_ID || null,
+                  candidateActionLogs: ['candidate-action/005-same-commit-restart.log']
+                },
+                {
+                  name: 'same-commit-rebuild',
+                  outcome: buildSuccessfulScenarioOutcome(
+                    process.env.SAME_COMMIT_REBUILD_OUTCOME,
+                    process.env.OBSERVE_SAME_COMMIT_REBUILD_OUTCOME
+                  ),
+                  baselineInstanceId:
+                    process.env.SAME_COMMIT_REBUILD_BASELINE_INSTANCE_ID || null,
+                  instanceId: process.env.SAME_COMMIT_REBUILD_INSTANCE_ID || null,
+                  commitId: process.env.SAME_COMMIT_REBUILD_COMMIT_ID || null,
+                  deploymentId: process.env.SAME_COMMIT_REBUILD_DEPLOYMENT_ID || null,
+                  candidateActionLogs: ['candidate-action/006-same-commit-rebuild.log']
                 }
               ]
             })
@@ -711,6 +1331,10 @@ jobs:
           RESULTS_PATH: ${{ github.workspace }}/.e2e-state/suite-results.json
           HEALTHY_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/001-deploy-healthy.log
           ENV_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/002-deploy-env.log
+          SAME_COMMIT_ERROR_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/003-same-commit-error.log
+          SAME_COMMIT_IGNORE_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/004-same-commit-ignore.log
+          SAME_COMMIT_RESTART_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/005-same-commit-restart.log
+          SAME_COMMIT_REBUILD_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/006-same-commit-rebuild.log
         run: |
           node --input-type=module <<'EOF'
           import { constants } from 'node:fs'
@@ -721,6 +1345,10 @@ jobs:
           const resultsPath = process.env.RESULTS_PATH
           const healthyLogPath = process.env.HEALTHY_LOG_PATH
           const envLogPath = process.env.ENV_LOG_PATH
+          const sameCommitErrorLogPath = process.env.SAME_COMMIT_ERROR_LOG_PATH
+          const sameCommitIgnoreLogPath = process.env.SAME_COMMIT_IGNORE_LOG_PATH
+          const sameCommitRestartLogPath = process.env.SAME_COMMIT_RESTART_LOG_PATH
+          const sameCommitRebuildLogPath = process.env.SAME_COMMIT_REBUILD_LOG_PATH
           const token = process.env.CLEVER_TOKEN
           const secret = process.env.CLEVER_SECRET
 
@@ -729,6 +1357,10 @@ jobs:
             !resultsPath ||
             !healthyLogPath ||
             !envLogPath ||
+            !sameCommitErrorLogPath ||
+            !sameCommitIgnoreLogPath ||
+            !sameCommitRestartLogPath ||
+            !sameCommitRebuildLogPath ||
             !token ||
             !secret
           ) {
@@ -750,6 +1382,22 @@ jobs:
             {
               sourcePath: envLogPath,
               artifactPath: 'candidate-action/002-deploy-env.log'
+            },
+            {
+              sourcePath: sameCommitErrorLogPath,
+              artifactPath: 'candidate-action/003-same-commit-error.log'
+            },
+            {
+              sourcePath: sameCommitIgnoreLogPath,
+              artifactPath: 'candidate-action/004-same-commit-ignore.log'
+            },
+            {
+              sourcePath: sameCommitRestartLogPath,
+              artifactPath: 'candidate-action/005-same-commit-restart.log'
+            },
+            {
+              sourcePath: sameCommitRebuildLogPath,
+              artifactPath: 'candidate-action/006-same-commit-rebuild.log'
             }
           ]) {
             try {

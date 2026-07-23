@@ -4,6 +4,8 @@ import path from 'node:path'
 
 const REDACTION = '[REDACTED]'
 
+type StepOutcome = 'success' | 'failure' | 'skipped' | string | undefined
+
 export type SuiteResults = {
   app: {
     id: string | null
@@ -12,10 +14,40 @@ export type SuiteResults = {
   scenarios: Array<{
     name: string
     outcome: 'success' | 'failure' | 'skipped'
+    baselineInstanceId: string | null
+    instanceId: string | null
     commitId: string | null
     deploymentId: string | null
     candidateActionLogs: string[]
   }>
+}
+
+export function buildSuccessfulScenarioOutcome(
+  ...outcomes: StepOutcome[]
+): 'success' | 'failure' | 'skipped' {
+  return outcomes.every(outcome => outcome === 'success')
+    ? 'success'
+    : outcomes.every(outcome => outcome === 'skipped')
+      ? 'skipped'
+      : 'failure'
+}
+
+export function buildExpectedFailureOutcome({
+  actionOutcome,
+  assertionOutcome
+}: {
+  actionOutcome: StepOutcome
+  assertionOutcome: StepOutcome
+}): 'success' | 'failure' | 'skipped' {
+  if (actionOutcome === 'failure' && assertionOutcome === 'success') {
+    return 'success'
+  }
+
+  if (actionOutcome === 'skipped' && assertionOutcome === 'skipped') {
+    return 'skipped'
+  }
+
+  return 'failure'
 }
 
 export function buildSuiteResults(results: SuiteResults): SuiteResults {

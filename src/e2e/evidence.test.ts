@@ -4,13 +4,44 @@ import os from 'node:os'
 import path from 'node:path'
 import { expect, test } from 'vitest'
 import {
+  buildExpectedFailureOutcome,
   buildSuiteResults,
+  buildSuccessfulScenarioOutcome,
   prepareFailureEvidence,
   redactArtifactContent,
   scanArtifactContent,
   verifyPreparedFailureEvidence,
   writeSuiteResults
 } from './evidence'
+
+test('treats a checked expected failure as a successful scenario outcome', () => {
+  expect(
+    buildExpectedFailureOutcome({
+      actionOutcome: 'failure',
+      assertionOutcome: 'success'
+    })
+  ).toBe('success')
+
+  expect(
+    buildExpectedFailureOutcome({
+      actionOutcome: 'success',
+      assertionOutcome: 'failure'
+    })
+  ).toBe('failure')
+
+  expect(
+    buildExpectedFailureOutcome({
+      actionOutcome: 'skipped',
+      assertionOutcome: 'skipped'
+    })
+  ).toBe('skipped')
+})
+
+test('treats regular scenario outcomes as success only when every step succeeds', () => {
+  expect(buildSuccessfulScenarioOutcome('success', 'success')).toBe('success')
+  expect(buildSuccessfulScenarioOutcome('success', 'failure')).toBe('failure')
+  expect(buildSuccessfulScenarioOutcome('skipped', 'skipped')).toBe('skipped')
+})
 
 test('writes structured results with scenario outcomes, app identity, commit IDs, deployment IDs, and candidate action logs', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'actions-clever-cloud-evidence-'))
@@ -25,6 +56,8 @@ test('writes structured results with scenario outcomes, app identity, commit IDs
       {
         name: 'deploy-healthy-fixture-commit',
         outcome: 'success',
+        baselineInstanceId: null,
+        instanceId: 'instance-123',
         commitId: 'commit-123',
         deploymentId: 'deployment-123',
         candidateActionLogs: ['candidate-action/001-deploy-healthy.log']
@@ -43,6 +76,8 @@ test('writes structured results with scenario outcomes, app identity, commit IDs
       {
         name: 'deploy-healthy-fixture-commit',
         outcome: 'success',
+        baselineInstanceId: null,
+        instanceId: 'instance-123',
         commitId: 'commit-123',
         deploymentId: 'deployment-123',
         candidateActionLogs: ['candidate-action/001-deploy-healthy.log']
