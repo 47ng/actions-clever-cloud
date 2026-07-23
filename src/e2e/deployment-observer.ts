@@ -21,7 +21,7 @@ type HealthResponse = {
 const DEFAULT_SETTLE_TIMEOUT_MS = 10 * 60_000
 const DEFAULT_POLL_INTERVAL_MS = 5_000
 const DEFAULT_HEALTH_CHECK_TIMEOUT_MS = 10_000
-const SUCCESS_STATES = new Set(['SUCCESS', 'SUCCEEDED', 'DONE'])
+const SUCCESS_STATES = new Set(['OK', 'SUCCESS', 'SUCCEEDED', 'DONE'])
 const FAILED_STATES = new Set(['FAIL', 'FAILED', 'ERROR', 'FAILURE'])
 const IN_PROGRESS_STATES = new Set(['WIP', 'PENDING', 'QUEUED', 'RUNNING'])
 const CANCELLABLE_STATES = new Set(['WIP'])
@@ -211,7 +211,7 @@ export async function waitForNewSuccessfulDeploymentActivity({
       entry =>
         entry.action === 'DEPLOY' &&
         entry.commit === expectedCommitID &&
-        SUCCESS_STATES.has(entry.state ?? '') &&
+        isSuccessfulDeploymentState(entry.state) &&
         !previousSnapshot.has(serializeActivity(entry))
     )
 
@@ -395,7 +395,7 @@ export async function waitForHealthyDeployment({
         (!expectedDeploymentID || entry.uuid === expectedDeploymentID)
     )
 
-    if (deployment && SUCCESS_STATES.has(deployment.state ?? '')) {
+    if (deployment && isSuccessfulDeploymentState(deployment.state)) {
       try {
         const response = await withTimeout(
           fetchHealth(healthURL),
@@ -582,6 +582,10 @@ function hasMatchingActivitySnapshot(
     previousSnapshot.length === currentSnapshot.length &&
     previousSnapshot.every((entry, index) => entry === currentSnapshot[index])
   )
+}
+
+function isSuccessfulDeploymentState(state: string | undefined): boolean {
+  return Boolean(state && SUCCESS_STATES.has(state))
 }
 
 function isFailedDeploymentState(state: string | undefined): boolean {

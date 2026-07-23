@@ -9,8 +9,25 @@ import {
   waitForNewSuccessfulDeploymentActivity
 } from './deployment-observer'
 
-test('waits for a completed deploy activity and matching public health state', async () => {
+test('accepts clever-tools OK deploy activity JSON before checking public health', async () => {
   let activityCalls = 0
+  const successfulActivity = JSON.parse(`[
+    {
+      "uuid": "deployment-123",
+      "date": "2025-02-19T08:13:55+00:00",
+      "state": "OK",
+      "action": "DEPLOY",
+      "commit": "commit-123",
+      "cause": "manual"
+    }
+  ]`) as Array<{
+    uuid: string
+    date: string
+    state: string
+    action: string
+    commit: string
+    cause: string
+  }>
 
   await expect(
     waitForHealthyDeployment({
@@ -22,14 +39,7 @@ test('waits for a completed deploy activity and matching public health state', a
         activityCalls += 1
         return activityCalls === 1
           ? [{ action: 'DEPLOY', state: 'WIP', commit: 'commit-123' }]
-          : [
-              {
-                action: 'DEPLOY',
-                state: 'SUCCESS',
-                uuid: 'deployment-123',
-                commit: 'commit-123'
-              }
-            ]
+          : successfulActivity
       },
       fetchHealth: async url => {
         expect(url).toBe('https://fixture.example.com/health')
@@ -302,15 +312,49 @@ test('confirms that a rejected divergent deploy leaves the prior healthy commit 
   })
 })
 
-test('waits for a new successful same-commit deploy activity before restart or rebuild checks', async () => {
-  const baselineActivity = [
+test('accepts a new clever-tools OK deploy activity before restart or rebuild checks', async () => {
+  const baselineActivity = JSON.parse(`[
     {
-      action: 'DEPLOY',
-      state: 'SUCCESS',
-      uuid: 'deployment-123',
-      commit: 'commit-123'
+      "uuid": "deployment-123",
+      "date": "2025-02-19T08:00:00+00:00",
+      "state": "OK",
+      "action": "DEPLOY",
+      "commit": "commit-123",
+      "cause": "git push"
     }
-  ]
+  ]`) as Array<{
+    uuid: string
+    date: string
+    state: string
+    action: string
+    commit: string
+    cause: string
+  }>
+  const nextSuccessfulActivity = JSON.parse(`[
+    {
+      "uuid": "deployment-123",
+      "date": "2025-02-19T08:00:00+00:00",
+      "state": "OK",
+      "action": "DEPLOY",
+      "commit": "commit-123",
+      "cause": "git push"
+    },
+    {
+      "uuid": "deployment-456",
+      "date": "2025-02-19T08:13:55+00:00",
+      "state": "OK",
+      "action": "DEPLOY",
+      "commit": "commit-123",
+      "cause": "restart"
+    }
+  ]`) as Array<{
+    uuid: string
+    date: string
+    state: string
+    action: string
+    commit: string
+    cause: string
+  }>
   let activityCalls = 0
 
   await expect(
@@ -330,25 +374,19 @@ test('waits for a new successful same-commit deploy activity before restart or r
                 commit: 'commit-123'
               }
             ]
-          : [
-              ...baselineActivity,
-              {
-                action: 'DEPLOY',
-                state: 'SUCCESS',
-                uuid: 'deployment-456',
-                commit: 'commit-123'
-              }
-            ]
+          : nextSuccessfulActivity
       },
       sleep: async () => {},
       settleTimeoutMs: 2,
       pollIntervalMs: 1
     })
   ).resolves.toEqual({
-    action: 'DEPLOY',
-    state: 'SUCCESS',
     uuid: 'deployment-456',
-    commit: 'commit-123'
+    date: '2025-02-19T08:13:55+00:00',
+    state: 'OK',
+    action: 'DEPLOY',
+    commit: 'commit-123',
+    cause: 'restart'
   })
 })
 
