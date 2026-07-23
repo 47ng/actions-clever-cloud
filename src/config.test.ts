@@ -4,31 +4,34 @@ import { parseConfig } from './config'
 
 // `@actions/core` is real ESM, whose named exports are not configurable,
 // so `vi.spyOn(core, 'warning')` cannot redefine it in place. Mock only
-// `warning`, passing every other export through untouched, so input
+// the outputs, passing every other export through untouched, so input
 // parsing still reads real `INPUT_*` / `process.env` values as everywhere
 // else in this file.
 vitest.mock('@actions/core', async importOriginal => {
   const actual = await importOriginal<typeof import('@actions/core')>()
   return {
     ...actual,
-    warning: vitest.fn()
+    warning: vitest.fn(),
+    info: vitest.fn()
   }
 })
 
 const warn = vitest.mocked(core.warning)
+const info = vitest.mocked(core.info)
 
 // --
 
 const OLD_ENV = process.env
 
 beforeEach(() => {
-  vitest.resetModules() // this is important - it clears the cache
+  vitest.resetModules()
   process.env = { ...OLD_ENV }
   // Simulate default values
   process.env.INPUT_FORCE = 'false'
   process.env.INPUT_QUIET = 'false'
   delete process.env.NODE_ENV
   warn.mockClear()
+  info.mockClear()
 })
 
 afterEach(() => {
@@ -305,6 +308,34 @@ test('force, wrong value type fails the action', () => {
   process.env.INPUT_FORCE = 'nope'
   const run = () => parseConfig()
   expect(run).toThrow()
+})
+
+test('quiet, wrong value type fails the action', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_QUIET = 'nope'
+  const run = () => parseConfig()
+  expect(run).toThrow()
+})
+
+test('extra env, the info block lists key names but never values', () => {
+  process.env.INPUT_SETENV = 'FOO=secret-foo\nBAR=secret-bar'
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  parseConfig()
+  const infoLines = info.mock.calls.map(([message]) => String(message))
+  expect(infoLines).toContain('Setting extra environment variables:')
+  expect(infoLines).toContain('  FOO')
+  expect(infoLines).toContain('  BAR')
+  expect(infoLines.join('\n')).not.toContain('secret-foo')
+  expect(infoLines.join('\n')).not.toContain('secret-bar')
+})
+
+test('extra env, no info block when no variables are set', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  parseConfig()
+  expect(info).not.toHaveBeenCalled()
 })
 
 test('alias and appID are unset by default', () => {

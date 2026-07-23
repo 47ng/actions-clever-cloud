@@ -29,6 +29,7 @@ const host: Host = {
 
 const config: Config = {
   cleverCLI: 'clever-mocked',
+  force: false,
   quiet: false,
   extraEnv: {}
 }
@@ -59,6 +60,22 @@ test('a successful deployment does not fail the workflow', async () => {
   expect(deploy).toHaveBeenCalledOnce()
 })
 
+test('the client is wired with the parsed CLI path, the log stream and the host', async () => {
+  const client = { fake: 'client' }
+  vi.mocked(cleverClient).mockReturnValue(client as unknown as Clever)
+  await main()
+  expect(cleverClient).toHaveBeenCalledWith({
+    cliPath: config.cleverCLI,
+    cwd: undefined,
+    output: log.stream,
+    host
+  })
+  expect(deploy).toHaveBeenCalledWith(
+    config,
+    expect.objectContaining({ clever: client, host })
+  )
+})
+
 test('fixes git dubious ownership before reading the configuration', async () => {
   await main()
   const gitOrder = vi.mocked(fixGitDubiousOwnership).mock
@@ -67,10 +84,14 @@ test('fixes git dubious ownership before reading the configuration', async () =>
   expect(gitOrder).toBeLessThan(configOrder)
 })
 
-test('a deployment error fails the workflow with its message', async () => {
-  vi.mocked(deploy).mockRejectedValue(new Error('Deployment failed with code 42'))
+test('a deployment error fails the workflow with its message, exactly once', async () => {
+  vi.mocked(deploy).mockRejectedValue(
+    new Error('Deployment failed with code 42')
+  )
   await main()
-  expect(host.fail).toHaveBeenCalledWith('Deployment failed with code 42')
+  expect(host.fail).toHaveBeenCalledExactlyOnceWith(
+    'Deployment failed with code 42'
+  )
 })
 
 test('a non-Error rejection fails the workflow with its string form', async () => {
@@ -116,4 +137,16 @@ test('a missing deploy path fails the workflow without deploying', async () => {
     'Deploy path does not exist: ./does-not-exist'
   )
   expect(deploy).not.toHaveBeenCalled()
+})
+
+test('an existing deploy path becomes the client working directory', async () => {
+  vi.mocked(parseConfig).mockReturnValue({ ...config, deployPath: 'src' })
+  await main()
+  expect(cleverClient).toHaveBeenCalledWith(
+    expect.objectContaining({ cwd: 'src' })
+  )
+  expect(host.info).toHaveBeenCalledWith(
+    'Running Clever CLI from directory: src'
+  )
+  expect(host.fail).not.toHaveBeenCalled()
 })

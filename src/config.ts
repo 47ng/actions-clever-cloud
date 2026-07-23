@@ -11,13 +11,13 @@ type ExtraEnv = {
 export type Config = {
   alias?: string
   appID?: string
-  force?: boolean
+  force: boolean
   timeout?: number
   cleverCLI: string
-  extraEnv?: ExtraEnv
+  extraEnv: ExtraEnv
   deployPath?: string
   logFile?: string
-  quiet?: boolean
+  quiet: boolean
   sameCommitPolicy?: string
 }
 

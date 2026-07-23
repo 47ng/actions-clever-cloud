@@ -40,17 +40,10 @@ test('pipes stdout and stderr into outStream without ending it', async () => {
   expect(outStream.writableEnded).toBe(false)
 })
 
-test('silent suppresses piping into outStream', async () => {
-  const outStream = new PassThrough()
-  const chunks: Buffer[] = []
-  outStream.on('data', chunk => chunks.push(chunk))
+test('capture without outStream keeps output off the user-facing stream', async () => {
   const result = await runProcess(node, ['-e', `console.log('nope')`], {
-    outStream,
-    silent: true,
     captureStdout: true
   })
-  await new Promise(resolve => setImmediate(resolve))
-  expect(Buffer.concat(chunks).toString()).toBe('')
   expect(result.stdout.trim()).toBe('nope')
 })
 

@@ -19,7 +19,7 @@ export async function deploy(
     : config.alias
   // Set extra environment variables before deployment
   // so the new instance can use them.
-  for (const [name, value] of Object.entries(config.extraEnv ?? {})) {
+  for (const [name, value] of Object.entries(config.extraEnv)) {
     await clever.setEnv(name, value, alias)
   }
   const outcome = await clever.deploy({
@@ -33,10 +33,9 @@ export async function deploy(
   }
 }
 
-// When a .clever.json file is present and only the appID is passed,
-// deploy needs an alias to know which app to publish. Reuse an existing
-// link when possible; clever link rejects duplicate app IDs, including
-// when they use a different alias.
+// Deploying by appID needs an alias (a .clever.json file can otherwise
+// make deploy ambiguous). Reuse an existing link when possible; clever
+// link rejects duplicate app IDs, including under a different alias.
 async function resolveAlias(
   appID: string,
   clever: Clever,

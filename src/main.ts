@@ -13,19 +13,26 @@ export async function main(): Promise<void> {
     await fixGitDubiousOwnership()
     const config = parseConfig()
     log = await createDeployLog(
-      { quiet: config.quiet ?? false, logFile: config.logFile },
+      { quiet: config.quiet, logFile: config.logFile },
       host
     )
     const cwd = await resolveDeployPath(config.deployPath, host)
     host.debug(`Clever CLI path: ${config.cleverCLI}`)
-    const clever = cleverClient({ cliPath: config.cleverCLI, cwd, log, host })
+    const clever = cleverClient({
+      cliPath: config.cleverCLI,
+      cwd,
+      output: log.stream,
+      host
+    })
     await deploy(config, { clever, git: { checkForShallowCopy }, host })
   } catch (error) {
+    if (error instanceof Error && error.stack) {
+      host.debug(error.stack)
+    }
     host.fail(error instanceof Error ? error.message : String(error))
   } finally {
-    // Close the tee so its buffered carry-over line (if any) and the log
-    // file get flushed, even when the timeout path returns early or the
-    // deploy throws.
+    // Close the log stream so buffered output and the log file get flushed,
+    // whether the deploy succeeded, timed out, or threw.
     if (log) {
       log.stream.end()
       await log.done()

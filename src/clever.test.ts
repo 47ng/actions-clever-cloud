@@ -9,6 +9,7 @@ vi.mock('node:child_process', () => ({
 }))
 
 import { spawn } from 'node:child_process'
+import type { Writable } from 'node:stream'
 import {
   buildDeployArgs,
   cleverClient,
@@ -16,7 +17,7 @@ import {
   type Clever
 } from './clever'
 import type { Host } from './github'
-import { createDeployLog, type DeployLog } from './output'
+import { createDeployLog } from './output'
 
 // Every non-quiet DeployLog tees output into the shared process.stdout. The
 // real action does this once per process; this suite does it several times,
@@ -33,7 +34,7 @@ const spawnMock = spawn as unknown as ReturnType<typeof vi.fn>
 /**
  * Minimal stand-in for a spawned process: real stdout/stderr streams so
  * piping and capture work, an EventEmitter for `error`/`close`, and a `kill`
- * spy that settles the process the way SIGTERM would.
+ * spy that settles the process immediately (no exit code or signal).
  */
 function makeFakeChild() {
   const child = new EventEmitter() as EventEmitter & {
@@ -97,20 +98,23 @@ function fakeHost(): Host {
   }
 }
 
-function fakeLog(): { log: DeployLog; output: () => string } {
+function fakeOutput(): { stream: PassThrough; text: () => string } {
   const stream = new PassThrough()
   const chunks: Buffer[] = []
   stream.on('data', chunk => chunks.push(chunk))
   return {
-    log: { stream, done: async () => {} },
-    output: () => Buffer.concat(chunks).toString()
+    stream,
+    text: () => Buffer.concat(chunks).toString()
   }
 }
 
-function makeClient(overrides: { log?: DeployLog; host?: Host } = {}): Clever {
+function makeClient(
+  overrides: { output?: Writable; host?: Host; cwd?: string } = {}
+): Clever {
   return cleverClient({
     cliPath: CLI,
-    log: overrides.log ?? fakeLog().log,
+    cwd: overrides.cwd,
+    output: overrides.output ?? fakeOutput().stream,
     host: overrides.host ?? fakeHost()
   })
 }
@@ -206,20 +210,20 @@ test.each([
 // --- linkedAppAlias ---
 
 test('linkedAppAlias: queries linked applications silently', async () => {
-  const { log, output } = fakeLog()
+  const { stream, text } = fakeOutput()
   scriptChildren(() => ({
     stdout: JSON.stringify([{ app_id: APP_ID, alias: 'review-app' }])
   }))
-  const client = makeClient({ log })
+  const client = makeClient({ output: stream })
   await expect(client.linkedAppAlias(APP_ID)).resolves.toBe('review-app')
   expect(spawnMock).toHaveBeenCalledWith(
     CLI,
     ['applications', '--json'],
     SPAWN_OPTIONS
   )
-  // Silent: the applications dump never reaches the user-facing stream.
+  // The applications dump never reaches the user-facing stream.
   await new Promise(resolve => setImmediate(resolve))
-  expect(output()).toBe('')
+  expect(text()).toBe('')
 })
 
 test('linkedAppAlias: resolves undefined when the app is not linked', async () => {
@@ -227,12 +231,30 @@ test('linkedAppAlias: resolves undefined when the app is not linked', async () =
   await expect(client.linkedAppAlias(APP_ID)).resolves.toBeUndefined()
 })
 
-test('linkedAppAlias: fails when the CLI exits non-zero', async () => {
-  scriptChildren(() => ({ code: 2 }))
+test('linkedAppAlias: fails when the CLI exits non-zero, surfacing stderr', async () => {
+  scriptChildren(() => ({ code: 2, stderr: 'Login required\n' }))
   const client = makeClient()
   await expect(client.linkedAppAlias(APP_ID)).rejects.toThrow(
-    'Failed to list linked applications (exit code 2)'
+    'Failed to list linked applications (exit code 2): Login required'
   )
+})
+
+test('linkedAppAlias: reports a terminating signal instead of a null exit code', async () => {
+  scriptChildren(() => ({ code: null, signal: 'SIGKILL' }))
+  const client = makeClient()
+  await expect(client.linkedAppAlias(APP_ID)).rejects.toThrow(
+    'Failed to list linked applications (terminated by signal SIGKILL)'
+  )
+})
+
+test('the working directory is passed to every CLI invocation', async () => {
+  const client = makeClient({ cwd: '/deploy/path' })
+  await client.setEnv('foo', 'bar')
+  await client.deploy({})
+  for (const call of spawnMock.mock.calls) {
+    expect(call[2]).toMatchObject({ cwd: '/deploy/path' })
+  }
+  expect(spawnMock.mock.calls.length).toBeGreaterThanOrEqual(2)
 })
 
 // --- link ---
@@ -259,8 +281,8 @@ test('link: fails when the CLI exits non-zero', async () => {
 
 test('setEnv: sets the variable silently, masking its value', async () => {
   const host = fakeHost()
-  const { log, output } = fakeLog()
-  const client = makeClient({ host, log })
+  const { stream, text } = fakeOutput()
+  const client = makeClient({ host, output: stream })
   await client.setEnv('foo', 'bar')
   expect(spawnMock).toHaveBeenCalledWith(
     CLI,
@@ -270,7 +292,7 @@ test('setEnv: sets the variable silently, masking its value', async () => {
   expect(host.maskSecret).toHaveBeenCalledWith('bar')
   expect(host.info).toHaveBeenCalledWith('Setting environment variable foo')
   await new Promise(resolve => setImmediate(resolve))
-  expect(output()).toBe('')
+  expect(text()).toBe('')
 })
 
 test('setEnv: scopes the variable to the alias when given', async () => {
@@ -399,7 +421,7 @@ test('deploy: timeout waits for asynchronous final output before the tee closes'
 
     const warning = vi.fn()
     const log = await createDeployLog({ quiet: false }, { warning })
-    const client = makeClient({ log })
+    const client = makeClient({ output: log.stream })
     const outcome = client.deploy({ timeoutSeconds: 1800 })
     await vi.advanceTimersByTimeAsync(1800 * 1000)
     expect(child.kill).toHaveBeenCalledWith('SIGTERM')
@@ -535,7 +557,7 @@ test('deploy: output pauses when the console applies backpressure', async () => 
   spawnMock.mockReturnValue(child)
   const warning = vi.fn()
   const log = await createDeployLog({ quiet: false }, { warning })
-  const client = makeClient({ log })
+  const client = makeClient({ output: log.stream })
   const outcome = client.deploy({})
 
   try {
@@ -570,7 +592,7 @@ test('deploy: child stderr flows through the tee (annotations reach stdout)', as
     spawnMock.mockReturnValue(child)
     const warning = vi.fn()
     const log = await createDeployLog({ quiet: false }, { warning })
-    const client = makeClient({ log })
+    const client = makeClient({ output: log.stream })
     const outcome = client.deploy({})
     child.stderr.write('::error ::deploy failed\n')
     child.stdout.end()

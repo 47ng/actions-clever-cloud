@@ -3,7 +3,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Writable } from 'node:stream'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { createDeployLog, type DeployLog } from './output'
+import {
+  createDeployLog,
+  TIMESTAMP_PREFIX_REGEX,
+  type DeployLog
+} from './output'
 
 // createDeployLog tees its non-quiet output into the shared process.stdout.
 // This suite pipes into it repeatedly, which trips Node's 10-listener leak
@@ -12,13 +16,13 @@ process.stdout.setMaxListeners(0)
 
 // --
 
-// A timestamp prefix matching the shape the current implementation assumes:
-// 'xxxx-xx-xxTxx:xx:xx+xx:xx '.length === 26. Asserted below so this fixture
-// can't silently drift out of sync with the code it's meant to exercise.
+// A timestamp prefix in the shape the Clever CLI emits, asserted against the
+// pipeline's own regex so this fixture can't drift out of sync with the code
+// it exercises.
 const TS = '2026-07-20T12:00:00+00:00 '
 
-test('fixture sanity: TS is exactly 26 characters (the hardcoded timestamp-prefix length)', () => {
-  expect(TS.length).toBe(26)
+test('fixture sanity: TS matches the timestamp prefix the pipeline strips', () => {
+  expect(TS).toMatch(TIMESTAMP_PREFIX_REGEX)
 })
 
 let stdoutSpy: ReturnType<typeof vi.spyOn>

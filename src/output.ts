@@ -4,7 +4,7 @@ import { finished } from 'node:stream/promises'
 import { StringDecoder } from 'node:string_decoder'
 import type { Host } from './github'
 
-const TIMESTAMP_PREFIX_REGEX =
+export const TIMESTAMP_PREFIX_REGEX =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z):? /
 
 export type DeployLog = {
@@ -68,7 +68,6 @@ export async function createDeployLog(
     ): AsyncGenerator<string> {
       for await (const line of lines) {
         yield line + lineSeparator
-        // Remove timestamp, if present
         const message = line.replace(TIMESTAMP_PREFIX_REGEX, '')
         // Only re-emit when a timestamp was actually stripped: a line that
         // already contains a runner-recognized workflow command (without a

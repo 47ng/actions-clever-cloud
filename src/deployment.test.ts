@@ -15,7 +15,8 @@ type FakeCleverScript = {
 
 /**
  * In-memory Clever gateway: records every call in order and plays back
- * scripted results, so the use case is tested without processes or mocks.
+ * scripted results, so the use case is tested without module mocking or
+ * process spawning.
  */
 function fakeClever(script: FakeCleverScript = {}) {
   const calls: unknown[][] = []
@@ -78,7 +79,13 @@ function makeDeps(script: FakeCleverScript = {}): DeploymentDeps & {
 }
 
 function config(overrides: Partial<Config> = {}): Config {
-  return { cleverCLI: 'clever', ...overrides }
+  return {
+    cleverCLI: 'clever',
+    force: false,
+    quiet: false,
+    extraEnv: {},
+    ...overrides
+  }
 }
 
 function deployOptions(calls: unknown[][]): DeployOptions {
@@ -96,7 +103,7 @@ test('deploys the default application with no arguments', async () => {
       'deploy',
       {
         alias: undefined,
-        force: undefined,
+        force: false,
         sameCommitPolicy: undefined,
         timeoutSeconds: undefined
       }

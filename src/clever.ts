@@ -1,8 +1,10 @@
+import type { Writable } from 'node:stream'
 import type { Host } from './github'
-import type { DeployLog } from './output'
 import {
+  exitReason,
   runProcess,
   startProcess,
+  stderrDetail,
   type RunningProcess,
   type RunResult
 } from './process'
@@ -29,33 +31,34 @@ export type Clever = {
 export function cleverClient(deps: {
   cliPath: string
   cwd?: string
-  log: DeployLog
+  output: Writable
   host: Host
 }): Clever {
-  const { cliPath, cwd, log, host } = deps
+  const { cliPath, cwd, output, host } = deps
   return {
     async linkedAppAlias(appID) {
-      const { code, stdout } = await runProcess(
-        cliPath,
-        ['applications', '--json'],
-        { cwd, silent: true, captureStdout: true }
-      )
-      if (code !== 0) {
+      const result = await runProcess(cliPath, ['applications', '--json'], {
+        cwd,
+        captureStdout: true,
+        captureStderr: true
+      })
+      if (result.code !== 0 || result.signal) {
         throw new Error(
-          `Failed to list linked applications (exit code ${code})`
+          `Failed to list linked applications (${exitReason(result)})` +
+            stderrDetail(result.stderr)
         )
       }
-      return parseLinkedAppAlias(stdout, appID)
+      return parseLinkedAppAlias(result.stdout, appID)
     },
     async link(appID) {
-      const { code } = await runProcess(
+      const result = await runProcess(
         cliPath,
         ['link', appID, '--alias', appID],
-        { cwd, outStream: log.stream }
+        { cwd, outStream: output }
       )
-      if (code !== 0) {
+      if (result.code !== 0 || result.signal) {
         throw new Error(
-          `Failed to link application ${appID} (exit code ${code})`
+          `Failed to link application ${appID} (${exitReason(result)})`
         )
       }
     },
@@ -69,24 +72,24 @@ export function cleverClient(deps: {
         host.maskSecret(value)
       }
       host.info(`Setting environment variable ${name}`)
-      const { code, stderr } = await runProcess(cliPath, args, {
+      const result = await runProcess(cliPath, args, {
         cwd,
-        silent: true,
         captureStderr: true
       })
-      if (code !== 0) {
+      if (result.code !== 0 || result.signal) {
         // stderr may echo the value back (e.g. a rejected value in the CLI's
         // own error message); safe to surface because maskSecret() above
         // already registered it with the runner's log masking.
         throw new Error(
-          `Failed to set environment variable ${name} (exit code ${code}): ${stderr.trim()}`
+          `Failed to set environment variable ${name} (${exitReason(result)})` +
+            stderrDetail(result.stderr)
         )
       }
     },
     async deploy(options) {
       const deployment = startProcess(cliPath, buildDeployArgs(options), {
         cwd,
-        outStream: log.stream
+        outStream: output
       })
       const result = options.timeoutSeconds
         ? await raceAgainstTimeout(deployment, options.timeoutSeconds * 1000)
@@ -127,8 +130,10 @@ export function parseLinkedAppAlias(
   let applications: unknown
   try {
     applications = JSON.parse(json)
-  } catch {
-    throw new Error('Clever CLI returned invalid linked application data')
+  } catch (error) {
+    throw new Error('Clever CLI returned invalid linked application data', {
+      cause: error
+    })
   }
   if (!Array.isArray(applications)) {
     throw new Error('Clever CLI returned invalid linked application data')
@@ -152,7 +157,6 @@ export function parseLinkedAppAlias(
   return linkedApplication.alias
 }
 
-// `timeoutMs` expresses the action's `timeout` input (seconds) in ms.
 async function raceAgainstTimeout(
   deployment: RunningProcess,
   timeoutMs: number
@@ -171,8 +175,8 @@ async function raceAgainstTimeout(
 }
 
 // Let the child finish handling SIGTERM and drain its output before the
-// shared tee is closed by the caller. Escalate if graceful termination
-// takes too long, and detach a child that survives even SIGKILL.
+// shared output stream is closed downstream. Escalate if graceful
+// termination takes too long, and detach a child that survives even SIGKILL.
 async function terminateDeployment(deployment: RunningProcess): Promise<void> {
   const settledExit = deployment.exited.then(
     () => undefined,

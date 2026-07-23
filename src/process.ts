@@ -3,8 +3,6 @@ import type { Writable } from 'node:stream'
 
 export type RunOptions = {
   cwd?: string
-  /** Don't pipe child output into `outStream` (eg: `env set`) */
-  silent?: boolean
   outStream?: Writable
   captureStdout?: boolean
   captureStderr?: boolean
@@ -32,9 +30,9 @@ export function startProcess(
     cwd: options.cwd,
     stdio: ['ignore', 'pipe', 'pipe']
   })
-  const outStream = options.silent ? undefined : options.outStream
+  const { outStream } = options
   if (outStream) {
-    // `end: false` keeps the shared tee open when either stream closes.
+    // `end: false` keeps the shared outStream open when either stream closes.
     child.stdout.pipe(outStream, { end: false })
     child.stderr.pipe(outStream, { end: false })
   }
@@ -55,6 +53,10 @@ export function startProcess(
   }
   const exited = new Promise<RunResult>((resolve, reject) => {
     child.once('error', reject)
+    // An unobserved stdio 'error' event would crash the process before the
+    // top-level failure reporting gets a chance to run.
+    child.stdout.once('error', reject)
+    child.stderr.once('error', reject)
     child.once('close', (code, signal) =>
       resolve({ code, signal, stdout, stderr })
     )
@@ -82,4 +84,15 @@ export function runProcess(
   options: RunOptions = {}
 ): Promise<RunResult> {
   return startProcess(command, args, options).exited
+}
+
+export function exitReason(result: Pick<RunResult, 'code' | 'signal'>): string {
+  return result.signal
+    ? `terminated by signal ${result.signal}`
+    : `exit code ${result.code}`
+}
+
+export function stderrDetail(stderr: string): string {
+  const trimmed = stderr.trim()
+  return trimmed ? `: ${trimmed}` : ''
 }

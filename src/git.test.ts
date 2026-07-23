@@ -15,19 +15,18 @@ function fakeRun(result: Partial<RunResult> = {}): typeof runProcess {
 test('fixGitDubiousOwnership marks /github/workspace as safe', async () => {
   const run = fakeRun()
   await fixGitDubiousOwnership(run)
-  expect(run).toHaveBeenCalledWith('git', [
-    'config',
-    '--global',
-    '--add',
-    'safe.directory',
-    '/github/workspace'
-  ])
+  expect(run).toHaveBeenCalledWith(
+    'git',
+    ['config', '--global', '--add', 'safe.directory', '/github/workspace'],
+    { captureStderr: true }
+  )
 })
 
-test('fixGitDubiousOwnership throws when git fails', async () => {
-  const run = fakeRun({ code: 128 })
+test('fixGitDubiousOwnership throws when git fails, surfacing stderr', async () => {
+  const run = fakeRun({ code: 128, stderr: 'could not lock config file\n' })
   await expect(fixGitDubiousOwnership(run)).rejects.toThrow(
-    'Failed to mark /github/workspace as a git safe.directory (exit code 128)'
+    'Failed to mark /github/workspace as a git safe.directory (exit code 128): ' +
+      'could not lock config file'
   )
 })
 
@@ -37,7 +36,7 @@ test('checkForShallowCopy passes on an unshallow working copy', async () => {
   expect(run).toHaveBeenCalledWith(
     'git',
     ['rev-parse', '--is-shallow-repository'],
-    { captureStdout: true }
+    { captureStdout: true, captureStderr: true }
   )
 })
 
@@ -53,9 +52,17 @@ test('checkForShallowCopy fails on a shallow working copy', async () => {
   )
 })
 
-test('checkForShallowCopy throws when git fails', async () => {
-  const run = fakeRun({ code: 128 })
+test('checkForShallowCopy throws when git fails, surfacing stderr', async () => {
+  const run = fakeRun({ code: 128, stderr: 'fatal: not a git repository\n' })
   await expect(checkForShallowCopy(run)).rejects.toThrow(
-    'Failed to check for a shallow working copy (exit code 128)'
+    'Failed to check for a shallow working copy (exit code 128): ' +
+      'fatal: not a git repository'
+  )
+})
+
+test('git helpers report a terminating signal instead of a null exit code', async () => {
+  const run = fakeRun({ code: null, signal: 'SIGKILL' })
+  await expect(checkForShallowCopy(run)).rejects.toThrow(
+    'Failed to check for a shallow working copy (terminated by signal SIGKILL)'
   )
 })
