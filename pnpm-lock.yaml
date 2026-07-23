@@ -21,6 +21,9 @@ importers:
       clever-tools:
         specifier: ^4.11.0
         version: 4.11.0(@types/node@24.13.2)
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
     devDependencies:
       '@types/node':
         specifier: ^24.13.2

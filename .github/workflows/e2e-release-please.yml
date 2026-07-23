@@ -3,20 +3,20 @@ name: Clever Cloud E2E (Release Please)
 on:
   repository_dispatch:
     types: [release-please-candidate]
-  pull_request:
+  pull_request_target:
     types: [reopened, ready_for_review]
     paths:
-      - "src/**/*.ts"
-      - "!src/**/*.test.ts"
-      - "Dockerfile"
-      - "action.yml"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
-      - "tsconfig.json"
-      - ".github/workflows/pr-preview.yml"
-      - ".github/workflows/pr-preview-manual.yml"
-      - ".github/workflows/*e2e*.yml"
+      - 'src/**/*.ts'
+      - '!src/**/*.test.ts'
+      - 'Dockerfile'
+      - 'action.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.json'
+      - '.github/workflows/pr-preview.yml'
+      - '.github/workflows/pr-preview-manual.yml'
+      - '.github/workflows/*e2e*.yml'
 
 permissions: {}
 
@@ -45,6 +45,7 @@ jobs:
           script: |
             const prNumber = Number(process.env.PR_NUMBER);
             const thisRepo = `${context.repo.owner}/${context.repo.repo}`;
+            const defaultBranch = context.payload.repository.default_branch;
 
             if (!Number.isInteger(prNumber) || prNumber <= 0) {
               core.setFailed('Missing or invalid release candidate pull request number.');
@@ -60,6 +61,8 @@ jobs:
             const eligible =
               pr.state === 'open' &&
               pr.head.repo.full_name === thisRepo &&
+              pr.base.repo.full_name === thisRepo &&
+              pr.base.ref === defaultBranch &&
               pr.draft === false &&
               pr.user.login === 'github-actions[bot]' &&
               pr.head.ref === 'release-please--branches--master' &&
@@ -105,6 +108,7 @@ jobs:
             const headSha = process.env.HEAD_SHA;
             const prNumber = Number(process.env.PR_NUMBER);
             const thisRepo = `${context.repo.owner}/${context.repo.repo}`;
+            const defaultBranch = context.payload.repository.default_branch;
 
             const { data: pr } = await github.rest.pulls.get({
               owner: context.repo.owner,
@@ -115,6 +119,8 @@ jobs:
             const stillEligible =
               pr.state === "open" &&
               pr.head.repo.full_name === thisRepo &&
+              pr.base.repo.full_name === thisRepo &&
+              pr.base.ref === defaultBranch &&
               pr.head.sha === headSha &&
               pr.draft === false &&
               pr.user.login === "github-actions[bot]" &&
@@ -425,4 +431,5 @@ jobs:
       candidate_digest: ${{ needs.candidate.outputs.digest }}
       candidate_image: ${{ needs.candidate.outputs.image }}
       candidate_source_repository: ${{ needs.resolve.outputs.candidate_source_repository }}
+      trusted_workflow_sha: ${{ github.sha }}
       caller: automatic

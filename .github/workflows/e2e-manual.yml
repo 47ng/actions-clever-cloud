@@ -27,21 +27,20 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HEAD_SHA: ${{ inputs.head_sha }}
-          RUN_SHA: ${{ github.sha }}
+          RUN_REF: ${{ github.ref }}
         with:
           script: |
             const headSha = process.env.HEAD_SHA;
-            const runSha = process.env.RUN_SHA;
+            const runRef = process.env.RUN_REF;
 
             if (!/^[0-9a-f]{40}$/.test(headSha)) {
               core.setFailed("head_sha must be a full 40-character lowercase hex commit SHA.");
               return;
             }
 
-            if (runSha !== headSha) {
+            if (runRef !== 'refs/heads/master') {
               core.setFailed(
-                `Dispatch this workflow from the branch whose current head is ${headSha}. ` +
-                  `The workflow run is pinned to ${runSha}.`,
+                `Dispatch this workflow from master. The workflow run is pinned to ${runRef ?? '(missing)'}.`,
               );
               return;
             }
@@ -196,4 +195,5 @@ jobs:
       candidate_digest: ${{ needs.candidate.outputs.digest }}
       candidate_image: ${{ needs.candidate.outputs.image }}
       candidate_source_repository: ${{ needs.resolve.outputs.candidate_source_repository }}
+      trusted_workflow_sha: ${{ github.sha }}
       caller: manual

@@ -18,7 +18,9 @@ describe('manual e2e workflow policies', () => {
     expect(manualWorkflow).toContain('type: string')
     expect(manualWorkflow).toContain('head.repo.full_name === thisRepo')
     expect(manualWorkflow).toContain('pr.head.sha === headSha')
-    expect(manualWorkflow).toContain('github.sha')
+    expect(manualWorkflow).toContain('RUN_REF: ${{ github.ref }}')
+    expect(manualWorkflow).toContain("runRef !== 'refs/heads/master'")
+    expect(manualWorkflow).toContain('Dispatch this workflow from master.')
     expect(manualWorkflow).toContain('name: Resolve verified candidate image')
     expect(manualWorkflow).toContain('packages: read')
     expect(manualWorkflow).not.toContain(
@@ -39,6 +41,7 @@ describe('manual e2e workflow policies', () => {
     expect(manualWorkflow).toContain(
       'candidate_source_repository: ${{ needs.resolve.outputs.candidate_source_repository }}'
     )
+    expect(manualWorkflow).toContain('trusted_workflow_sha: ${{ github.sha }}')
     expect(manualWorkflow).toContain('caller: manual')
     expect(manualWorkflow).toContain(
       'uses: ./.github/workflows/e2e-reusable.yml'
@@ -51,6 +54,7 @@ describe('manual e2e workflow policies', () => {
     expect(reusableWorkflow).toContain('candidate_digest:')
     expect(reusableWorkflow).toContain('candidate_image:')
     expect(reusableWorkflow).toContain('candidate_source_repository:')
+    expect(reusableWorkflow).toContain('trusted_workflow_sha:')
     expect(reusableWorkflow).toContain('caller:')
     expect(reusableWorkflow).toContain('concurrency:')
     expect(reusableWorkflow).toContain(
@@ -58,7 +62,25 @@ describe('manual e2e workflow policies', () => {
     )
     expect(reusableWorkflow).toContain('cancel-in-progress: false')
     expect(reusableWorkflow).toContain('name: clever-cloud-e2e')
+    expect(reusableWorkflow).toContain('name: Checkout workflow source')
+    expect(reusableWorkflow).toContain(
+      'TRUSTED_WORKFLOW_SHA: ${{ inputs.trusted_workflow_sha }}'
+    )
+    expect(reusableWorkflow).toContain(
+      'trusted_workflow_sha must be a full 40-character lowercase hex commit SHA.'
+    )
+    expect(reusableWorkflow).toContain(
+      'ref: ${{ inputs.trusted_workflow_sha }}'
+    )
+    expect(reusableWorkflow).toContain('path: .workflow-source')
     expect(reusableWorkflow).toContain('path: .candidate-source')
+    expect(reusableWorkflow).toContain(
+      'node-version-file: .workflow-source/.node-version'
+    )
+    expect(reusableWorkflow).toContain('working-directory: .workflow-source')
+    expect(reusableWorkflow).toContain(
+      'pnpm install --frozen-lockfile --ignore-scripts --prod'
+    )
     expect(reusableWorkflow).toContain('working-directory: .candidate-source')
     expect(reusableWorkflow).toContain(
       'pnpm install --frozen-lockfile --ignore-scripts'
@@ -74,10 +96,29 @@ describe('manual e2e workflow policies', () => {
       'CANDIDATE_IMAGE: ${{ inputs.candidate_image }}'
     )
     expect(reusableWorkflow).toContain(
-      "import { pinActionMetadata } from './.candidate-source/src/e2e/candidate-image.ts'"
+      'name: Protect trusted pinning inputs from candidate actions'
+    )
+    expect(reusableWorkflow).toContain(
+      'TRUSTED_WORKFLOW_DIR: ${{ runner.temp }}/trusted-workflow'
+    )
+    expect(reusableWorkflow).toContain(
+      'CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml'
+    )
+    expect(reusableWorkflow).toContain(
+      'PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/.github/scripts/pin-candidate-action.mjs'
+    )
+    expect(reusableWorkflow).toContain(
+      'run: node "$PIN_CANDIDATE_ACTION_SCRIPT"'
     )
     expect(reusableWorkflow).not.toContain(
-      "import { inspectCandidateImage, pinActionMetadata } from './.candidate-source/src/e2e/candidate-image.ts'"
+      'run: node .workflow-source/.github/scripts/pin-candidate-action.mjs'
+    )
+    expect(reusableWorkflow).not.toContain(
+      "import { pinActionMetadata } from './.candidate-source/src/e2e/candidate-image.ts'"
+    )
+    expect(reusableWorkflow).toContain('pr.base.repo.full_name !== thisRepo')
+    expect(reusableWorkflow).toContain(
+      'pr.base.ref !== repository.default_branch'
     )
     expect(reusableWorkflow).toContain(
       "import { createFixtureRepository } from './.candidate-source/src/e2e/git-fixture.ts'"

@@ -12,11 +12,12 @@ const automaticWorkflow = readProjectFile(
 const mainWorkflow = readProjectFile('../.github/workflows/main.yml')
 
 describe('automatic e2e workflow policies', () => {
-  test('release please candidates trigger on release dispatch plus reopen and ready events', () => {
+  test('release please candidates trigger only from trusted workflow contexts', () => {
     expect(automaticWorkflow).toContain('repository_dispatch:')
     expect(automaticWorkflow).toContain('types: [release-please-candidate]')
-    expect(automaticWorkflow).toContain('pull_request:')
+    expect(automaticWorkflow).toContain('pull_request_target:')
     expect(automaticWorkflow).toContain('types: [reopened, ready_for_review]')
+    expect(automaticWorkflow).not.toMatch(/^  pull_request:/m)
   })
 
   test('eligibility requires an internal, non-draft release please pull request with the expected bot, branch, and label', () => {
@@ -33,6 +34,8 @@ describe('automatic e2e workflow policies', () => {
     )
     expect(automaticWorkflow).toContain('autorelease: pending')
     expect(automaticWorkflow).toContain('pr.head.repo.full_name === thisRepo')
+    expect(automaticWorkflow).toContain('pr.base.repo.full_name === thisRepo')
+    expect(automaticWorkflow).toContain('pr.base.ref === defaultBranch')
   })
 
   test('release dispatch, reopen, and ready events share per-pull-request concurrency without blocking other pull requests', () => {
@@ -101,11 +104,14 @@ describe('automatic e2e workflow policies', () => {
     expect(automaticWorkflow).toContain(
       'candidate_source_repository: ${{ needs.resolve.outputs.candidate_source_repository }}'
     )
+    expect(automaticWorkflow).toContain(
+      'trusted_workflow_sha: ${{ github.sha }}'
+    )
     expect(automaticWorkflow).toContain('caller: automatic')
     expect(automaticWorkflow).toContain('packages: write')
   })
 
-  test('the automatic release path stays separate from the fork preview flow, ignores docs-only changes, and does not inherit secrets', () => {
+  test('the automatic release path stays separate from the fork preview flow, filters docs-only changes, and does not inherit secrets', () => {
     expect(automaticWorkflow).toContain('paths:')
     expect(automaticWorkflow).toMatch(/- ['"]action\.yml['"]/)
     expect(automaticWorkflow).toMatch(
@@ -115,7 +121,6 @@ describe('automatic e2e workflow policies', () => {
     expect(automaticWorkflow).not.toContain('docs/')
     expect(automaticWorkflow).not.toContain('actions-clever-cloud-preview')
     expect(automaticWorkflow).not.toContain('fork_full_name')
-    expect(automaticWorkflow).not.toContain('pull_request_target')
     expect(automaticWorkflow).not.toContain('secrets: inherit')
   })
 })
