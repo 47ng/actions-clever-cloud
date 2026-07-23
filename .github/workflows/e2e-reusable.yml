@@ -297,20 +297,21 @@ jobs:
         run: |
           node --input-type=module <<'EOF'
           import { appendFile, mkdir, writeFile } from 'node:fs/promises'
-          import { execFile } from 'node:child_process'
           import path from 'node:path'
-          import { promisify } from 'node:util'
           import {
             createApplicationWithRecovery,
             createCleverController
           } from './.candidate-source/src/e2e/clever-client.ts'
+          import {
+            createRunCommand,
+            resolveCleverCLI
+          } from './.candidate-source/src/e2e/workflow-adapters.ts'
 
-          const execFileAsync = promisify(execFile)
           const githubOutput = process.env.GITHUB_OUTPUT
           const appName = process.env.APP_NAME
           const appIdFile = process.env.APP_ID_FILE
           const region = process.env.CLEVER_E2E_REGION || 'par'
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+          const cleverCLI = resolveCleverCLI()
 
           if (!githubOutput || !appName || !appIdFile) {
             throw new Error('Missing create-app workflow outputs')
@@ -322,23 +323,7 @@ jobs:
 
           const controller = createCleverController({
             cleverCLI,
-            runCommand: async (cli, args, { timeoutMs }) => {
-              try {
-                const { stdout, stderr } = await execFileAsync(cli, args, {
-                  encoding: 'utf8',
-                  env: process.env,
-                  timeout: timeoutMs,
-                  maxBuffer: 1024 * 1024 * 10,
-                })
-                return { stdout, stderr }
-              } catch (error) {
-                const commandError = new Error(error.stderr?.trim() || error.message)
-                commandError.code = error.code
-                commandError.signal = error.signal
-                commandError.killed = error.killed
-                throw commandError
-              }
-            },
+            runCommand: createRunCommand({ preserveProcessExitDetails: true })
           })
 
           const application = await createApplicationWithRecovery(controller, {
@@ -398,17 +383,19 @@ jobs:
           FIXTURE_COMMIT: ${{ steps.fixture.outputs.commit }}
         run: |
           node --input-type=module <<'EOF'
-          import { execFile } from 'node:child_process'
           import { appendFile } from 'node:fs/promises'
-          import { promisify } from 'node:util'
           import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
           import { waitForHealthyDeployment } from './.candidate-source/src/e2e/deployment-observer.ts'
+          import {
+            createFetchHealth,
+            createRunCommand,
+            resolveCleverCLI
+          } from './.candidate-source/src/e2e/workflow-adapters.ts'
 
-          const execFileAsync = promisify(execFile)
           const appId = process.env.APP_ID
           const expectedCommitID = process.env.FIXTURE_COMMIT
           const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+          const cleverCLI = resolveCleverCLI()
 
           if (!appId || !expectedCommitID || !githubOutput) {
             throw new Error('Missing deployment observation inputs')
@@ -416,19 +403,7 @@ jobs:
 
           const controller = createCleverController({
             cleverCLI,
-            runCommand: async (cli, args, { timeoutMs }) => {
-              try {
-                const { stdout, stderr } = await execFileAsync(cli, args, {
-                  encoding: 'utf8',
-                  env: process.env,
-                  timeout: timeoutMs,
-                  maxBuffer: 1024 * 1024 * 10,
-                })
-                return { stdout, stderr }
-              } catch (error) {
-                throw new Error(error.stderr?.trim() || error.message)
-              }
-            },
+            runCommand: createRunCommand()
           })
 
           const application = await controller.getApplication(appId)
@@ -439,22 +414,7 @@ jobs:
             expectedScenario: 'healthy',
             expectedCommitID,
             listActivity: controller.listActivity,
-            fetchHealth: async url => {
-              const requestController = new AbortController()
-              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
-
-              try {
-                const response = await fetch(url, {
-                  signal: requestController.signal
-                })
-                return {
-                  status: response.status,
-                  json: async () => response.json()
-                }
-              } finally {
-                clearTimeout(timeoutId)
-              }
-            }
+            fetchHealth: createFetchHealth()
           })
 
           await appendFile(
@@ -552,18 +512,20 @@ jobs:
           EXPECTED_HEALTH_VALUE: ${{ steps.health-value.outputs.value }}
         run: |
           node --input-type=module <<'EOF'
-          import { execFile } from 'node:child_process'
           import { appendFile } from 'node:fs/promises'
-          import { promisify } from 'node:util'
           import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
           import { waitForHealthyDeployment } from './.candidate-source/src/e2e/deployment-observer.ts'
+          import {
+            createFetchHealth,
+            createRunCommand,
+            resolveCleverCLI
+          } from './.candidate-source/src/e2e/workflow-adapters.ts'
 
-          const execFileAsync = promisify(execFile)
           const appId = process.env.APP_ID
           const expectedCommitID = process.env.FIXTURE_COMMIT
           const expectedHealthValue = process.env.EXPECTED_HEALTH_VALUE
           const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+          const cleverCLI = resolveCleverCLI()
 
           if (!appId || !expectedCommitID || !expectedHealthValue || !githubOutput) {
             throw new Error('Missing env deployment observation inputs')
@@ -571,19 +533,7 @@ jobs:
 
           const controller = createCleverController({
             cleverCLI,
-            runCommand: async (cli, args, { timeoutMs }) => {
-              try {
-                const { stdout, stderr } = await execFileAsync(cli, args, {
-                  encoding: 'utf8',
-                  env: process.env,
-                  timeout: timeoutMs,
-                  maxBuffer: 1024 * 1024 * 10,
-                })
-                return { stdout, stderr }
-              } catch (error) {
-                throw new Error(error.stderr?.trim() || error.message)
-              }
-            },
+            runCommand: createRunCommand()
           })
 
           const application = await controller.getApplication(appId)
@@ -596,22 +546,7 @@ jobs:
             expectedHealthValue,
             listActivity: controller.listActivity,
             lookupEnvironmentValue: controller.getEnvironmentValue,
-            fetchHealth: async url => {
-              const requestController = new AbortController()
-              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
-
-              try {
-                const response = await fetch(url, {
-                  signal: requestController.signal
-                })
-                return {
-                  status: response.status,
-                  json: async () => response.json()
-                }
-              } finally {
-                clearTimeout(timeoutId)
-              }
-            }
+            fetchHealth: createFetchHealth()
           })
 
           await appendFile(
@@ -662,18 +597,19 @@ jobs:
           BASELINE_COMMIT_ID: ${{ steps.observe-env.outputs.commit_id }}
         run: |
           node --input-type=module <<'EOF'
-          import { execFile } from 'node:child_process'
           import { writeFile } from 'node:fs/promises'
-          import { promisify } from 'node:util'
           import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
+          import {
+            createRunCommand,
+            resolveCleverCLI
+          } from './.candidate-source/src/e2e/workflow-adapters.ts'
 
-          const execFileAsync = promisify(execFile)
           const appId = process.env.APP_ID
           const statePath = process.env.STATE_PATH
           const instanceId = process.env.BASELINE_INSTANCE_ID
           const deploymentId = process.env.BASELINE_DEPLOYMENT_ID
           const commitId = process.env.BASELINE_COMMIT_ID
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+          const cleverCLI = resolveCleverCLI()
 
           if (!appId || !statePath || !instanceId || !deploymentId || !commitId) {
             throw new Error('Missing same-commit baseline inputs')
@@ -681,19 +617,7 @@ jobs:
 
           const controller = createCleverController({
             cleverCLI,
-            runCommand: async (cli, args, { timeoutMs }) => {
-              try {
-                const { stdout, stderr } = await execFileAsync(cli, args, {
-                  encoding: 'utf8',
-                  env: process.env,
-                  timeout: timeoutMs,
-                  maxBuffer: 1024 * 1024 * 10,
-                })
-                return { stdout, stderr }
-              } catch (error) {
-                throw new Error(error.stderr?.trim() || error.message)
-              }
-            },
+            runCommand: createRunCommand()
           })
 
           await writeFile(
@@ -747,18 +671,19 @@ jobs:
           LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/003-same-commit-error.log
         run: |
           node --input-type=module <<'EOF'
-          import { execFile } from 'node:child_process'
           import { readFile } from 'node:fs/promises'
-          import { promisify } from 'node:util'
           import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
           import { confirmNoNewDeploymentActivity } from './.candidate-source/src/e2e/deployment-observer.ts'
+          import {
+            createRunCommand,
+            resolveCleverCLI
+          } from './.candidate-source/src/e2e/workflow-adapters.ts'
 
-          const execFileAsync = promisify(execFile)
           const appId = process.env.APP_ID
           const actionOutcome = process.env.ACTION_OUTCOME
           const statePath = process.env.STATE_PATH
           const logPath = process.env.LOG_PATH
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+          const cleverCLI = resolveCleverCLI()
 
           if (!appId || !actionOutcome || !statePath || !logPath) {
             throw new Error('Missing same-commit error assertion inputs')
@@ -771,19 +696,7 @@ jobs:
           const previousState = JSON.parse(await readFile(statePath, 'utf8'))
           const controller = createCleverController({
             cleverCLI,
-            runCommand: async (cli, args, { timeoutMs }) => {
-              try {
-                const { stdout, stderr } = await execFileAsync(cli, args, {
-                  encoding: 'utf8',
-                  env: process.env,
-                  timeout: timeoutMs,
-                  maxBuffer: 1024 * 1024 * 10,
-                })
-                return { stdout, stderr }
-              } catch (error) {
-                throw new Error(error.stderr?.trim() || error.message)
-              }
-            },
+            runCommand: createRunCommand()
           })
 
           await confirmNoNewDeploymentActivity({
@@ -836,18 +749,20 @@ jobs:
           STATE_PATH: ${{ github.workspace }}/.e2e-state/same-commit-state.json
         run: |
           node --input-type=module <<'EOF'
-          import { execFile } from 'node:child_process'
           import { appendFile, readFile } from 'node:fs/promises'
-          import { promisify } from 'node:util'
           import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
           import { confirmNoNewDeploymentActivity, waitForHealthyDeployment, waitForNewSuccessfulDeploymentActivity } from './.candidate-source/src/e2e/deployment-observer.ts'
+          import {
+            createFetchHealth,
+            createRunCommand,
+            resolveCleverCLI
+          } from './.candidate-source/src/e2e/workflow-adapters.ts'
 
-          const execFileAsync = promisify(execFile)
           const appId = process.env.APP_ID
           const actionOutcome = process.env.ACTION_OUTCOME
           const statePath = process.env.STATE_PATH
           const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+          const cleverCLI = resolveCleverCLI()
 
           if (!appId || !actionOutcome || !statePath || !githubOutput) {
             throw new Error('Missing same-commit ignore observation inputs')
@@ -860,19 +775,7 @@ jobs:
           const previousState = JSON.parse(await readFile(statePath, 'utf8'))
           const controller = createCleverController({
             cleverCLI,
-            runCommand: async (cli, args, { timeoutMs }) => {
-              try {
-                const { stdout, stderr } = await execFileAsync(cli, args, {
-                  encoding: 'utf8',
-                  env: process.env,
-                  timeout: timeoutMs,
-                  maxBuffer: 1024 * 1024 * 10,
-                })
-                return { stdout, stderr }
-              } catch (error) {
-                throw new Error(error.stderr?.trim() || error.message)
-              }
-            },
+            runCommand: createRunCommand()
           })
 
           await confirmNoNewDeploymentActivity({
@@ -892,22 +795,7 @@ jobs:
             expectedCommitID: previousState.commitId,
             expectedDeploymentID: previousState.deploymentId,
             listActivity: controller.listActivity,
-            fetchHealth: async url => {
-              const requestController = new AbortController()
-              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
-
-              try {
-                const response = await fetch(url, {
-                  signal: requestController.signal
-                })
-                return {
-                  status: response.status,
-                  json: async () => response.json()
-                }
-              } finally {
-                clearTimeout(timeoutId)
-              }
-            }
+            fetchHealth: createFetchHealth()
           })
 
           if (health.INSTANCE_ID !== previousState.instanceId) {
@@ -963,20 +851,22 @@ jobs:
           LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/005-same-commit-restart.log
         run: |
           node --input-type=module <<'EOF'
-          import { execFile } from 'node:child_process'
           import { appendFile, readFile, writeFile } from 'node:fs/promises'
-          import { promisify } from 'node:util'
           import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
           import { confirmNoNewDeploymentActivity, waitForHealthyDeployment, waitForNewSuccessfulDeploymentActivity } from './.candidate-source/src/e2e/deployment-observer.ts'
           import { FIXTURE_BUILD_MARKER } from './.candidate-source/src/e2e/fixture-app.ts'
+          import {
+            createFetchHealth,
+            createRunCommand,
+            resolveCleverCLI
+          } from './.candidate-source/src/e2e/workflow-adapters.ts'
 
-          const execFileAsync = promisify(execFile)
           const appId = process.env.APP_ID
           const actionOutcome = process.env.ACTION_OUTCOME
           const statePath = process.env.STATE_PATH
           const logPath = process.env.LOG_PATH
           const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+          const cleverCLI = resolveCleverCLI()
 
           if (!appId || !actionOutcome || !statePath || !logPath || !githubOutput) {
             throw new Error('Missing same-commit restart observation inputs')
@@ -989,19 +879,7 @@ jobs:
           const previousState = JSON.parse(await readFile(statePath, 'utf8'))
           const controller = createCleverController({
             cleverCLI,
-            runCommand: async (cli, args, { timeoutMs }) => {
-              try {
-                const { stdout, stderr } = await execFileAsync(cli, args, {
-                  encoding: 'utf8',
-                  env: process.env,
-                  timeout: timeoutMs,
-                  maxBuffer: 1024 * 1024 * 10,
-                })
-                return { stdout, stderr }
-              } catch (error) {
-                throw new Error(error.stderr?.trim() || error.message)
-              }
-            },
+            runCommand: createRunCommand()
           })
 
           const deployment = await waitForNewSuccessfulDeploymentActivity({
@@ -1020,22 +898,7 @@ jobs:
             expectedCommitID: previousState.commitId,
             expectedDeploymentID: deployment.uuid,
             listActivity: controller.listActivity,
-            fetchHealth: async url => {
-              const requestController = new AbortController()
-              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
-
-              try {
-                const response = await fetch(url, {
-                  signal: requestController.signal
-                })
-                return {
-                  status: response.status,
-                  json: async () => response.json()
-                }
-              } finally {
-                clearTimeout(timeoutId)
-              }
-            }
+            fetchHealth: createFetchHealth()
           })
 
           if (!health.INSTANCE_ID) {
@@ -1115,20 +978,22 @@ jobs:
           LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/006-same-commit-rebuild.log
         run: |
           node --input-type=module <<'EOF'
-          import { execFile } from 'node:child_process'
           import { appendFile, readFile } from 'node:fs/promises'
-          import { promisify } from 'node:util'
           import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
           import { confirmNoNewDeploymentActivity, waitForHealthyDeployment, waitForNewSuccessfulDeploymentActivity } from './.candidate-source/src/e2e/deployment-observer.ts'
           import { FIXTURE_BUILD_MARKER } from './.candidate-source/src/e2e/fixture-app.ts'
+          import {
+            createFetchHealth,
+            createRunCommand,
+            resolveCleverCLI
+          } from './.candidate-source/src/e2e/workflow-adapters.ts'
 
-          const execFileAsync = promisify(execFile)
           const appId = process.env.APP_ID
           const actionOutcome = process.env.ACTION_OUTCOME
           const statePath = process.env.STATE_PATH
           const logPath = process.env.LOG_PATH
           const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+          const cleverCLI = resolveCleverCLI()
 
           if (!appId || !actionOutcome || !statePath || !logPath || !githubOutput) {
             throw new Error('Missing same-commit rebuild observation inputs')
@@ -1141,19 +1006,7 @@ jobs:
           const previousState = JSON.parse(await readFile(statePath, 'utf8'))
           const controller = createCleverController({
             cleverCLI,
-            runCommand: async (cli, args, { timeoutMs }) => {
-              try {
-                const { stdout, stderr } = await execFileAsync(cli, args, {
-                  encoding: 'utf8',
-                  env: process.env,
-                  timeout: timeoutMs,
-                  maxBuffer: 1024 * 1024 * 10,
-                })
-                return { stdout, stderr }
-              } catch (error) {
-                throw new Error(error.stderr?.trim() || error.message)
-              }
-            },
+            runCommand: createRunCommand()
           })
 
           const deployment = await waitForNewSuccessfulDeploymentActivity({
@@ -1172,22 +1025,7 @@ jobs:
             expectedCommitID: previousState.commitId,
             expectedDeploymentID: deployment.uuid,
             listActivity: controller.listActivity,
-            fetchHealth: async url => {
-              const requestController = new AbortController()
-              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
-
-              try {
-                const response = await fetch(url, {
-                  signal: requestController.signal
-                })
-                return {
-                  status: response.status,
-                  json: async () => response.json()
-                }
-              } finally {
-                clearTimeout(timeoutId)
-              }
-            }
+            fetchHealth: createFetchHealth()
           })
 
           if (!health.INSTANCE_ID) {
@@ -1232,18 +1070,19 @@ jobs:
           BASELINE_COMMIT_ID: ${{ steps.observe-same-commit-rebuild.outputs.commit_id }}
         run: |
           node --input-type=module <<'EOF'
-          import { execFile } from 'node:child_process'
           import { writeFile } from 'node:fs/promises'
-          import { promisify } from 'node:util'
           import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
+          import {
+            createRunCommand,
+            resolveCleverCLI
+          } from './.candidate-source/src/e2e/workflow-adapters.ts'
 
-          const execFileAsync = promisify(execFile)
           const appId = process.env.APP_ID
           const statePath = process.env.STATE_PATH
           const instanceId = process.env.BASELINE_INSTANCE_ID
           const deploymentId = process.env.BASELINE_DEPLOYMENT_ID
           const commitId = process.env.BASELINE_COMMIT_ID
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+          const cleverCLI = resolveCleverCLI()
 
           if (!appId || !statePath || !instanceId || !deploymentId || !commitId) {
             throw new Error('Missing failed-deploy baseline inputs')
@@ -1251,19 +1090,7 @@ jobs:
 
           const controller = createCleverController({
             cleverCLI,
-            runCommand: async (cli, args, { timeoutMs }) => {
-              try {
-                const { stdout, stderr } = await execFileAsync(cli, args, {
-                  encoding: 'utf8',
-                  env: process.env,
-                  timeout: timeoutMs,
-                  maxBuffer: 1024 * 1024 * 10,
-                })
-                return { stdout, stderr }
-              } catch (error) {
-                throw new Error(error.stderr?.trim() || error.message)
-              }
-            },
+            runCommand: createRunCommand()
           })
 
           await writeFile(
@@ -1347,21 +1174,23 @@ jobs:
           LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/007-build-failure.log
         run: |
           node --input-type=module <<'EOF'
-          import { execFile } from 'node:child_process'
           import { appendFile, readFile } from 'node:fs/promises'
-          import { promisify } from 'node:util'
           import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
           import { waitForHealthyDeployment, waitForNewFailedDeploymentActivity } from './.candidate-source/src/e2e/deployment-observer.ts'
           import { FIXTURE_BUILD_FAILURE_MARKER } from './.candidate-source/src/e2e/fixture-app.ts'
+          import {
+            createFetchHealth,
+            createRunCommand,
+            resolveCleverCLI
+          } from './.candidate-source/src/e2e/workflow-adapters.ts'
 
-          const execFileAsync = promisify(execFile)
           const appId = process.env.APP_ID
           const actionOutcome = process.env.ACTION_OUTCOME
           const expectedCommitID = process.env.EXPECTED_COMMIT_ID
           const statePath = process.env.STATE_PATH
           const logPath = process.env.LOG_PATH
           const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+          const cleverCLI = resolveCleverCLI()
 
           if (!appId || !actionOutcome || !expectedCommitID || !statePath || !logPath || !githubOutput) {
             throw new Error('Missing build-failure assertion inputs')
@@ -1374,19 +1203,7 @@ jobs:
           const previousState = JSON.parse(await readFile(statePath, 'utf8'))
           const controller = createCleverController({
             cleverCLI,
-            runCommand: async (cli, args, { timeoutMs }) => {
-              try {
-                const { stdout, stderr } = await execFileAsync(cli, args, {
-                  encoding: 'utf8',
-                  env: process.env,
-                  timeout: timeoutMs,
-                  maxBuffer: 1024 * 1024 * 10,
-                })
-                return { stdout, stderr }
-              } catch (error) {
-                throw new Error(error.stderr?.trim() || error.message)
-              }
-            },
+            runCommand: createRunCommand()
           })
 
           const failedDeployment = await waitForNewFailedDeploymentActivity({
@@ -1405,22 +1222,7 @@ jobs:
             expectedCommitID: previousState.commitId,
             expectedDeploymentID: previousState.deploymentId,
             listActivity: controller.listActivity,
-            fetchHealth: async url => {
-              const requestController = new AbortController()
-              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
-
-              try {
-                const response = await fetch(url, {
-                  signal: requestController.signal
-                })
-                return {
-                  status: response.status,
-                  json: async () => response.json()
-                }
-              } finally {
-                clearTimeout(timeoutId)
-              }
-            }
+            fetchHealth: createFetchHealth()
           })
 
           if (health.INSTANCE_ID !== previousState.instanceId) {
@@ -1504,21 +1306,23 @@ jobs:
           LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/008-startup-failure.log
         run: |
           node --input-type=module <<'EOF'
-          import { execFile } from 'node:child_process'
           import { appendFile, readFile } from 'node:fs/promises'
-          import { promisify } from 'node:util'
           import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
           import { waitForHealthyDeployment, waitForNewFailedDeploymentActivity } from './.candidate-source/src/e2e/deployment-observer.ts'
           import { FIXTURE_STARTUP_FAILURE_MARKER } from './.candidate-source/src/e2e/fixture-app.ts'
+          import {
+            createFetchHealth,
+            createRunCommand,
+            resolveCleverCLI
+          } from './.candidate-source/src/e2e/workflow-adapters.ts'
 
-          const execFileAsync = promisify(execFile)
           const appId = process.env.APP_ID
           const actionOutcome = process.env.ACTION_OUTCOME
           const expectedCommitID = process.env.EXPECTED_COMMIT_ID
           const statePath = process.env.STATE_PATH
           const logPath = process.env.LOG_PATH
           const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+          const cleverCLI = resolveCleverCLI()
 
           if (!appId || !actionOutcome || !expectedCommitID || !statePath || !logPath || !githubOutput) {
             throw new Error('Missing startup-failure assertion inputs')
@@ -1531,19 +1335,7 @@ jobs:
           const previousState = JSON.parse(await readFile(statePath, 'utf8'))
           const controller = createCleverController({
             cleverCLI,
-            runCommand: async (cli, args, { timeoutMs }) => {
-              try {
-                const { stdout, stderr } = await execFileAsync(cli, args, {
-                  encoding: 'utf8',
-                  env: process.env,
-                  timeout: timeoutMs,
-                  maxBuffer: 1024 * 1024 * 10,
-                })
-                return { stdout, stderr }
-              } catch (error) {
-                throw new Error(error.stderr?.trim() || error.message)
-              }
-            },
+            runCommand: createRunCommand()
           })
 
           const failedDeployment = await waitForNewFailedDeploymentActivity({
@@ -1562,22 +1354,7 @@ jobs:
             expectedCommitID: previousState.commitId,
             expectedDeploymentID: previousState.deploymentId,
             listActivity: controller.listActivity,
-            fetchHealth: async url => {
-              const requestController = new AbortController()
-              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
-
-              try {
-                const response = await fetch(url, {
-                  signal: requestController.signal
-                })
-                return {
-                  status: response.status,
-                  json: async () => response.json()
-                }
-              } finally {
-                clearTimeout(timeoutId)
-              }
-            }
+            fetchHealth: createFetchHealth()
           })
 
           if (health.INSTANCE_ID !== previousState.instanceId) {
@@ -1657,17 +1434,19 @@ jobs:
           EXPECTED_COMMIT_ID: ${{ steps.recovery-commit.outputs.commit }}
         run: |
           node --input-type=module <<'EOF'
-          import { execFile } from 'node:child_process'
           import { appendFile } from 'node:fs/promises'
-          import { promisify } from 'node:util'
           import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
           import { waitForHealthyDeployment } from './.candidate-source/src/e2e/deployment-observer.ts'
+          import {
+            createFetchHealth,
+            createRunCommand,
+            resolveCleverCLI
+          } from './.candidate-source/src/e2e/workflow-adapters.ts'
 
-          const execFileAsync = promisify(execFile)
           const appId = process.env.APP_ID
           const expectedCommitID = process.env.EXPECTED_COMMIT_ID
           const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+          const cleverCLI = resolveCleverCLI()
 
           if (!appId || !expectedCommitID || !githubOutput) {
             throw new Error('Missing recovery deployment observation inputs')
@@ -1675,19 +1454,7 @@ jobs:
 
           const controller = createCleverController({
             cleverCLI,
-            runCommand: async (cli, args, { timeoutMs }) => {
-              try {
-                const { stdout, stderr } = await execFileAsync(cli, args, {
-                  encoding: 'utf8',
-                  env: process.env,
-                  timeout: timeoutMs,
-                  maxBuffer: 1024 * 1024 * 10,
-                })
-                return { stdout, stderr }
-              } catch (error) {
-                throw new Error(error.stderr?.trim() || error.message)
-              }
-            },
+            runCommand: createRunCommand()
           })
 
           const application = await controller.getApplication(appId)
@@ -1698,22 +1465,7 @@ jobs:
             expectedScenario: 'healthy',
             expectedCommitID,
             listActivity: controller.listActivity,
-            fetchHealth: async url => {
-              const requestController = new AbortController()
-              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
-
-              try {
-                const response = await fetch(url, {
-                  signal: requestController.signal
-                })
-                return {
-                  status: response.status,
-                  json: async () => response.json()
-                }
-              } finally {
-                clearTimeout(timeoutId)
-              }
-            }
+            fetchHealth: createFetchHealth()
           })
 
           await appendFile(
@@ -1737,18 +1489,19 @@ jobs:
           BASELINE_COMMIT_ID: ${{ steps.observe-recovery.outputs.commit_id }}
         run: |
           node --input-type=module <<'EOF'
-          import { execFile } from 'node:child_process'
           import { writeFile } from 'node:fs/promises'
-          import { promisify } from 'node:util'
           import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
+          import {
+            createRunCommand,
+            resolveCleverCLI
+          } from './.candidate-source/src/e2e/workflow-adapters.ts'
 
-          const execFileAsync = promisify(execFile)
           const appId = process.env.APP_ID
           const statePath = process.env.STATE_PATH
           const instanceId = process.env.BASELINE_INSTANCE_ID
           const deploymentId = process.env.BASELINE_DEPLOYMENT_ID
           const commitId = process.env.BASELINE_COMMIT_ID
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+          const cleverCLI = resolveCleverCLI()
 
           if (!appId || !statePath || !instanceId || !deploymentId || !commitId) {
             throw new Error('Missing force baseline inputs')
@@ -1756,19 +1509,7 @@ jobs:
 
           const controller = createCleverController({
             cleverCLI,
-            runCommand: async (cli, args, { timeoutMs }) => {
-              try {
-                const { stdout, stderr } = await execFileAsync(cli, args, {
-                  encoding: 'utf8',
-                  env: process.env,
-                  timeout: timeoutMs,
-                  maxBuffer: 1024 * 1024 * 10,
-                })
-                return { stdout, stderr }
-              } catch (error) {
-                throw new Error(error.stderr?.trim() || error.message)
-              }
-            },
+            runCommand: createRunCommand()
           })
 
           await writeFile(
@@ -1853,19 +1594,21 @@ jobs:
           LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/010-divergent-no-force.log
         run: |
           node --input-type=module <<'EOF'
-          import { execFile } from 'node:child_process'
           import { appendFile, readFile } from 'node:fs/promises'
-          import { promisify } from 'node:util'
           import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
           import { confirmRejectedDeploymentPreservesLiveApp } from './.candidate-source/src/e2e/deployment-observer.ts'
+          import {
+            createFetchHealth,
+            createRunCommand,
+            resolveCleverCLI
+          } from './.candidate-source/src/e2e/workflow-adapters.ts'
 
-          const execFileAsync = promisify(execFile)
           const appId = process.env.APP_ID
           const actionOutcome = process.env.ACTION_OUTCOME
           const statePath = process.env.STATE_PATH
           const logPath = process.env.LOG_PATH
           const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+          const cleverCLI = resolveCleverCLI()
 
           if (!appId || !actionOutcome || !statePath || !logPath || !githubOutput) {
             throw new Error('Missing divergent rejection assertion inputs')
@@ -1878,19 +1621,7 @@ jobs:
           const previousState = JSON.parse(await readFile(statePath, 'utf8'))
           const controller = createCleverController({
             cleverCLI,
-            runCommand: async (cli, args, { timeoutMs }) => {
-              try {
-                const { stdout, stderr } = await execFileAsync(cli, args, {
-                  encoding: 'utf8',
-                  env: process.env,
-                  timeout: timeoutMs,
-                  maxBuffer: 1024 * 1024 * 10,
-                })
-                return { stdout, stderr }
-              } catch (error) {
-                throw new Error(error.stderr?.trim() || error.message)
-              }
-            },
+            runCommand: createRunCommand()
           })
 
           const application = await controller.getApplication(appId)
@@ -1903,22 +1634,7 @@ jobs:
             previousCommitID: previousState.commitId,
             previousDeploymentID: previousState.deploymentId,
             listActivity: controller.listActivity,
-            fetchHealth: async url => {
-              const requestController = new AbortController()
-              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
-
-              try {
-                const response = await fetch(url, {
-                  signal: requestController.signal
-                })
-                return {
-                  status: response.status,
-                  json: async () => response.json()
-                }
-              } finally {
-                clearTimeout(timeoutId)
-              }
-            },
+            fetchHealth: createFetchHealth(),
             noNewActivityTimeoutMs: 15_000,
             settleTimeoutMs: 600_000,
             pollIntervalMs: 5_000
@@ -1993,19 +1709,21 @@ jobs:
           STATE_PATH: ${{ github.workspace }}/.e2e-state/force-state.json
         run: |
           node --input-type=module <<'EOF'
-          import { execFile } from 'node:child_process'
           import { appendFile, readFile } from 'node:fs/promises'
-          import { promisify } from 'node:util'
           import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
           import { confirmRejectedDeploymentPreservesLiveApp, waitForNewHealthyDeployment } from './.candidate-source/src/e2e/deployment-observer.ts'
+          import {
+            createFetchHealth,
+            createRunCommand,
+            resolveCleverCLI
+          } from './.candidate-source/src/e2e/workflow-adapters.ts'
 
-          const execFileAsync = promisify(execFile)
           const appId = process.env.APP_ID
           const actionOutcome = process.env.ACTION_OUTCOME
           const expectedCommitID = process.env.EXPECTED_COMMIT_ID
           const statePath = process.env.STATE_PATH
           const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+          const cleverCLI = resolveCleverCLI()
 
           if (!appId || !actionOutcome || !expectedCommitID || !statePath || !githubOutput) {
             throw new Error('Missing divergent force observation inputs')
@@ -2018,19 +1736,7 @@ jobs:
           const previousState = JSON.parse(await readFile(statePath, 'utf8'))
           const controller = createCleverController({
             cleverCLI,
-            runCommand: async (cli, args, { timeoutMs }) => {
-              try {
-                const { stdout, stderr } = await execFileAsync(cli, args, {
-                  encoding: 'utf8',
-                  env: process.env,
-                  timeout: timeoutMs,
-                  maxBuffer: 1024 * 1024 * 10,
-                })
-                return { stdout, stderr }
-              } catch (error) {
-                throw new Error(error.stderr?.trim() || error.message)
-              }
-            },
+            runCommand: createRunCommand()
           })
 
           const application = await controller.getApplication(appId)
@@ -2042,22 +1748,7 @@ jobs:
             expectedCommitID,
             previousActivity: previousState.activity,
             listActivity: controller.listActivity,
-            fetchHealth: async url => {
-              const requestController = new AbortController()
-              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
-
-              try {
-                const response = await fetch(url, {
-                  signal: requestController.signal
-                })
-                return {
-                  status: response.status,
-                  json: async () => response.json()
-                }
-              } finally {
-                clearTimeout(timeoutId)
-              }
-            }
+            fetchHealth: createFetchHealth()
           })
 
           if (result.health.CC_COMMIT_ID === previousState.commitId) {
@@ -2169,20 +1860,22 @@ jobs:
           PREVIOUS_DEPLOYMENT_ID: ${{ steps.observe-divergent-force.outputs.deployment_id }}
         run: |
           node --input-type=module <<'EOF'
-          import { execFile } from 'node:child_process'
           import { appendFile } from 'node:fs/promises'
-          import { promisify } from 'node:util'
           import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
           import { cancelTimedOutDeploymentPreservesLiveApp } from './.candidate-source/src/e2e/deployment-observer.ts'
+          import {
+            createFetchHealth,
+            createRunCommand,
+            resolveCleverCLI
+          } from './.candidate-source/src/e2e/workflow-adapters.ts'
 
-          const execFileAsync = promisify(execFile)
           const appId = process.env.APP_ID
           const expectedCancelledCommitID = process.env.EXPECTED_CANCELLED_COMMIT_ID
           const previousInstanceId = process.env.PREVIOUS_INSTANCE_ID
           const previousCommitId = process.env.PREVIOUS_COMMIT_ID
           const previousDeploymentId = process.env.PREVIOUS_DEPLOYMENT_ID
           const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+          const cleverCLI = resolveCleverCLI()
 
           if (
             !appId ||
@@ -2197,19 +1890,7 @@ jobs:
 
           const controller = createCleverController({
             cleverCLI,
-            runCommand: async (cli, args, { timeoutMs }) => {
-              try {
-                const { stdout, stderr } = await execFileAsync(cli, args, {
-                  encoding: 'utf8',
-                  env: process.env,
-                  timeout: timeoutMs,
-                  maxBuffer: 1024 * 1024 * 10,
-                })
-                return { stdout, stderr }
-              } catch (error) {
-                throw new Error(error.stderr?.trim() || error.message)
-              }
-            },
+            runCommand: createRunCommand()
           })
 
           const application = await controller.getApplication(appId)
@@ -2224,22 +1905,7 @@ jobs:
             listActivity: controller.listActivity,
             cancelDeployment: async (appId, deploymentId, timeoutMs) =>
               controller.cancelDeployment({ appId, deploymentId, timeoutMs }),
-            fetchHealth: async url => {
-              const requestController = new AbortController()
-              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
-
-              try {
-                const response = await fetch(url, {
-                  signal: requestController.signal
-                })
-                return {
-                  status: response.status,
-                  json: async () => response.json()
-                }
-              } finally {
-                clearTimeout(timeoutId)
-              }
-            },
+            fetchHealth: createFetchHealth(),
             settleTimeoutMs: 600_000,
             pollIntervalMs: 5_000
           })
