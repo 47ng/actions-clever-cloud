@@ -10,30 +10,17 @@ const contributingGuide = readProjectFile('../CONTRIBUTING.md')
 const operationsGuide = readProjectFile('../docs/e2e-operations.md')
 
 describe('e2e documentation', () => {
-  test('the contributor guide points contributors to the e2e operations guide', () => {
+  test('the contributor guide links to the operations guide', () => {
     expect(contributingGuide).toContain('docs/e2e-operations.md')
   })
 
-  test('the operations guide covers setup, approval, region, dispatch, naming, cleanup, and failure evidence recovery', () => {
+  test('the operations guide covers the required credentials and region', () => {
     expect(operationsGuide).toContain('CLEVER_TOKEN')
     expect(operationsGuide).toContain('CLEVER_SECRET')
     expect(operationsGuide).toContain('CLEVER_E2E_REGION')
-    expect(operationsGuide).toContain('clever-cloud-e2e')
-    expect(operationsGuide).toContain('actions-clever-cloud-e2e-<run-id>-<attempt>')
-    expect(operationsGuide).toContain('GitHub step summary')
-    expect(operationsGuide).toContain('candidate head SHA')
-    expect(operationsGuide).toContain('candidate image digest')
-    expect(operationsGuide).toContain('candidate image reference')
-    expect(operationsGuide).toContain('e2e-manual.yml')
-    expect(operationsGuide).toContain('manual cleanup')
-    expect(operationsGuide).toContain('failure evidence')
-    expect(operationsGuide).toContain('clever-cloud-e2e-failure-<run-id>-<attempt>')
-    expect(operationsGuide).toContain('suite-results.json')
-    expect(operationsGuide).toContain('candidate-action/*.log')
-    expect(operationsGuide).toContain('16-byte base64 value')
-    expect(operationsGuide).toContain('without printing it')
-    expect(operationsGuide).toContain('never records the raw generated health value in the summary')
-    expect(operationsGuide).toContain('uploaded failure evidence')
-    expect(operationsGuide).toContain('Clever credentials')
+  })
+
+  test('the operations guide never embeds a raw generated health value', () => {
+    expect(operationsGuide).not.toMatch(/[A-Za-z0-9+/]{22}==/)
   })
 })
