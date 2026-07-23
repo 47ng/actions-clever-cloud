@@ -6,7 +6,7 @@ import { checkForShallowCopy, fixGitDubiousOwnership } from './git'
 import { gitHubHost, type Host } from './github'
 import { createDeployLog, type DeployLog } from './output'
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const host = gitHubHost()
   let log: DeployLog | undefined
   try {
