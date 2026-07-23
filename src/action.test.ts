@@ -119,13 +119,17 @@ test('deploys quietly when the log file cannot be opened', async () => {
   const openSpy = vi
     .spyOn(fs, 'open')
     .mockRejectedValue(new Error('ENOENT: missing directory'))
-  execMock.mockImplementation(async (_command, args, options) => {
-    if (args[0] === 'deploy') {
+  spawnMock.mockImplementation(() => {
+    const child = makeFakeChild()
+    setImmediate(() => {
       for (let index = 0; index < 256; index += 1) {
-        options?.outStream?.write(Buffer.alloc(1024))
+        child.stdout.write(Buffer.alloc(1024))
       }
-    }
-    return 0
+      child.stdout.end()
+      child.stderr.end()
+      child.emit('close', 0)
+    })
+    return child
   })
 
   try {
@@ -137,7 +141,7 @@ test('deploys quietly when the log file cannot be opened', async () => {
       quiet: true
     })
 
-    expectCleverCLICallWithArgs(1, 'deploy')
+    expectDeploySpawnWithArgs('deploy')
     expect(warning).toHaveBeenCalledWith(
       'deploy log output degraded: ENOENT: missing directory'
     )
