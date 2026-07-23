@@ -128,6 +128,57 @@ test('extra env, whitespace-only line between valid vars is skipped without a wa
   expect(warn).not.toHaveBeenCalled()
 })
 
+test('extra env parses CRLF lines without changing their values', () => {
+  process.env.INPUT_SETENV = 'FIRST=one\r\nSECOND=two\r\n'
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  const args = processArguments()
+  expect(args.extraEnv).toEqual({ FIRST: 'one', SECOND: 'two' })
+  expect(warn).not.toHaveBeenCalled()
+})
+
+test('extra env preserves whitespace in unquoted values', () => {
+  process.env.INPUT_SETENV = 'VALUE=  leading and trailing  '
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  const args = processArguments()
+  expect(args.extraEnv!.VALUE).toEqual('  leading and trailing  ')
+})
+
+test('extra env removes matching quote delimiters from values', () => {
+  process.env.INPUT_SETENV = 'DOUBLE=" quoted "\nSINGLE=\'quoted\''
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  const args = processArguments()
+  expect(args.extraEnv!.DOUBLE).toEqual(' quoted ')
+  expect(args.extraEnv!.SINGLE).toEqual('quoted')
+})
+
+test('extra env unescapes matching quotes in quoted values', () => {
+  process.env.INPUT_SETENV = 'DOUBLE="say \\"hello\\""\nSINGLE=\'it\\\'s\''
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  const args = processArguments()
+  expect(args.extraEnv!.DOUBLE).toEqual('say "hello"')
+  expect(args.extraEnv!.SINGLE).toEqual("it's")
+})
+
+test('extra env drops malformed quoted values with redacted warnings', () => {
+  process.env.INPUT_SETENV =
+    'LONE="\nUNMATCHED="unterminated\nTRAILING="closed"tail\nESCAPED_END="ends\\"'
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  const args = processArguments()
+  expect(args.extraEnv).toEqual({})
+  expect(warn).toHaveBeenCalledTimes(4)
+  for (const [message] of warn.mock.calls) {
+    expect(message).not.toContain('unterminated')
+    expect(message).not.toContain('closed')
+    expect(message).not.toContain('ends')
+    expect(message).toContain('=***')
+  }
+})
+
 test('timeout, default value is undefined', () => {
   process.env.CLEVER_TOKEN = 'token'
   process.env.CLEVER_SECRET = 'secret'
