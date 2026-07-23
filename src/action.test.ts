@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events'
+import fs from 'node:fs/promises'
 import { PassThrough } from 'node:stream'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
@@ -20,7 +21,7 @@ vi.mock('node:child_process', () => ({
   spawn: vi.fn()
 }))
 
-import { setFailed, setSecret } from '@actions/core'
+import { setFailed, setSecret, warning } from '@actions/core'
 import { exec } from '@actions/exec'
 import { spawn } from 'node:child_process'
 import { run } from './action'
@@ -94,6 +95,38 @@ test('deploy default application (no arguments)', async () => {
   expect(execMock.mock.calls.some(call => call[1]?.[0] === 'login')).toBe(false)
   expectCleverCLICallWithArgs(1, 'deploy')
   expect(setFailed).not.toHaveBeenCalled()
+})
+
+test('deploys quietly when the log file cannot be opened', async () => {
+  const openSpy = vi
+    .spyOn(fs, 'open')
+    .mockRejectedValue(new Error('ENOENT: missing directory'))
+  execMock.mockImplementation(async (_command, args, options) => {
+    if (args[0] === 'deploy') {
+      for (let index = 0; index < 256; index += 1) {
+        options?.outStream?.write(Buffer.alloc(1024))
+      }
+    }
+    return 0
+  })
+
+  try {
+    await run({
+      token: 'token',
+      secret: 'secret',
+      cleverCLI: CLEVER_CLI,
+      logFile: '/missing/deploy.log',
+      quiet: true
+    })
+
+    expectCleverCLICallWithArgs(1, 'deploy')
+    expect(warning).toHaveBeenCalledWith(
+      'deploy log output degraded: ENOENT: missing directory'
+    )
+    expect(setFailed).not.toHaveBeenCalled()
+  } finally {
+    openSpy.mockRestore()
+  }
 })
 
 test('deploy application with alias', async () => {
