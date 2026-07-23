@@ -1,0 +1,83 @@
+name: Clever Cloud E2E (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      head_sha:
+        description: Full 40-character SHA for the current internal pull request head
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  resolve:
+    name: Resolve internal pull request
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+    steps:
+      - name: Resolve current internal pull request head
+        id: resolve
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          HEAD_SHA: ${{ inputs.head_sha }}
+          RUN_SHA: ${{ github.sha }}
+        with:
+          script: |
+            const headSha = process.env.HEAD_SHA;
+            const runSha = process.env.RUN_SHA;
+
+            if (!/^[0-9a-f]{40}$/.test(headSha)) {
+              core.setFailed("head_sha must be a full 40-character lowercase hex commit SHA.");
+              return;
+            }
+
+            if (runSha !== headSha) {
+              core.setFailed(
+                `Dispatch this workflow from the branch whose current head is ${headSha}. ` +
+                  `The workflow run is pinned to ${runSha}.`,
+              );
+              return;
+            }
+
+            const thisRepo = `${context.repo.owner}/${context.repo.repo}`;
+            const { data: pulls } =
+              await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: headSha,
+              });
+
+            const matches = pulls.filter(
+              (pr) =>
+                pr.state === "open" &&
+                pr.head.repo.full_name === thisRepo &&
+                pr.head.sha === headSha,
+            );
+
+            if (matches.length !== 1) {
+              core.setFailed(
+                `Expected exactly one open internal pull request in ${thisRepo} at ${headSha}, ` +
+                  `but found ${matches.length}.`,
+              );
+              return;
+            }
+
+            core.setOutput("head_sha", headSha);
+            core.setOutput("pr_number", String(matches[0].number));
+
+  create-and-delete:
+    name: Create and delete app
+    needs: resolve
+    uses: ./.github/workflows/e2e-reusable.yml
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      head_sha: ${{ needs.resolve.outputs.head_sha }}
+      pr_number: ${{ needs.resolve.outputs.pr_number }}

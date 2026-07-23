@@ -1,0 +1,239 @@
+name: Clever Cloud E2E (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      head_sha:
+        required: true
+        type: string
+      pr_number:
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: clever-cloud-e2e-${{ inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  create-and-delete:
+    name: Create and delete app
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    environment:
+      name: clever-cloud-e2e
+    steps:
+      - name: Recheck staleness after approval
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          HEAD_SHA: ${{ inputs.head_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        with:
+          script: |
+            const headSha = process.env.HEAD_SHA;
+            const prNumber = Number(process.env.PR_NUMBER);
+            const thisRepo = `${context.repo.owner}/${context.repo.repo}`;
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+
+            if (pr.state !== "open") {
+              core.setFailed(`PR #${prNumber} is no longer open.`);
+              return;
+            }
+
+            if (pr.head.repo.full_name !== thisRepo || pr.head.sha !== headSha) {
+              core.setFailed(
+                `PR #${prNumber} is stale. Expected ${headSha}, found ${pr.head.sha}. Dispatch again with the current head.`,
+              );
+              return;
+            }
+
+      - name: Checkout candidate source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.head_sha }}
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install candidate dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build run-based app name
+        id: app-name
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { appendFile } from 'node:fs/promises'
+          import { buildE2EApplicationName } from './src/e2e/clever-client.ts'
+
+          const runId = process.env.RUN_ID
+          const runAttempt = process.env.RUN_ATTEMPT
+          const githubOutput = process.env.GITHUB_OUTPUT
+
+          if (!runId || !runAttempt || !githubOutput) {
+            throw new Error('Missing run identity for app naming')
+          }
+
+          const name = buildE2EApplicationName({ runId, runAttempt })
+          await appendFile(githubOutput, `name=${name}\n`)
+          EOF
+
+      - name: Create personal Node.js app
+        id: create
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          CLEVER_E2E_REGION: ${{ vars.CLEVER_E2E_REGION }}
+          APP_NAME: ${{ steps.app-name.outputs.name }}
+          APP_ID_FILE: ${{ github.workspace }}/.e2e-app.json
+        run: |
+          node --input-type=module <<'EOF'
+          import { appendFile, writeFile } from 'node:fs/promises'
+          import { execFile } from 'node:child_process'
+          import { promisify } from 'node:util'
+          import { createCleverController } from './src/e2e/clever-client.ts'
+
+          const execFileAsync = promisify(execFile)
+          const githubOutput = process.env.GITHUB_OUTPUT
+          const appName = process.env.APP_NAME
+          const appIdFile = process.env.APP_ID_FILE
+          const region = process.env.CLEVER_E2E_REGION || 'par'
+          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/node_modules/.bin/clever`
+
+          if (!githubOutput || !appName || !appIdFile) {
+            throw new Error('Missing create-app workflow outputs')
+          }
+
+          const controller = createCleverController({
+            cleverCLI,
+            runCommand: async (cli, args, { timeoutMs }) => {
+              try {
+                const { stdout, stderr } = await execFileAsync(cli, args, {
+                  encoding: 'utf8',
+                  env: process.env,
+                  timeout: timeoutMs,
+                  maxBuffer: 1024 * 1024 * 10,
+                })
+                return { stdout, stderr }
+              } catch (error) {
+                throw new Error(error.stderr?.trim() || error.message)
+              }
+            },
+          })
+
+          let application
+
+          try {
+            application = await controller.createApplication({
+              name: appName,
+              region,
+            })
+          } catch (error) {
+            const recoveredApplication = await controller.findApplicationByName(appName)
+
+            try {
+              await writeFile(
+                appIdFile,
+                JSON.stringify({
+                  appId: recoveredApplication.appId,
+                  name: recoveredApplication.name,
+                }),
+                'utf8',
+              )
+            } catch (writeError) {
+              await controller.deleteApplication({
+                appId: recoveredApplication.appId,
+                name: recoveredApplication.name,
+              })
+              throw writeError
+            }
+
+            throw error
+          }
+
+          try {
+            await writeFile(appIdFile, JSON.stringify(application), 'utf8')
+            await appendFile(
+              githubOutput,
+              `app_id=${application.appId}\n` + `app_name=${application.name}\n`,
+            )
+          } catch (error) {
+            await controller.deleteApplication({
+              appId: application.appId,
+              name: application.name,
+            })
+            throw error
+          }
+          EOF
+
+      - name: Delete the captured app
+        if: always() && (steps.create.outputs.app_id != '' || hashFiles('.e2e-app.json') != '')
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          APP_NAME: ${{ steps.create.outputs.app_name }}
+          APP_ID_FILE: ${{ github.workspace }}/.e2e-app.json
+        run: |
+          node --input-type=module <<'EOF'
+          import { readFile } from 'node:fs/promises'
+          import { execFile } from 'node:child_process'
+          import { promisify } from 'node:util'
+          import { createCleverController } from './src/e2e/clever-client.ts'
+
+          const execFileAsync = promisify(execFile)
+          let appId = process.env.APP_ID
+          let appName = process.env.APP_NAME
+          const appIdFile = process.env.APP_ID_FILE
+          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/node_modules/.bin/clever`
+
+          if ((!appId || !appName) && appIdFile) {
+            const persisted = JSON.parse(await readFile(appIdFile, 'utf8'))
+            appId ??= persisted.appId
+            appName ??= persisted.name
+          }
+
+          if (!appId || !appName) {
+            throw new Error('Missing captured app identity for teardown')
+          }
+
+          const controller = createCleverController({
+            cleverCLI,
+            runCommand: async (cli, args, { timeoutMs }) => {
+              try {
+                const { stdout, stderr } = await execFileAsync(cli, args, {
+                  encoding: 'utf8',
+                  env: process.env,
+                  timeout: timeoutMs,
+                  maxBuffer: 1024 * 1024 * 10,
+                })
+                return { stdout, stderr }
+              } catch (error) {
+                throw new Error(error.stderr?.trim() || error.message)
+              }
+            },
+          })
+
+          try {
+            await controller.deleteApplication({ appId, name: appName })
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            console.error(`::error::${message}`)
+            throw error
+          }
+          EOF
