@@ -31,6 +31,12 @@ It installs dependencies with `pnpm install --frozen-lockfile --ignore-scripts`.
 Host control uses the candidate's locked Clever Tools binary at `node_modules/.bin/clever`.
 No step calls `clever login`.
 
+After the first healthy deploy, the suite generates one random 16-byte base64 value,
+checks that it keeps its `==` padding, sends it through `setEnv`, and compares the
+public and remote values without printing it.
+The same deployment runs with `quiet: true` and writes raw output to a log file so the
+suite can check the fixture build and startup markers.
+
 ## App naming
 
 Each run creates one app named `actions-clever-cloud-e2e-<run-id>-<attempt>`.
@@ -44,6 +50,7 @@ It contains:
 
 - `suite-results.json` with scenario outcomes, app identity, commit IDs, deployment IDs, and candidate action log paths
 - `candidate-action/001-deploy-healthy.log` when the candidate action produced that log file
+- `candidate-action/002-deploy-env.log` when the quiet environment-check deployment produced that log file
 
 If evidence preparation fails its redaction scan, the workflow skips the upload and fails the run so you can inspect the job log instead.
 

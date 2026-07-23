@@ -70,6 +70,7 @@ test('the fixture process listens on PORT and serves the allow-listed health res
       INSTANCE_TYPE: 'production',
       CC_DEPLOYMENT_ID: 'deployment-123',
       CC_COMMIT_ID: 'commit-123',
+      E2E_HEALTH_VALUE: 'ABEiM0RVZneImaq7zN3u/w==',
       CLEVER_TOKEN: 'secret-token'
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -81,6 +82,7 @@ test('the fixture process listens on PORT and serves the allow-listed health res
   expect(response.status).toBe(200)
   await expect(response.json()).resolves.toEqual({
     scenario: 'healthy',
+    healthValue: 'ABEiM0RVZneImaq7zN3u/w==',
     INSTANCE_ID: 'instance-123',
     INSTANCE_TYPE: 'production',
     CC_DEPLOYMENT_ID: 'deployment-123',
@@ -102,6 +104,7 @@ test('the fixture process prints stable markers without leaking unrelated enviro
       INSTANCE_TYPE: 'production',
       CC_DEPLOYMENT_ID: 'deployment-123',
       CC_COMMIT_ID: 'commit-123',
+      E2E_HEALTH_VALUE: 'ABEiM0RVZneImaq7zN3u/w==',
       SECRET_SHOULD_NOT_LEAK: 'top-secret'
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -118,4 +121,5 @@ test('the fixture process prints stable markers without leaking unrelated enviro
   expect(stdout).toContain('fixture-start')
   expect(stdout).toContain('fixture-ready')
   expect(stdout).not.toContain('top-secret')
+  expect(stdout).not.toContain('ABEiM0RVZneImaq7zN3u/w==')
 })

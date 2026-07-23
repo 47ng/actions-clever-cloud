@@ -208,6 +208,30 @@ describe('createCleverController', () => {
     )
   })
 
+  test('reads one exact application env value by app ID', async () => {
+    const controller = createCleverController({
+      cleverCLI: '/tmp/node_modules/.bin/clever',
+      runCommand: async () => ({
+        stdout: JSON.stringify({
+          env: [
+            { name: 'CC_HEALTH_CHECK_PATH', value: '/health' },
+            { name: 'E2E_HEALTH_VALUE', value: 'ABEiM0RVZneImaq7zN3u/w==' }
+          ],
+          fromAddons: [],
+          fromDependencies: []
+        }),
+        stderr: ''
+      })
+    })
+
+    await expect(
+      controller.getEnvironmentValue(
+        'app_facade42-cafe-babe-cafe-deadf00dbaad',
+        'E2E_HEALTH_VALUE'
+      )
+    ).resolves.toBe('ABEiM0RVZneImaq7zN3u/w==')
+  })
+
   test('looks up the exact app ID and returns its deploy URL', async () => {
     const controller = createCleverController({
       cleverCLI: '/tmp/node_modules/.bin/clever',

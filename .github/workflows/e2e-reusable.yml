@@ -354,6 +354,7 @@ jobs:
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
         with:
           appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
           logFile: .e2e-artifacts/candidate-action/001-deploy-healthy.log
           setEnv: |
             CC_HEALTH_CHECK_PATH=/health
@@ -434,16 +435,196 @@ jobs:
           )
           EOF
 
+      - name: Generate padded health value
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: health-value
+        run: |
+          node --input-type=module <<'EOF'
+          import { appendFile } from 'node:fs/promises'
+          import { generateHealthValue, HEALTH_VALUE_ENV_NAME } from './.candidate-source/src/e2e/health-value.ts'
+
+          const githubOutput = process.env.GITHUB_OUTPUT
+
+          if (!githubOutput) {
+            throw new Error('Missing GITHUB_OUTPUT for health value generation')
+          }
+
+          const value = generateHealthValue()
+          if (!value.endsWith('==')) {
+            throw new Error('Generated health value must use 16-byte base64 padding')
+          }
+
+          await appendFile(
+            githubOutput,
+            `name=${HEALTH_VALUE_ENV_NAME}\nvalue=${value}\n`,
+          )
+          EOF
+
+      - name: Create second healthy fixture commit
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: second-healthy
+        env:
+          WORKSPACE_DIR: ${{ github.workspace }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { appendFile } from 'node:fs/promises'
+          import { createHealthyFixtureCommit } from './.candidate-source/src/e2e/git-fixture.ts'
+
+          const workspaceDir = process.env.WORKSPACE_DIR
+          const githubOutput = process.env.GITHUB_OUTPUT
+
+          if (!workspaceDir || !githubOutput) {
+            throw new Error('Missing second fixture commit outputs')
+          }
+
+          const commit = await createHealthyFixtureCommit({
+            workspaceDir,
+            label: 'healthy-2'
+          })
+
+          await appendFile(githubOutput, `commit=${commit}\n`)
+          EOF
+
+      - name: Deploy healthy fixture commit with quiet env checks
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: deploy-env
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/002-deploy-env.log
+          setEnv: |
+            CC_HEALTH_CHECK_PATH=/health
+            E2E_SCENARIO=healthy
+            E2E_HEALTH_VALUE=${{ steps.health-value.outputs.value }}
+
+      - name: Observe healthy fixture env deployment
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: observe-env
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          FIXTURE_COMMIT: ${{ steps.second-healthy.outputs.commit }}
+          EXPECTED_HEALTH_VALUE: ${{ steps.health-value.outputs.value }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { execFile } from 'node:child_process'
+          import { appendFile } from 'node:fs/promises'
+          import { promisify } from 'node:util'
+          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
+          import { waitForHealthyDeployment } from './.candidate-source/src/e2e/deployment-observer.ts'
+
+          const execFileAsync = promisify(execFile)
+          const appId = process.env.APP_ID
+          const expectedCommitID = process.env.FIXTURE_COMMIT
+          const expectedHealthValue = process.env.EXPECTED_HEALTH_VALUE
+          const githubOutput = process.env.GITHUB_OUTPUT
+          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
+
+          if (!appId || !expectedCommitID || !expectedHealthValue || !githubOutput) {
+            throw new Error('Missing env deployment observation inputs')
+          }
+
+          const controller = createCleverController({
+            cleverCLI,
+            runCommand: async (cli, args, { timeoutMs }) => {
+              try {
+                const { stdout, stderr } = await execFileAsync(cli, args, {
+                  encoding: 'utf8',
+                  env: process.env,
+                  timeout: timeoutMs,
+                  maxBuffer: 1024 * 1024 * 10,
+                })
+                return { stdout, stderr }
+              } catch (error) {
+                throw new Error(error.stderr?.trim() || error.message)
+              }
+            },
+          })
+
+          const application = await controller.getApplication(appId)
+          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
+          const health = await waitForHealthyDeployment({
+            appId,
+            healthURL,
+            expectedScenario: 'healthy',
+            expectedCommitID,
+            expectedHealthValue,
+            listActivity: controller.listActivity,
+            lookupEnvironmentValue: controller.getEnvironmentValue,
+            fetchHealth: async url => {
+              const requestController = new AbortController()
+              const timeoutId = setTimeout(() => requestController.abort(), 10_000)
+
+              try {
+                const response = await fetch(url, {
+                  signal: requestController.signal
+                })
+                return {
+                  status: response.status,
+                  json: async () => response.json()
+                }
+              } finally {
+                clearTimeout(timeoutId)
+              }
+            }
+          })
+
+          await appendFile(
+            githubOutput,
+            `deployment_id=${health.CC_DEPLOYMENT_ID ?? ''}\n` +
+              `commit_id=${health.CC_COMMIT_ID ?? ''}\n`,
+          )
+          EOF
+
+      - name: Verify quiet deployment log markers
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: verify-env-log
+        env:
+          LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/002-deploy-env.log
+        run: |
+          node --input-type=module <<'EOF'
+          import { readFile } from 'node:fs/promises'
+          import {
+            FIXTURE_BUILD_MARKER,
+            FIXTURE_START_MARKER
+          } from './.candidate-source/src/e2e/fixture-app.ts'
+
+          const logPath = process.env.LOG_PATH
+
+          if (!logPath) {
+            throw new Error('Missing quiet deployment log path')
+          }
+
+          const logContent = await readFile(logPath, 'utf8')
+          for (const marker of [FIXTURE_BUILD_MARKER, FIXTURE_START_MARKER]) {
+            if (!logContent.includes(marker)) {
+              throw new Error(`Expected quiet deployment log to contain ${marker}`)
+            }
+          }
+          EOF
+
       - name: Write structured scenario results
         if: always() && steps.candidate-state.outputs.proceed == 'true'
         env:
           APP_ID_FILE: ${{ github.workspace }}/.e2e-state/app.json
           RESULTS_PATH: ${{ github.workspace }}/.e2e-state/suite-results.json
-          DEPLOY_OUTCOME: ${{ steps.deploy-healthy.outcome }}
-          OBSERVE_OUTCOME: ${{ steps.observe-healthy.outcome }}
-          FIXTURE_COMMIT: ${{ steps.fixture.outputs.commit }}
-          OBSERVED_COMMIT_ID: ${{ steps.observe-healthy.outputs.commit_id }}
-          OBSERVED_DEPLOYMENT_ID: ${{ steps.observe-healthy.outputs.deployment_id }}
+          DEPLOY_HEALTHY_OUTCOME: ${{ steps.deploy-healthy.outcome }}
+          OBSERVE_HEALTHY_OUTCOME: ${{ steps.observe-healthy.outcome }}
+          HEALTHY_COMMIT: ${{ steps.fixture.outputs.commit }}
+          HEALTHY_OBSERVED_COMMIT_ID: ${{ steps.observe-healthy.outputs.commit_id }}
+          HEALTHY_OBSERVED_DEPLOYMENT_ID: ${{ steps.observe-healthy.outputs.deployment_id }}
+          DEPLOY_ENV_OUTCOME: ${{ steps.deploy-env.outcome }}
+          OBSERVE_ENV_OUTCOME: ${{ steps.observe-env.outcome }}
+          VERIFY_ENV_LOG_OUTCOME: ${{ steps.verify-env-log.outcome }}
+          ENV_COMMIT: ${{ steps.second-healthy.outputs.commit }}
+          ENV_OBSERVED_COMMIT_ID: ${{ steps.observe-env.outputs.commit_id }}
+          ENV_OBSERVED_DEPLOYMENT_ID: ${{ steps.observe-env.outputs.deployment_id }}
         run: |
           node --input-type=module <<'EOF'
           import { readFile } from 'node:fs/promises'
@@ -451,11 +632,6 @@ jobs:
 
           const appIdFile = process.env.APP_ID_FILE
           const resultsPath = process.env.RESULTS_PATH
-          const deployOutcome = process.env.DEPLOY_OUTCOME
-          const observeOutcome = process.env.OBSERVE_OUTCOME
-          const fixtureCommit = process.env.FIXTURE_COMMIT
-          const observedCommitID = process.env.OBSERVED_COMMIT_ID
-          const observedDeploymentID = process.env.OBSERVED_DEPLOYMENT_ID
 
           if (!appIdFile || !resultsPath) {
             throw new Error('Missing structured results inputs')
@@ -480,12 +656,13 @@ jobs:
             }
           }
 
-          const outcome =
-            observeOutcome === 'success'
+          function scenarioOutcome(...outcomes) {
+            return outcomes.every(outcome => outcome === 'success')
               ? 'success'
-              : deployOutcome === 'skipped' && observeOutcome === 'skipped'
+              : outcomes.every(outcome => outcome === 'skipped')
                 ? 'skipped'
                 : 'failure'
+          }
 
           await writeSuiteResults(
             resultsPath,
@@ -494,10 +671,30 @@ jobs:
               scenarios: [
                 {
                   name: 'deploy-healthy-fixture-commit',
-                  outcome,
-                  commitId: observedCommitID || fixtureCommit || null,
-                  deploymentId: observedDeploymentID || null,
+                  outcome: scenarioOutcome(
+                    process.env.DEPLOY_HEALTHY_OUTCOME,
+                    process.env.OBSERVE_HEALTHY_OUTCOME
+                  ),
+                  commitId:
+                    process.env.HEALTHY_OBSERVED_COMMIT_ID ||
+                    process.env.HEALTHY_COMMIT ||
+                    null,
+                  deploymentId: process.env.HEALTHY_OBSERVED_DEPLOYMENT_ID || null,
                   candidateActionLogs: ['candidate-action/001-deploy-healthy.log']
+                },
+                {
+                  name: 'deploy-healthy-fixture-env-check',
+                  outcome: scenarioOutcome(
+                    process.env.DEPLOY_ENV_OUTCOME,
+                    process.env.OBSERVE_ENV_OUTCOME,
+                    process.env.VERIFY_ENV_LOG_OUTCOME
+                  ),
+                  commitId:
+                    process.env.ENV_OBSERVED_COMMIT_ID ||
+                    process.env.ENV_COMMIT ||
+                    null,
+                  deploymentId: process.env.ENV_OBSERVED_DEPLOYMENT_ID || null,
+                  candidateActionLogs: ['candidate-action/002-deploy-env.log']
                 }
               ]
             })
@@ -513,6 +710,7 @@ jobs:
           OUTPUT_DIR: ${{ github.workspace }}/.e2e-artifacts/upload
           RESULTS_PATH: ${{ github.workspace }}/.e2e-state/suite-results.json
           HEALTHY_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/001-deploy-healthy.log
+          ENV_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/002-deploy-env.log
         run: |
           node --input-type=module <<'EOF'
           import { constants } from 'node:fs'
@@ -522,10 +720,18 @@ jobs:
           const outputDir = process.env.OUTPUT_DIR
           const resultsPath = process.env.RESULTS_PATH
           const healthyLogPath = process.env.HEALTHY_LOG_PATH
+          const envLogPath = process.env.ENV_LOG_PATH
           const token = process.env.CLEVER_TOKEN
           const secret = process.env.CLEVER_SECRET
 
-          if (!outputDir || !resultsPath || !healthyLogPath || !token || !secret) {
+          if (
+            !outputDir ||
+            !resultsPath ||
+            !healthyLogPath ||
+            !envLogPath ||
+            !token ||
+            !secret
+          ) {
             throw new Error('Missing failure evidence inputs')
           }
 
@@ -536,15 +742,23 @@ jobs:
             }
           ]
 
-          try {
-            await access(healthyLogPath, constants.F_OK)
-            candidates.push({
+          for (const logCandidate of [
+            {
               sourcePath: healthyLogPath,
               artifactPath: 'candidate-action/001-deploy-healthy.log'
-            })
-          } catch (error) {
-            if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') {
-              throw error
+            },
+            {
+              sourcePath: envLogPath,
+              artifactPath: 'candidate-action/002-deploy-env.log'
+            }
+          ]) {
+            try {
+              await access(logCandidate.sourcePath, constants.F_OK)
+              candidates.push(logCandidate)
+            } catch (error) {
+              if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') {
+                throw error
+              }
             }
           }
 

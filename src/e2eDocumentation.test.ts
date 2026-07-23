@@ -26,5 +26,8 @@ describe('e2e documentation', () => {
     expect(operationsGuide).toContain('clever-cloud-e2e-failure-<run-id>-<attempt>')
     expect(operationsGuide).toContain('suite-results.json')
     expect(operationsGuide).toContain('candidate-action/001-deploy-healthy.log')
+    expect(operationsGuide).toContain('candidate-action/002-deploy-env.log')
+    expect(operationsGuide).toContain('16-byte base64 value')
+    expect(operationsGuide).toContain('without printing it')
   })
 })

@@ -57,6 +57,13 @@ type ListedOrganisation = {
   applications?: ListedApplication[]
 }
 
+type ListedEnvironment = {
+  env?: Array<{
+    name?: string
+    value?: string
+  }>
+}
+
 const APP_ID_REGEX =
   /^app_[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/
 const COMMAND_TIMEOUT_MS = 30_000
@@ -197,6 +204,19 @@ export function createCleverController({
         await sleep(pollIntervalMs)
         elapsedMs += pollIntervalMs
       }
+    },
+
+    async getEnvironmentValue(appId: string, name: string): Promise<string | null> {
+      const result = await runCommand(
+        cleverCLI,
+        ['env', '--app', appId, '--format', 'json'],
+        { timeoutMs: COMMAND_TIMEOUT_MS }
+      )
+
+      const environment = JSON.parse(result.stdout) as ListedEnvironment
+      const match = environment.env?.find(variable => variable.name === name)
+
+      return typeof match?.value === 'string' ? match.value : null
     },
 
     async getApplication(appId: string): Promise<RetrievedApplication> {

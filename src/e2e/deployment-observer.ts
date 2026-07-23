@@ -1,4 +1,8 @@
 import type { FixtureHealth } from './fixture-app'
+import {
+  assertMatchingHealthValue,
+  HEALTH_VALUE_ENV_NAME
+} from './health-value'
 
 type Sleep = (timeoutMs: number) => Promise<void>
 
@@ -6,6 +10,7 @@ type DeploymentActivity = {
   action?: string
   state?: string
   uuid?: string
+  commit?: string
 }
 
 type HealthResponse = {
@@ -25,6 +30,8 @@ export async function waitForHealthyDeployment({
   expectedCommitID,
   listActivity,
   fetchHealth,
+  lookupEnvironmentValue,
+  expectedHealthValue,
   sleep = defaultSleep,
   settleTimeoutMs = DEFAULT_SETTLE_TIMEOUT_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
@@ -36,6 +43,8 @@ export async function waitForHealthyDeployment({
   expectedCommitID: string
   listActivity: (appId: string) => Promise<DeploymentActivity[]>
   fetchHealth: (url: string) => Promise<HealthResponse>
+  lookupEnvironmentValue?: (appId: string, name: string) => Promise<string | null>
+  expectedHealthValue?: string
   sleep?: Sleep
   settleTimeoutMs?: number
   pollIntervalMs?: number
@@ -46,7 +55,9 @@ export async function waitForHealthyDeployment({
 
   for (;;) {
     const activity = await listActivity(appId)
-    const deployment = activity.find(entry => entry.action === 'DEPLOY')
+    const deployment = activity.find(
+      entry => entry.action === 'DEPLOY' && entry.commit === expectedCommitID
+    )
 
     if (deployment && SUCCESS_STATES.has(deployment.state ?? '')) {
       try {
@@ -69,6 +80,25 @@ export async function waitForHealthyDeployment({
           } else if (health.CC_COMMIT_ID !== expectedCommitID) {
             lastHealthError =
               `Expected commit ${expectedCommitID}, got ${health.CC_COMMIT_ID ?? '(missing)'}`
+          } else if (expectedHealthValue) {
+            const remoteValue = lookupEnvironmentValue
+              ? await withTimeout(
+                  lookupEnvironmentValue(appId, HEALTH_VALUE_ENV_NAME),
+                  healthCheckTimeoutMs,
+                  `Timed out while waiting for ${HEALTH_VALUE_ENV_NAME} from ${appId}`
+                )
+              : null
+
+            try {
+              assertMatchingHealthValue({
+                expectedValue: expectedHealthValue,
+                publicValue: health.healthValue,
+                remoteValue
+              })
+              return health
+            } catch (error) {
+              lastHealthError = error instanceof Error ? error.message : String(error)
+            }
           } else {
             return health
           }
@@ -102,6 +132,7 @@ function parseFixtureHealth(value: unknown): FixtureHealth {
   const record = value as Record<string, unknown>
   const allowedKeys = [
     'scenario',
+    'healthValue',
     'INSTANCE_ID',
     'INSTANCE_TYPE',
     'CC_DEPLOYMENT_ID',
@@ -120,6 +151,7 @@ function parseFixtureHealth(value: unknown): FixtureHealth {
 
   return {
     scenario: record.scenario,
+    healthValue: readNullableString(record.healthValue),
     INSTANCE_ID: readNullableString(record.INSTANCE_ID),
     INSTANCE_TYPE: readNullableString(record.INSTANCE_TYPE),
     CC_DEPLOYMENT_ID: readNullableString(record.CC_DEPLOYMENT_ID),

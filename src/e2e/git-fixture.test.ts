@@ -7,7 +7,7 @@ import { once } from 'node:events'
 import { createServer } from 'node:net'
 import { promisify } from 'node:util'
 import { afterEach, expect, test } from 'vitest'
-import { createFixtureRepository } from './git-fixture'
+import { createFixtureRepository, createHealthyFixtureCommit } from './git-fixture'
 
 const execFileAsync = promisify(execFile)
 const temporaryDirectories: string[] = []
@@ -104,7 +104,13 @@ test('creates a fresh non-shallow fixture repository and keeps support files ign
   )
   await expect(runGit(workspaceDir, ['branch', '--show-current'])).resolves.toBe('master')
   await expect(runGit(workspaceDir, ['ls-files'])).resolves.toBe(
-    ['.gitignore', 'package.json', 'server.mjs'].join('\n')
+    [
+      '.gitignore',
+      'fixture-version.txt',
+      'package.json',
+      'scripts/postinstall-marker.mjs',
+      'server.mjs'
+    ].join('\n')
   )
   await expect(runGit(workspaceDir, ['status', '--short', '--ignored'])).resolves.toContain(
     '!! .candidate-source/'
@@ -117,6 +123,25 @@ test('creates a fresh non-shallow fixture repository and keeps support files ign
   )
   expect(existsSync(path.join(workspaceDir, '.clever.json'))).toBe(false)
   expect(existsSync(path.join(workspaceDir, 'unexpected.txt'))).toBe(false)
+})
+
+test('creates a controlled second healthy commit for later deployments', async () => {
+  const workspaceDir = await createTemporaryWorkspace()
+  await mkdir(path.join(workspaceDir, '.candidate-source'), { recursive: true })
+  await mkdir(path.join(workspaceDir, '.candidate-action'), { recursive: true })
+  await createFixtureRepository({ workspaceDir })
+  const firstCommit = await runGit(workspaceDir, ['rev-parse', 'HEAD'])
+
+  const secondCommit = await createHealthyFixtureCommit({
+    workspaceDir,
+    label: 'healthy-2'
+  })
+
+  expect(secondCommit).not.toBe(firstCommit)
+  await expect(runGit(workspaceDir, ['rev-list', '--count', 'HEAD'])).resolves.toBe('2')
+  await expect(runGit(workspaceDir, ['show', 'HEAD:fixture-version.txt'])).resolves.toBe(
+    'healthy-2'
+  )
 })
 
 test('runs the generated fixture server with the expected health contract and markers', async () => {
@@ -138,6 +163,7 @@ test('runs the generated fixture server with the expected health contract and ma
       INSTANCE_TYPE: 'production',
       CC_DEPLOYMENT_ID: 'deployment-123',
       CC_COMMIT_ID: 'commit-123',
+      E2E_HEALTH_VALUE: 'ABEiM0RVZneImaq7zN3u/w==',
       SECRET_SHOULD_NOT_LEAK: 'top-secret'
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -155,6 +181,7 @@ test('runs the generated fixture server with the expected health contract and ma
   expect(response.status).toBe(200)
   await expect(response.json()).resolves.toEqual({
     scenario: 'healthy',
+    healthValue: 'ABEiM0RVZneImaq7zN3u/w==',
     INSTANCE_ID: 'instance-123',
     INSTANCE_TYPE: 'production',
     CC_DEPLOYMENT_ID: 'deployment-123',
@@ -163,4 +190,5 @@ test('runs the generated fixture server with the expected health contract and ma
   expect(stdout).toContain('fixture-start')
   expect(stdout).toContain('fixture-ready')
   expect(stdout).not.toContain('top-secret')
+  expect(stdout).not.toContain('ABEiM0RVZneImaq7zN3u/w==')
 })

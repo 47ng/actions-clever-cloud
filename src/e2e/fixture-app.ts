@@ -1,21 +1,26 @@
 import { createServer } from 'node:http'
 
+export const FIXTURE_BUILD_MARKER = 'fixture-build'
 export const FIXTURE_READY_MARKER = 'fixture-ready'
 export const FIXTURE_START_MARKER = 'fixture-start'
 
 export type FixtureHealth = {
   scenario: string
+  healthValue: string | null
   INSTANCE_ID: string | null
   INSTANCE_TYPE: string | null
   CC_DEPLOYMENT_ID: string | null
   CC_COMMIT_ID: string | null
 }
 
+type FixtureLogState = Omit<FixtureHealth, 'healthValue'>
+
 export function readFixtureHealth(
   env: NodeJS.ProcessEnv = process.env
 ): FixtureHealth {
   return {
     scenario: env.E2E_SCENARIO ?? 'healthy',
+    healthValue: env.E2E_HEALTH_VALUE ?? null,
     INSTANCE_ID: env.INSTANCE_ID ?? null,
     INSTANCE_TYPE: env.INSTANCE_TYPE ?? null,
     CC_DEPLOYMENT_ID: env.CC_DEPLOYMENT_ID ?? null,
@@ -34,6 +39,14 @@ export async function startFixtureApp(
   }
 
   const health = readFixtureHealth(env)
+  const loggedHealth: FixtureLogState = {
+    scenario: health.scenario,
+    INSTANCE_ID: health.INSTANCE_ID,
+    INSTANCE_TYPE: health.INSTANCE_TYPE,
+    CC_DEPLOYMENT_ID: health.CC_DEPLOYMENT_ID,
+    CC_COMMIT_ID: health.CC_COMMIT_ID
+  }
+
   const server = createServer((request, response) => {
     if (request.url !== '/health') {
       response.writeHead(404)
@@ -48,7 +61,7 @@ export async function startFixtureApp(
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
     server.listen(port, '0.0.0.0', () => {
-      console.log(FIXTURE_START_MARKER, JSON.stringify(health))
+      console.log(FIXTURE_START_MARKER, JSON.stringify(loggedHealth))
       console.log(FIXTURE_READY_MARKER, port)
       resolve()
     })
