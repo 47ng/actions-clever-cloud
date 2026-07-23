@@ -269,15 +269,13 @@ jobs:
         if: steps.existing.outputs.image == ''
         id: package
         run: |
-          VERSION=$(jq -r '
+          if ! VERSION=$(jq -r '
             .version |
             if test("^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$")
             then .
             else error("Invalid semver format in package.json")
             end
-          ' package.json 2>&1)
-
-          if [ $? -ne 0 ]; then
+          ' package.json 2>&1); then
             echo "::error::$VERSION"
             exit 1
           fi
@@ -424,6 +422,7 @@ jobs:
     with:
       head_sha: ${{ needs.resolve.outputs.head_sha }}
       pr_number: ${{ needs.resolve.outputs.pr_number }}
+      candidate_digest: ${{ needs.candidate.outputs.digest }}
       candidate_image: ${{ needs.candidate.outputs.image }}
       candidate_source_repository: ${{ needs.resolve.outputs.candidate_source_repository }}
       caller: automatic

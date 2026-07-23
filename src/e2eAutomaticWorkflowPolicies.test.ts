@@ -69,6 +69,9 @@ describe('automatic e2e workflow policies', () => {
       'cache-to: type=gha,mode=max,scope=pr-preview-internal-${{ needs.resolve.outputs.pr_number }}'
     )
     expect(automaticWorkflow).toContain(
+      'candidate_digest: ${{ needs.candidate.outputs.digest }}'
+    )
+    expect(automaticWorkflow).toContain(
       'candidate_image: ${{ needs.candidate.outputs.image }}'
     )
     expect(automaticWorkflow).toContain(

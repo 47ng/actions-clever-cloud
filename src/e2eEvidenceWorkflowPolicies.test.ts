@@ -11,6 +11,7 @@ const reusableWorkflow = readProjectFile('../.github/workflows/e2e-reusable.yml'
 describe('e2e failure evidence workflow policies', () => {
   test('the reusable workflow writes structured results, prepares safe failure evidence inside teardown, and uploads only verified failure artifacts without credentials', () => {
     expect(reusableWorkflow).toContain('name: Prepare evidence directories')
+    expect(reusableWorkflow).toContain('candidate_digest:')
     expect(reusableWorkflow).toContain('name: Write structured scenario results')
     expect(reusableWorkflow).toContain(
       "import {\n            buildExpectedFailureOutcome,\n            buildSuccessfulScenarioOutcome,\n            buildSuiteResults,\n            writeSuiteResults\n          } from './.candidate-source/src/e2e/evidence.ts'"
@@ -23,12 +24,18 @@ describe('e2e failure evidence workflow policies', () => {
     expect(reusableWorkflow).not.toContain('name: Prepare failure evidence')
     expect(reusableWorkflow).not.toContain('name: Verify failure evidence after teardown')
     expect(reusableWorkflow).toContain('id: delete-app')
+    expect(reusableWorkflow).toContain('HEAD_SHA: ${{ inputs.head_sha }}')
+    expect(reusableWorkflow).toContain('CANDIDATE_DIGEST: ${{ inputs.candidate_digest }}')
+    expect(reusableWorkflow).toContain('CANDIDATE_IMAGE: ${{ inputs.candidate_image }}')
     expect(reusableWorkflow).toContain('failure_evidence_ready=true')
     expect(reusableWorkflow).toContain('name: Write GitHub step summary')
     expect(reusableWorkflow).toContain(
       "import { buildSuiteStepSummary } from './.candidate-source/src/e2e/evidence.ts'"
     )
     expect(reusableWorkflow).toContain('GITHUB_STEP_SUMMARY')
+    expect(reusableWorkflow).toContain('headSha,')
+    expect(reusableWorkflow).toContain('imageDigest: candidateDigest')
+    expect(reusableWorkflow).toContain('imageReference: candidateImage')
     expect(reusableWorkflow).toContain("steps.delete-app.outputs.failure_evidence_ready == 'true'")
     expect(reusableWorkflow).toContain('name: Upload failure evidence')
     expect(reusableWorkflow).toContain('logFile: .e2e-artifacts/candidate-action/001-deploy-healthy.log')
@@ -64,6 +71,7 @@ describe('e2e failure evidence workflow policies', () => {
     expect(reusableWorkflow).toContain('candidate-action/012-timeout.log')
     expect(reusableWorkflow).toContain('retention-days: 3')
     expect(reusableWorkflow).toContain('name: clever-cloud-e2e-failure-${{ github.run_id }}-${{ github.run_attempt }}')
+    expect(reusableWorkflow).toContain("artifactPath: 'suite-results.json'")
     expect(reusableWorkflow).toContain('uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3')
     expect(reusableWorkflow).not.toContain(
       "import { prepareFailureEvidence } from './.candidate-source/src/e2e/evidence.ts'"
@@ -96,5 +104,6 @@ describe('e2e failure evidence workflow policies', () => {
     const uploadStep = reusableWorkflow.slice(uploadIndex, reusableWorkflow.length)
     expect(uploadStep).not.toContain('CLEVER_TOKEN')
     expect(uploadStep).not.toContain('CLEVER_SECRET')
+    expect(uploadStep).not.toContain('E2E_HEALTH_VALUE')
   })
 })

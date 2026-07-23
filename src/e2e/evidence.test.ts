@@ -49,6 +49,12 @@ test('writes structured results with scenario outcomes, app identity, commit IDs
   const resultsPath = path.join(directory, 'suite-results.json')
 
   const results = buildSuiteResults({
+    candidate: {
+      headSha: '0123456789abcdef0123456789abcdef01234567',
+      imageDigest: `sha256:${'a'.repeat(64)}`,
+      imageReference:
+        'ghcr.io/47ng/actions-clever-cloud@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    },
     app: {
       id: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
       name: 'actions-clever-cloud-e2e-123-4'
@@ -69,6 +75,12 @@ test('writes structured results with scenario outcomes, app identity, commit IDs
   await writeSuiteResults(resultsPath, results)
 
   await expect(readFile(resultsPath, 'utf8').then(JSON.parse)).resolves.toEqual({
+    candidate: {
+      headSha: '0123456789abcdef0123456789abcdef01234567',
+      imageDigest: `sha256:${'a'.repeat(64)}`,
+      imageReference:
+        'ghcr.io/47ng/actions-clever-cloud@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    },
     app: {
       id: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
       name: 'actions-clever-cloud-e2e-123-4'
@@ -90,6 +102,12 @@ test('writes structured results with scenario outcomes, app identity, commit IDs
 test('builds a safe GitHub step summary with app identity and per-scenario outcomes', () => {
   const summary = buildSuiteStepSummary({
     suiteResults: buildSuiteResults({
+      candidate: {
+        headSha: '0123456789abcdef0123456789abcdef01234567',
+        imageDigest: `sha256:${'b'.repeat(64)}`,
+        imageReference:
+          'ghcr.io/47ng/actions-clever-cloud@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+      },
       app: {
         id: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
         name: 'actions|clever\n<script>alert(1)</script>'
@@ -122,6 +140,13 @@ test('builds a safe GitHub step summary with app identity and per-scenario outco
 
   expect(summary).toContain('# Clever Cloud E2E summary')
   expect(summary).toContain('Caller: manual')
+  expect(summary).toContain(
+    'Candidate head SHA: 0123456789abcdef0123456789abcdef01234567'
+  )
+  expect(summary).toContain(`Candidate image digest: sha256:${'b'.repeat(64)}`)
+  expect(summary).toContain(
+    'Candidate image reference: ghcr.io/47ng/actions-clever-cloud@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+  )
   expect(summary).toContain('actions|clever<br>&lt;script&gt;alert(1)&lt;/script&gt;')
   expect(summary).toContain('app_facade42-cafe-babe-cafe-deadf00dbaad')
   expect(summary).toContain('| deploy\\|healthy<br>fixture | success | commit\\|123 |')
@@ -136,6 +161,12 @@ test('rejects malformed suite results before writing the GitHub step summary', (
   expect(() =>
     buildSuiteStepSummary({
       suiteResults: {
+        candidate: {
+          headSha: '0123456789abcdef0123456789abcdef01234567',
+          imageDigest: `sha256:${'c'.repeat(64)}`,
+          imageReference:
+            'ghcr.io/47ng/actions-clever-cloud@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
+        },
         app: {
           id: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
           name: 'actions-clever-cloud-e2e-123-4'

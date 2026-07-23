@@ -193,6 +193,7 @@ jobs:
     with:
       head_sha: ${{ needs.resolve.outputs.head_sha }}
       pr_number: ${{ needs.resolve.outputs.pr_number }}
+      candidate_digest: ${{ needs.candidate.outputs.digest }}
       candidate_image: ${{ needs.candidate.outputs.image }}
       candidate_source_repository: ${{ needs.resolve.outputs.candidate_source_repository }}
       caller: manual

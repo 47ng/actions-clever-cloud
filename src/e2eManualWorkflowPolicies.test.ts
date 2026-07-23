@@ -22,6 +22,7 @@ describe('manual e2e workflow policies', () => {
     expect(manualWorkflow).not.toContain("import { inspectCandidateImage } from './src/e2e/candidate-image.ts'")
     expect(manualWorkflow).toContain('org.opencontainers.image.revision')
     expect(manualWorkflow).toContain('org.opencontainers.image.source')
+    expect(manualWorkflow).toContain('candidate_digest: ${{ needs.candidate.outputs.digest }}')
     expect(manualWorkflow).toContain('candidate_image: ${{ needs.candidate.outputs.image }}')
     expect(manualWorkflow).toContain(
       'candidate_source_repository: ${{ needs.resolve.outputs.candidate_source_repository }}'
@@ -33,6 +34,7 @@ describe('manual e2e workflow policies', () => {
 
   test('the reusable workflow keeps credentials step-scoped, accepts typed candidate identity inputs, handles stale manual and automatic callers safely, and tears down by exact app ID', () => {
     expect(reusableWorkflow).toMatch(/^permissions: \{\}$/m)
+    expect(reusableWorkflow).toContain('candidate_digest:')
     expect(reusableWorkflow).toContain('candidate_image:')
     expect(reusableWorkflow).toContain('candidate_source_repository:')
     expect(reusableWorkflow).toContain('caller:')
@@ -45,6 +47,7 @@ describe('manual e2e workflow policies', () => {
     expect(reusableWorkflow).toContain('pnpm install --frozen-lockfile --ignore-scripts')
     expect(reusableWorkflow).toContain("persist-credentials: false")
     expect(reusableWorkflow).toContain("OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml")
+    expect(reusableWorkflow).toContain("CANDIDATE_DIGEST: ${{ inputs.candidate_digest }}")
     expect(reusableWorkflow).toContain("CANDIDATE_IMAGE: ${{ inputs.candidate_image }}")
     expect(reusableWorkflow).toContain("import { pinActionMetadata } from './.candidate-source/src/e2e/candidate-image.ts'")
     expect(reusableWorkflow).not.toContain("import { inspectCandidateImage, pinActionMetadata } from './.candidate-source/src/e2e/candidate-image.ts'")
@@ -108,6 +111,9 @@ describe('manual e2e workflow policies', () => {
     expect(reusableWorkflow).toContain(
       'await controller.deleteApplication({\n              appId: application.appId,\n              name: application.name,'
     )
+    expect(reusableWorkflow).toContain('HEAD_SHA: ${{ inputs.head_sha }}')
+    expect(reusableWorkflow).toContain('CANDIDATE_DIGEST: ${{ inputs.candidate_digest }}')
+    expect(reusableWorkflow).toContain('CANDIDATE_IMAGE: ${{ inputs.candidate_image }}')
     expect(reusableWorkflow).toContain('CALLER: ${{ inputs.caller }}')
     expect(reusableWorkflow).toContain('pr.head.sha !== headSha')
     expect(reusableWorkflow).toContain('caller === \"automatic\"')

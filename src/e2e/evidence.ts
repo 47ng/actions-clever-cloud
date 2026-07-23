@@ -3,10 +3,19 @@ import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 const REDACTION = '[REDACTED]'
+const HEAD_SHA_REGEX = /^[0-9a-f]{40}$/
+const IMAGE_DIGEST_REGEX = /^sha256:[0-9a-f]{64}$/
+const IMAGE_REFERENCE_REGEX =
+  /^ghcr\.io\/47ng\/actions-clever-cloud@sha256:[0-9a-f]{64}$/
 
 type StepOutcome = 'success' | 'failure' | 'skipped' | string | undefined
 
 export type SuiteResults = {
+  candidate: {
+    headSha: string | null
+    imageDigest: string | null
+    imageReference: string | null
+  }
   app: {
     id: string | null
     name: string | null
@@ -70,6 +79,9 @@ export function buildSuiteStepSummary({
     '# Clever Cloud E2E summary',
     '',
     `Caller: ${escapeSummaryText(caller)}`,
+    `Candidate head SHA: ${escapeSummaryText(normalizedSuiteResults.candidate.headSha ?? '(unavailable)')}`,
+    `Candidate image digest: ${escapeSummaryText(normalizedSuiteResults.candidate.imageDigest ?? '(unavailable)')}`,
+    `Candidate image reference: ${escapeSummaryText(normalizedSuiteResults.candidate.imageReference ?? '(unavailable)')}`,
     `App name: ${escapeSummaryText(normalizedSuiteResults.app.name ?? '(unavailable)')}`,
     `App ID: ${escapeSummaryText(normalizedSuiteResults.app.id ?? '(unavailable)')}`,
     `Teardown: ${escapeSummaryText(teardownOutcome)}`,
@@ -190,7 +202,43 @@ function normalizeSuiteResults(value: unknown): SuiteResults {
     throw new Error('suite results.scenarios must be an array')
   }
 
+  const candidateRecord = readRecord(record.candidate, 'suite results.candidate')
+  const headSha = readNullableString(
+    candidateRecord.headSha,
+    'suite results.candidate.headSha'
+  )
+  const imageDigest = readNullableString(
+    candidateRecord.imageDigest,
+    'suite results.candidate.imageDigest'
+  )
+  const imageReference = readNullableString(
+    candidateRecord.imageReference,
+    'suite results.candidate.imageReference'
+  )
+
+  if (headSha !== null && !HEAD_SHA_REGEX.test(headSha)) {
+    throw new Error('suite results.candidate.headSha must be a full lowercase hex commit SHA')
+  }
+
+  if (imageDigest !== null && !IMAGE_DIGEST_REGEX.test(imageDigest)) {
+    throw new Error('suite results.candidate.imageDigest must be a canonical sha256 digest')
+  }
+
+  if (
+    imageReference !== null &&
+    !IMAGE_REFERENCE_REGEX.test(imageReference)
+  ) {
+    throw new Error(
+      'suite results.candidate.imageReference must be pinned to the trusted candidate image digest'
+    )
+  }
+
   return {
+    candidate: {
+      headSha,
+      imageDigest,
+      imageReference
+    },
     app: {
       id: readNullableString(appRecord.id, 'suite results.app.id'),
       name: readNullableString(appRecord.name, 'suite results.app.name')

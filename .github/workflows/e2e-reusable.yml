@@ -9,6 +9,9 @@ on:
       pr_number:
         required: true
         type: string
+      candidate_digest:
+        required: true
+        type: string
       candidate_image:
         required: true
         type: string
@@ -39,6 +42,7 @@ jobs:
         env:
           HEAD_SHA: ${{ inputs.head_sha }}
           PR_NUMBER: ${{ inputs.pr_number }}
+          CANDIDATE_DIGEST: ${{ inputs.candidate_digest }}
           CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
           CANDIDATE_SOURCE_REPOSITORY: ${{ inputs.candidate_source_repository }}
           CALLER: ${{ inputs.caller }}
@@ -46,6 +50,7 @@ jobs:
           node --input-type=module <<'EOF'
           const headSha = process.env.HEAD_SHA
           const prNumber = process.env.PR_NUMBER
+          const candidateDigest = process.env.CANDIDATE_DIGEST
           const candidateImage = process.env.CANDIDATE_IMAGE
           const candidateSourceRepository = process.env.CANDIDATE_SOURCE_REPOSITORY
           const caller = process.env.CALLER
@@ -59,8 +64,18 @@ jobs:
             throw new Error('pr_number must be a decimal pull request number.')
           }
 
+          if (!/^sha256:[0-9a-f]{64}$/.test(candidateDigest ?? '')) {
+            throw new Error('candidate_digest must be a canonical sha256 digest.')
+          }
+
           if (!/^ghcr\.io\/47ng\/actions-clever-cloud@sha256:[0-9a-f]{64}$/.test(candidateImage ?? '')) {
             throw new Error('candidate_image must be pinned to a canonical sha256 digest.')
+          }
+
+          if (!candidateImage?.endsWith(`@${candidateDigest}`)) {
+            throw new Error(
+              `candidate_image must end with ${candidateDigest}, got ${candidateImage ?? '(missing)'}`
+            )
           }
 
           if (!thisRepo || candidateSourceRepository !== thisRepo) {
@@ -2117,6 +2132,9 @@ jobs:
         env:
           APP_ID_FILE: ${{ github.workspace }}/.e2e-state/app.json
           RESULTS_PATH: ${{ github.workspace }}/.e2e-state/suite-results.json
+          HEAD_SHA: ${{ inputs.head_sha }}
+          CANDIDATE_DIGEST: ${{ inputs.candidate_digest }}
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
           DEPLOY_HEALTHY_OUTCOME: ${{ steps.deploy-healthy.outcome }}
           OBSERVE_HEALTHY_OUTCOME: ${{ steps.observe-healthy.outcome }}
           HEALTHY_COMMIT: ${{ steps.fixture.outputs.commit }}
@@ -2201,8 +2219,17 @@ jobs:
 
           const appIdFile = process.env.APP_ID_FILE
           const resultsPath = process.env.RESULTS_PATH
+          const headSha = process.env.HEAD_SHA
+          const candidateDigest = process.env.CANDIDATE_DIGEST
+          const candidateImage = process.env.CANDIDATE_IMAGE
 
-          if (!appIdFile || !resultsPath) {
+          if (
+            !appIdFile ||
+            !resultsPath ||
+            !headSha ||
+            !candidateDigest ||
+            !candidateImage
+          ) {
             throw new Error('Missing structured results inputs')
           }
 
@@ -2228,6 +2255,11 @@ jobs:
           await writeSuiteResults(
             resultsPath,
             buildSuiteResults({
+              candidate: {
+                headSha,
+                imageDigest: candidateDigest,
+                imageReference: candidateImage
+              },
               app,
               scenarios: [
                 {
@@ -2990,6 +3022,9 @@ jobs:
         if: always() && steps.candidate-state.outputs.proceed == 'true'
         env:
           RESULTS_PATH: ${{ github.workspace }}/.e2e-state/suite-results.json
+          HEAD_SHA: ${{ inputs.head_sha }}
+          CANDIDATE_DIGEST: ${{ inputs.candidate_digest }}
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
           CALLER: ${{ inputs.caller }}
           TEARDOWN_OUTCOME: ${{ steps.delete-app.outcome }}
           FAILURE_EVIDENCE_READY: ${{ steps.delete-app.outputs.failure_evidence_ready }}
@@ -2999,15 +3034,31 @@ jobs:
           import { buildSuiteStepSummary } from './.candidate-source/src/e2e/evidence.ts'
 
           const resultsPath = process.env.RESULTS_PATH
+          const headSha = process.env.HEAD_SHA
+          const candidateDigest = process.env.CANDIDATE_DIGEST
+          const candidateImage = process.env.CANDIDATE_IMAGE
           const caller = process.env.CALLER
           const teardownOutcome = process.env.TEARDOWN_OUTCOME
           const summaryPath = process.env.GITHUB_STEP_SUMMARY
 
-          if (!resultsPath || !caller || !teardownOutcome || !summaryPath) {
+          if (
+            !resultsPath ||
+            !headSha ||
+            !candidateDigest ||
+            !candidateImage ||
+            !caller ||
+            !teardownOutcome ||
+            !summaryPath
+          ) {
             throw new Error('Missing GitHub step summary inputs')
           }
 
           let suiteResults = {
+            candidate: {
+              headSha,
+              imageDigest: candidateDigest,
+              imageReference: candidateImage,
+            },
             app: {
               id: null,
               name: null,
