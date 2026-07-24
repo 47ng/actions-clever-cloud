@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.5](https://github.com/47ng/actions-clever-cloud/compare/v2.1.4...v2.1.5) (2026-07-24)
+
+
+### Bug Fixes
+
+* keep the deploy alive when a console log sink dies ([#269](https://github.com/47ng/actions-clever-cloud/issues/269)) ([2240d82](https://github.com/47ng/actions-clever-cloud/commit/2240d82dc6bc2ba7d1eded9e40927ee8d068c897)), closes [#257](https://github.com/47ng/actions-clever-cloud/issues/257)
+
 ## [2.1.4](https://github.com/47ng/actions-clever-cloud/compare/v2.1.3...v2.1.4) (2026-07-23)
 
 
