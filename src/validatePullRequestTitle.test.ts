@@ -25,7 +25,10 @@ const releasePleaseConfig = JSON.parse(
 const commitTypes = releasePleaseConfig['changelog-sections'].map(
   section => section.type
 )
-const commitType = commitTypes[0]
+const [commitType] = commitTypes
+if (commitType === undefined) {
+  throw new Error('release-please-config.json defines no changelog sections')
+}
 let unsupportedType = 'unknown'
 while (commitTypes.includes(unsupportedType)) {
   unsupportedType = `${unsupportedType}-unknown`

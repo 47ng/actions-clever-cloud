@@ -1,0 +1,209 @@
+name: Clever Cloud E2E (Release Please)
+
+on:
+  repository_dispatch:
+    types: [release-please-candidate]
+  pull_request_target:
+    types: [reopened, ready_for_review]
+    paths:
+      - 'src/**/*.ts'
+      - '!src/**/*.test.ts'
+      - 'Dockerfile'
+      - 'action.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.json'
+      - '.github/workflows/pr-preview.yml'
+      - '.github/workflows/pr-preview-manual.yml'
+      - '.github/workflows/*e2e*.yml'
+
+permissions: {}
+
+concurrency:
+  group: clever-cloud-e2e-release-please-${{ github.event.client_payload.pr_number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve eligible Release Please candidate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      proceed: ${{ steps.identity.outputs.proceed }}
+      head_sha: ${{ steps.identity.outputs.head_sha }}
+      pr_number: ${{ steps.identity.outputs.pr_number }}
+      candidate_source_repository: ${{ steps.identity.outputs.candidate_source_repository }}
+    steps:
+      - name: Checkout trusted workflow definition
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Capture candidate identity
+        id: identity
+        env:
+          PR_NUMBER: ${{ github.event.client_payload.pr_number || github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: node src/e2e/scripts/capture-release-candidate-identity.ts
+
+  current-state:
+    if: needs.resolve.outputs.proceed == 'true'
+    name: Reject stale automatic candidates before image work
+    needs: resolve
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      proceed: ${{ steps.current-state.outputs.proceed }}
+    steps:
+      - name: Checkout trusted workflow definition
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Recheck current pull request state
+        id: current-state
+        env:
+          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          GH_TOKEN: ${{ github.token }}
+        run: node src/e2e/scripts/recheck-release-candidate-freshness.ts
+
+  candidate:
+    name: Resolve or build candidate image
+    if: needs.current-state.outputs.proceed == 'true'
+    needs: [resolve, current-state]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.candidate.outputs.digest }}
+      image: ${{ steps.candidate.outputs.image }}
+    steps:
+      - name: Checkout trusted workflow definition
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Protect trusted verification scripts
+        run: cp -R src/e2e "$RUNNER_TEMP"/trusted-e2e
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Reuse existing verified SHA image when available
+        id: existing
+        env:
+          CANDIDATE_IMAGE: ghcr.io/47ng/actions-clever-cloud:git-${{ needs.resolve.outputs.head_sha }}
+          EXPECTED_REVISION: ${{ needs.resolve.outputs.head_sha }}
+          EXPECTED_SOURCE_REPOSITORY: ${{ needs.resolve.outputs.candidate_source_repository }}
+          TRUSTED_E2E_DIR: ${{ runner.temp }}/trusted-e2e
+        run: node "$TRUSTED_E2E_DIR"/scripts/probe-existing-image.ts
+
+      - name: Checkout candidate source
+        if: steps.existing.outputs.missing == 'true'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.resolve.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: Set up QEMU
+        if: steps.existing.outputs.missing == 'true'
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+
+      - name: Get package version
+        if: steps.existing.outputs.missing == 'true'
+        id: package
+        run: |
+          if ! VERSION=$(jq -r '
+            .version |
+            if test("^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$")
+            then .
+            else error("Invalid semver format in package.json")
+            end
+          ' package.json 2>&1); then
+            echo "::error::$VERSION"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Collect Docker labels & tags
+        if: steps.existing.outputs.missing == 'true'
+        id: docker-labels-tags
+        env:
+          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          {
+            echo 'labels<<__LABELS_EOF__'
+            echo 'org.opencontainers.image.title=47ng/actions-clever-cloud'
+            echo 'org.opencontainers.image.description=GitHub action to deploy to Clever Cloud (PR preview)'
+            echo "org.opencontainers.image.version=${VERSION}-pr.${PR_NUMBER}"
+            echo "org.opencontainers.image.revision=${HEAD_SHA}"
+            echo 'org.opencontainers.image.licenses=MIT'
+            echo "org.opencontainers.image.source=https://github.com/${REPOSITORY}/tree/${HEAD_SHA}"
+            echo "org.opencontainers.image.documentation=https://github.com/${REPOSITORY}/pull/${PR_NUMBER}"
+            echo "org.opencontainers.image.url=https://github.com/${REPOSITORY}/actions/runs/${RUN_ID}"
+            echo '__LABELS_EOF__'
+            echo 'tags<<__TAGS_EOF__'
+            echo "ghcr.io/47ng/actions-clever-cloud:pr-${PR_NUMBER}"
+            echo "ghcr.io/47ng/actions-clever-cloud:git-${HEAD_SHA}"
+            echo '__TAGS_EOF__'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push missing SHA image
+        if: steps.existing.outputs.missing == 'true'
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha,scope=pr-preview-internal-${{ needs.resolve.outputs.pr_number }}
+          cache-to: type=gha,mode=max,scope=pr-preview-internal-${{ needs.resolve.outputs.pr_number }}
+          labels: ${{ steps.docker-labels-tags.outputs.labels }}
+          tags: ${{ steps.docker-labels-tags.outputs.tags }}
+          push: true
+
+      - name: Verify candidate image and pass it by digest
+        id: candidate
+        env:
+          CANDIDATE_IMAGE: ghcr.io/47ng/actions-clever-cloud:git-${{ needs.resolve.outputs.head_sha }}
+          EXPECTED_REVISION: ${{ needs.resolve.outputs.head_sha }}
+          EXPECTED_SOURCE_REPOSITORY: ${{ needs.resolve.outputs.candidate_source_repository }}
+          TRUSTED_E2E_DIR: ${{ runner.temp }}/trusted-e2e
+        run: node "$TRUSTED_E2E_DIR"/scripts/verify-image.ts
+
+  create-and-delete:
+    name: Create and delete app
+    if: needs.current-state.outputs.proceed == 'true'
+    needs: [resolve, current-state, candidate]
+    uses: ./.github/workflows/e2e-reusable.yml
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      head_sha: ${{ needs.resolve.outputs.head_sha }}
+      pr_number: ${{ needs.resolve.outputs.pr_number }}
+      candidate_digest: ${{ needs.candidate.outputs.digest }}
+      candidate_image: ${{ needs.candidate.outputs.image }}
+      candidate_source_repository: ${{ needs.resolve.outputs.candidate_source_repository }}
+      trusted_workflow_sha: ${{ github.sha }}
+      caller: automatic

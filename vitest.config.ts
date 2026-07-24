@@ -2,7 +2,10 @@ import { defineConfig, type ViteUserConfig } from 'vitest/config'
 
 const config: ViteUserConfig = defineConfig({
   test: {
-    environment: 'node'
+    environment: 'node',
+    typecheck: {
+      include: ['src/**/*.test.ts']
+    }
   }
 })
 

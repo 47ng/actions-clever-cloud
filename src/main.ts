@@ -1,7 +1,7 @@
 import * as core from '@actions/core'
 import { exec } from '@actions/exec'
-import { run } from './action'
-import { processArguments } from './arguments'
+import { run } from './action.ts'
+import { processArguments } from './arguments.ts'
 
 async function main(): Promise<void> {
   try {
