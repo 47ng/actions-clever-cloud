@@ -1,4 +1,4 @@
-import { exitReason, runProcess, stderrDetail } from './process'
+import { exitReason, runProcess, stderrDetail } from './process.ts'
 
 // https://www.kenmuse.com/blog/avoiding-dubious-ownership-in-dev-containers/
 export async function fixGitDubiousOwnership(

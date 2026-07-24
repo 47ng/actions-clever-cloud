@@ -1,10 +1,10 @@
 import fs from 'node:fs/promises'
-import { cleverClient } from './clever'
-import { parseConfig } from './config'
-import { deploy } from './deployment'
-import { checkForShallowCopy, fixGitDubiousOwnership } from './git'
-import { gitHubHost, type Host } from './github'
-import { createDeployLog, type DeployLog } from './output'
+import { cleverClient } from './clever.ts'
+import { parseConfig } from './config.ts'
+import { deploy } from './deployment.ts'
+import { checkForShallowCopy, fixGitDubiousOwnership } from './git.ts'
+import { gitHubHost, type Host } from './github.ts'
+import { createDeployLog, type DeployLog } from './output.ts'
 
 export async function main(): Promise<void> {
   const host = gitHubHost()
@@ -24,7 +24,12 @@ export async function main(): Promise<void> {
       output: log.stream,
       host
     })
-    await deploy(config, { clever, git: { checkForShallowCopy }, host })
+    await deploy(config, {
+      clever,
+      git: { checkForShallowCopy },
+      host,
+      deployLog: log.stream
+    })
   } catch (error) {
     if (error instanceof Error && error.stack) {
       host.debug(error.stack)

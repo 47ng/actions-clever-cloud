@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
 import { afterEach, beforeEach, expect, test, vitest } from 'vitest'
-import { parseConfig } from './config'
+import { parseConfig } from './config.ts'
 
 // `@actions/core` is real ESM, whose named exports are not configurable,
 // so `vi.spyOn(core, 'warning')` cannot redefine it in place. Mock only

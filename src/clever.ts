@@ -1,5 +1,5 @@
 import type { Writable } from 'node:stream'
-import type { Host } from './github'
+import type { Host } from './github.ts'
 import {
   exitReason,
   runProcess,
@@ -7,7 +7,7 @@ import {
   stderrDetail,
   type RunningProcess,
   type RunResult
-} from './process'
+} from './process.ts'
 
 const DEPLOY_TERMINATION_GRACE_PERIOD_MS = 5000
 const DEPLOY_FORCE_KILL_WAIT_MS = 5000

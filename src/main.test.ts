@@ -11,13 +11,13 @@ vi.mock('./git', () => ({
 vi.mock('./github', () => ({ gitHubHost: vi.fn() }))
 vi.mock('./output', () => ({ createDeployLog: vi.fn() }))
 
-import { cleverClient, type Clever } from './clever'
-import { parseConfig, type Config } from './config'
-import { deploy } from './deployment'
-import { fixGitDubiousOwnership } from './git'
-import { gitHubHost, type Host } from './github'
-import { main } from './main'
-import { createDeployLog, type DeployLog } from './output'
+import { cleverClient, type Clever } from './clever.ts'
+import { parseConfig, type Config } from './config.ts'
+import { deploy } from './deployment.ts'
+import { fixGitDubiousOwnership } from './git.ts'
+import { gitHubHost, type Host } from './github.ts'
+import { main } from './main.ts'
+import { createDeployLog, type DeployLog } from './output.ts'
 
 const host: Host = {
   info: vi.fn(),

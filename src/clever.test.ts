@@ -15,9 +15,9 @@ import {
   cleverClient,
   parseLinkedAppAlias,
   type Clever
-} from './clever'
-import type { Host } from './github'
-import { createDeployLog } from './output'
+} from './clever.ts'
+import type { Host } from './github.ts'
+import { createDeployLog } from './output.ts'
 
 // Every non-quiet DeployLog tees output into the shared process.stdout. The
 // real action does this once per process; this suite does it several times,

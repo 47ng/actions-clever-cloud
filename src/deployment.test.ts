@@ -1,8 +1,8 @@
 import { expect, test, vi } from 'vitest'
-import type { Clever, DeployOptions, DeployOutcome } from './clever'
-import type { Config } from './config'
-import { deploy, type DeploymentDeps } from './deployment'
-import type { Host } from './github'
+import type { Clever, DeployOptions, DeployOutcome } from './clever.ts'
+import type { Config } from './config.ts'
+import { deploy, type DeploymentDeps } from './deployment.ts'
+import type { Host } from './github.ts'
 
 const APP_ID = 'app_facade42-cafe-babe-cafe-deadf00dbaad'
 
@@ -255,6 +255,28 @@ test('a completed deployment does not log the timeout message', async () => {
   expect(deps.host.info).not.toHaveBeenCalledWith(
     'Deployment timed out, moving on with workflow run'
   )
+})
+
+test('a quiet timed-out deployment writes the timeout message to the deploy log', async () => {
+  const deps = makeDeps({ outcome: 'timed-out' })
+  const deployLog = { write: vi.fn() }
+  await deploy(config({ quiet: true, logFile: 'deploy.log', timeout: 60 }), {
+    ...deps,
+    deployLog
+  })
+  expect(deployLog.write).toHaveBeenCalledWith(
+    'Deployment timed out, moving on with workflow run\n'
+  )
+  expect(deps.host.info).toHaveBeenCalledWith(
+    'Deployment timed out, moving on with workflow run'
+  )
+})
+
+test('a loud timed-out deployment leaves the deploy log to the CLI output', async () => {
+  const deps = makeDeps({ outcome: 'timed-out' })
+  const deployLog = { write: vi.fn() }
+  await deploy(config({ timeout: 60 }), { ...deps, deployLog })
+  expect(deployLog.write).not.toHaveBeenCalled()
 })
 
 test('deployment failures propagate to the caller', async () => {

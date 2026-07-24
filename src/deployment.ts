@@ -1,18 +1,19 @@
-import type { Clever } from './clever'
-import type { Config } from './config'
-import type { Host } from './github'
+import type { Clever } from './clever.ts'
+import type { Config } from './config.ts'
+import type { Host } from './github.ts'
 
 export type DeploymentDeps = {
   clever: Clever
   git: { checkForShallowCopy(): Promise<void> }
   host: Host
+  deployLog?: { write(chunk: string): void }
 }
 
 export async function deploy(
   config: Config,
   deps: DeploymentDeps
 ): Promise<void> {
-  const { clever, git, host } = deps
+  const { clever, git, host, deployLog } = deps
   await git.checkForShallowCopy()
   const alias = config.appID
     ? await resolveAlias(config.appID, clever, host)
@@ -29,6 +30,11 @@ export async function deploy(
     timeoutSeconds: config.timeout
   })
   if (outcome === 'timed-out') {
+    // When quiet suppresses the console pipeline, the log file is the only
+    // place the timeout can be observed; the live e2e suite asserts it there.
+    if (config.quiet && config.logFile) {
+      deployLog?.write('Deployment timed out, moving on with workflow run\n')
+    }
     host.info('Deployment timed out, moving on with workflow run')
   }
 }

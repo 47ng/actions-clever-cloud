@@ -7,7 +7,7 @@ import {
   createDeployLog,
   TIMESTAMP_PREFIX_REGEX,
   type DeployLog
-} from './output'
+} from './output.ts'
 
 // createDeployLog tees its non-quiet output into the shared process.stdout.
 // This suite pipes into it repeatedly, which trips Node's 10-listener leak

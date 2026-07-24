@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest'
-import { checkForShallowCopy, fixGitDubiousOwnership } from './git'
-import type { runProcess, RunResult } from './process'
+import { checkForShallowCopy, fixGitDubiousOwnership } from './git.ts'
+import type { runProcess, RunResult } from './process.ts'
 
 function fakeRun(result: Partial<RunResult> = {}): typeof runProcess {
   return vi.fn(async () => ({

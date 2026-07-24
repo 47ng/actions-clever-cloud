@@ -2,7 +2,7 @@ import { realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { PassThrough } from 'node:stream'
 import { expect, test } from 'vitest'
-import { runProcess, startProcess } from './process'
+import { runProcess, startProcess } from './process.ts'
 
 const node = process.execPath
 

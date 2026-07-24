@@ -1,5 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["src/e2e/scripts/*.ts"],
   "project": ["src/**/*.ts"],
+  "ignoreExportsUsedInFile": true,
   "ignoreDependencies": ["clever-tools", "prettier"]
 }

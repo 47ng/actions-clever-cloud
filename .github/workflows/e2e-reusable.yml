@@ -1,0 +1,846 @@
+name: Clever Cloud E2E (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      head_sha:
+        required: true
+        type: string
+      pr_number:
+        required: true
+        type: string
+      candidate_digest:
+        required: true
+        type: string
+      candidate_image:
+        required: true
+        type: string
+      candidate_source_repository:
+        required: true
+        type: string
+      trusted_workflow_sha:
+        required: true
+        type: string
+      caller:
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: clever-cloud-e2e-${{ inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  create-and-delete:
+    name: Create and delete app
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    environment:
+      name: clever-cloud-e2e
+    steps:
+      - name: Validate trusted workflow SHA
+        env:
+          TRUSTED_WORKFLOW_SHA: ${{ inputs.trusted_workflow_sha }}
+        run: |
+          if ! printf '%s' "$TRUSTED_WORKFLOW_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo '::error::trusted_workflow_sha must be a full 40-character lowercase hex commit SHA.'
+            exit 1
+          fi
+
+      - name: Checkout workflow source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.trusted_workflow_sha }}
+          path: .workflow-source
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.10.0
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .workflow-source/.node-version
+
+      - name: Validate candidate identity inputs
+        env:
+          HEAD_SHA: ${{ inputs.head_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          CANDIDATE_DIGEST: ${{ inputs.candidate_digest }}
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          CANDIDATE_SOURCE_REPOSITORY: ${{ inputs.candidate_source_repository }}
+          TRUSTED_WORKFLOW_SHA: ${{ inputs.trusted_workflow_sha }}
+          CALLER: ${{ inputs.caller }}
+        run: node .workflow-source/src/e2e/scripts/validate-candidate-inputs.ts
+
+      - name: Recheck staleness after approval
+        id: candidate-state
+        env:
+          HEAD_SHA: ${{ inputs.head_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          CALLER: ${{ inputs.caller }}
+          GH_TOKEN: ${{ github.token }}
+        run: node .workflow-source/src/e2e/scripts/recheck-candidate-staleness.ts
+
+      - name: Checkout candidate source
+        if: steps.candidate-state.outputs.proceed == 'true'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.head_sha }}
+          path: .candidate-source
+          persist-credentials: false
+
+      - name: Install workflow pinning dependencies
+        if: steps.candidate-state.outputs.proceed == 'true'
+        working-directory: .workflow-source
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Install candidate dependencies
+        if: steps.candidate-state.outputs.proceed == 'true'
+        working-directory: .candidate-source
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Protect trusted pinning inputs from candidate actions
+        if: steps.candidate-state.outputs.proceed == 'true'
+        env:
+          TRUSTED_WORKFLOW_DIR: ${{ runner.temp }}/trusted-workflow
+          CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
+        run: |
+          mv .workflow-source "$TRUSTED_WORKFLOW_DIR"
+          cp .candidate-source/action.yml "$CANDIDATE_ACTION_PATH"
+
+      - name: Verify and pin candidate action metadata
+        if: steps.candidate-state.outputs.proceed == 'true'
+        env:
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
+          CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
+        run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
+
+      - name: Build run-based app name
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: app-name
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: node .candidate-source/src/e2e/scripts/build-app-name.ts
+
+      - name: Create fixture repository
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: fixture
+        env:
+          WORKSPACE_DIR: ${{ github.workspace }}
+        run: node .candidate-source/src/e2e/scripts/create-fixture-repository.ts
+
+      - name: Prepare evidence directories
+        if: steps.candidate-state.outputs.proceed == 'true'
+        env:
+          E2E_STATE_DIR: ${{ github.workspace }}/.e2e-state
+          E2E_ARTIFACTS_DIR: ${{ github.workspace }}/.e2e-artifacts/candidate-action
+          TRUSTED_WORKFLOW_DIR: ${{ runner.temp }}/trusted-workflow
+        run: node "$TRUSTED_WORKFLOW_DIR"/src/e2e/scripts/prepare-evidence-directories.ts
+
+      - name: Create personal Node.js app
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: create
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          CLEVER_E2E_REGION: ${{ vars.CLEVER_E2E_REGION }}
+          APP_NAME: ${{ steps.app-name.outputs.name }}
+          APP_ID_FILE: ${{ github.workspace }}/.e2e-state/app.json
+        run: node .candidate-source/src/e2e/scripts/create-e2e-app.ts
+
+      - name: Remove provisioning link
+        if: steps.candidate-state.outputs.proceed == 'true'
+        run: rm -f .clever.json
+
+      - name: Refresh pinned candidate action metadata
+        if: steps.candidate-state.outputs.proceed == 'true'
+        env:
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
+          CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
+        run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
+
+      - name: Deploy healthy fixture commit
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: deploy-healthy
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
+          logFile: .e2e-artifacts/candidate-action/001-deploy-healthy.log
+          setEnv: |
+            CC_HEALTH_CHECK_PATH=/health
+
+      - name: Observe healthy fixture deployment
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: observe-healthy
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          FIXTURE_COMMIT: ${{ steps.fixture.outputs.commit }}
+        run: node .candidate-source/src/e2e/scripts/observe-healthy-deployment.ts
+
+      - name: Generate padded health value
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: health-value
+        run: node .candidate-source/src/e2e/scripts/generate-health-value.ts
+
+      - name: Create second healthy fixture commit
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: second-healthy
+        env:
+          WORKSPACE_DIR: ${{ github.workspace }}
+          COMMIT_LABEL: healthy-2
+          COMMIT_CONTEXT: second
+        run: node .candidate-source/src/e2e/scripts/create-fixture-commit.ts
+
+      - name: Refresh pinned candidate action metadata
+        if: steps.candidate-state.outputs.proceed == 'true'
+        env:
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
+          CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
+        run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
+
+      - name: Deploy healthy fixture commit with quiet env checks
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: deploy-env
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/002-deploy-env.log
+          setEnv: |
+            CC_HEALTH_CHECK_PATH=/health
+            E2E_SCENARIO=healthy
+            E2E_HEALTH_VALUE=${{ steps.health-value.outputs.value }}
+
+      - name: Observe healthy fixture env deployment
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: observe-env
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          FIXTURE_COMMIT: ${{ steps.second-healthy.outputs.commit }}
+          EXPECTED_HEALTH_VALUE: ${{ steps.health-value.outputs.value }}
+        run: node .candidate-source/src/e2e/scripts/observe-env-deployment.ts
+
+      - name: Verify quiet deployment log markers
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: verify-env-log
+        env:
+          LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/002-deploy-env.log
+        run: node .candidate-source/src/e2e/scripts/verify-quiet-log-markers.ts
+
+      - name: Capture same-commit baseline state
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: same-commit-baseline
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/same-commit-state.json
+          BASELINE_INSTANCE_ID: ${{ steps.observe-env.outputs.instance_id }}
+          BASELINE_DEPLOYMENT_ID: ${{ steps.observe-env.outputs.deployment_id }}
+          BASELINE_COMMIT_ID: ${{ steps.observe-env.outputs.commit_id }}
+          BASELINE_CONTEXT: same-commit
+        run: node .candidate-source/src/e2e/scripts/capture-baseline-state.ts
+
+      - name: Refresh pinned candidate action metadata
+        if: steps.candidate-state.outputs.proceed == 'true'
+        env:
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
+          CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
+        run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
+
+      - name: Deploy same commit with default error policy
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: same-commit-error
+        continue-on-error: true
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/003-same-commit-error.log
+
+      - name: Assert same-commit error outcome and activity
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: assert-same-commit-error
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          ACTION_OUTCOME: ${{ steps.same-commit-error.outcome }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/same-commit-state.json
+          LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/003-same-commit-error.log
+        run: node .candidate-source/src/e2e/scripts/assert-same-commit-error.ts
+
+      - name: Refresh pinned candidate action metadata
+        if: steps.candidate-state.outputs.proceed == 'true'
+        env:
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
+          CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
+        run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
+
+      - name: Deploy same commit with ignore policy
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: same-commit-ignore
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/004-same-commit-ignore.log
+          sameCommitPolicy: ignore
+
+      - name: Observe same-commit ignore state
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: observe-same-commit-ignore
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          ACTION_OUTCOME: ${{ steps.same-commit-ignore.outcome }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/same-commit-state.json
+        run: node .candidate-source/src/e2e/scripts/observe-same-commit-ignore.ts
+
+      - name: Refresh pinned candidate action metadata
+        if: steps.candidate-state.outputs.proceed == 'true'
+        env:
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
+          CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
+        run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
+
+      - name: Deploy same commit with restart policy
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: same-commit-restart
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/005-same-commit-restart.log
+          sameCommitPolicy: restart
+
+      - name: Observe same-commit restart state
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: observe-same-commit-restart
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          ACTION_OUTCOME: ${{ steps.same-commit-restart.outcome }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/same-commit-state.json
+          LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/005-same-commit-restart.log
+        run: node .candidate-source/src/e2e/scripts/observe-same-commit-restart.ts
+
+      - name: Refresh pinned candidate action metadata
+        if: steps.candidate-state.outputs.proceed == 'true'
+        env:
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
+          CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
+        run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
+
+      - name: Deploy same commit with rebuild policy
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: same-commit-rebuild
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/006-same-commit-rebuild.log
+          sameCommitPolicy: rebuild
+
+      - name: Observe same-commit rebuild state
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: observe-same-commit-rebuild
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          ACTION_OUTCOME: ${{ steps.same-commit-rebuild.outcome }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/same-commit-state.json
+          LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/006-same-commit-rebuild.log
+        run: node .candidate-source/src/e2e/scripts/observe-same-commit-rebuild.ts
+
+      - name: Capture failed-deploy baseline state
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: failed-deploy-baseline
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/failed-deploy-state.json
+          BASELINE_INSTANCE_ID: ${{ steps.observe-same-commit-rebuild.outputs.instance_id }}
+          BASELINE_DEPLOYMENT_ID: ${{ steps.observe-same-commit-rebuild.outputs.deployment_id }}
+          BASELINE_COMMIT_ID: ${{ steps.observe-same-commit-rebuild.outputs.commit_id }}
+          BASELINE_CONTEXT: failed-deploy
+        run: node .candidate-source/src/e2e/scripts/capture-baseline-state.ts
+
+      - name: Create build-failure fixture commit
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: build-failure-commit
+        env:
+          WORKSPACE_DIR: ${{ github.workspace }}
+          COMMIT_LABEL: build-failure
+          COMMIT_CONTEXT: build-failure
+        run: node .candidate-source/src/e2e/scripts/create-fixture-commit.ts
+
+      - name: Refresh pinned candidate action metadata
+        if: steps.candidate-state.outputs.proceed == 'true'
+        env:
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
+          CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
+        run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
+
+      - name: Deploy build-failure fixture commit
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: build-failure
+        continue-on-error: true
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/007-build-failure.log
+          setEnv: |
+            CC_HEALTH_CHECK_PATH=/health
+            CC_POST_BUILD_HOOK=node scripts/post-build-hook.mjs
+            E2E_SCENARIO=build-failure
+
+      - name: Assert build-failure outcome and preserved production
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: assert-build-failure
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          ACTION_OUTCOME: ${{ steps.build-failure.outcome }}
+          EXPECTED_COMMIT_ID: ${{ steps.build-failure-commit.outputs.commit }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/failed-deploy-state.json
+          LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/007-build-failure.log
+        run: node .candidate-source/src/e2e/scripts/assert-build-failure.ts
+
+      - name: Create startup-failure fixture commit
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: startup-failure-commit
+        env:
+          WORKSPACE_DIR: ${{ github.workspace }}
+          COMMIT_LABEL: startup-failure
+          COMMIT_CONTEXT: startup-failure
+        run: node .candidate-source/src/e2e/scripts/create-fixture-commit.ts
+
+      - name: Refresh pinned candidate action metadata
+        if: steps.candidate-state.outputs.proceed == 'true'
+        env:
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
+          CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
+        run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
+
+      - name: Deploy startup-failure fixture commit
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: startup-failure
+        continue-on-error: true
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/008-startup-failure.log
+          setEnv: |
+            CC_HEALTH_CHECK_PATH=/health
+            E2E_SCENARIO=startup-failure
+
+      - name: Assert startup-failure outcome and preserved production
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: assert-startup-failure
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          ACTION_OUTCOME: ${{ steps.startup-failure.outcome }}
+          EXPECTED_COMMIT_ID: ${{ steps.startup-failure-commit.outputs.commit }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/failed-deploy-state.json
+          LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/008-startup-failure.log
+        run: node .candidate-source/src/e2e/scripts/assert-startup-failure.ts
+
+      - name: Create recovery fixture commit
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: recovery-commit
+        env:
+          WORKSPACE_DIR: ${{ github.workspace }}
+          COMMIT_LABEL: healthy-3
+          COMMIT_CONTEXT: recovery
+        run: node .candidate-source/src/e2e/scripts/create-fixture-commit.ts
+
+      - name: Refresh pinned candidate action metadata
+        if: steps.candidate-state.outputs.proceed == 'true'
+        env:
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
+          CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
+        run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
+
+      - name: Deploy recovery fixture commit
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: recovery
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/009-recovery.log
+          setEnv: |
+            CC_HEALTH_CHECK_PATH=/health
+            E2E_SCENARIO=healthy
+
+      - name: Observe recovery fixture deployment
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: observe-recovery
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          EXPECTED_COMMIT_ID: ${{ steps.recovery-commit.outputs.commit }}
+        run: node .candidate-source/src/e2e/scripts/observe-recovery-deployment.ts
+
+      - name: Capture force baseline state
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: force-baseline
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/force-state.json
+          BASELINE_INSTANCE_ID: ${{ steps.observe-recovery.outputs.instance_id }}
+          BASELINE_DEPLOYMENT_ID: ${{ steps.observe-recovery.outputs.deployment_id }}
+          BASELINE_COMMIT_ID: ${{ steps.observe-recovery.outputs.commit_id }}
+          BASELINE_CONTEXT: force
+        run: node .candidate-source/src/e2e/scripts/capture-baseline-state.ts
+
+      - name: Create divergent fixture commit
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: divergent-commit
+        env:
+          WORKSPACE_DIR: ${{ github.workspace }}
+          ANCESTOR_COMMIT: ${{ steps.second-healthy.outputs.commit }}
+        run: node .candidate-source/src/e2e/scripts/create-divergent-fixture-commit.ts
+
+      - name: Refresh pinned candidate action metadata
+        if: steps.candidate-state.outputs.proceed == 'true'
+        env:
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
+          CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
+        run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
+
+      - name: Deploy divergent fixture commit without force
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: divergent-no-force
+        continue-on-error: true
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/010-divergent-no-force.log
+          setEnv: |
+            CC_HEALTH_CHECK_PATH=/health
+            E2E_SCENARIO=healthy
+
+      - name: Assert divergent rejection outcome and preserved production
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: assert-divergent-no-force
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          ACTION_OUTCOME: ${{ steps.divergent-no-force.outcome }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/force-state.json
+          LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/010-divergent-no-force.log
+        run: node .candidate-source/src/e2e/scripts/assert-divergent-rejection.ts
+
+      - name: Refresh pinned candidate action metadata
+        if: steps.candidate-state.outputs.proceed == 'true'
+        env:
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
+          CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
+        run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
+
+      - name: Deploy divergent fixture commit with force
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: divergent-force
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 1200
+          force: true
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/011-divergent-force.log
+          setEnv: |
+            CC_HEALTH_CHECK_PATH=/health
+            E2E_SCENARIO=healthy
+
+      - name: Observe forced divergent deployment
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: observe-divergent-force
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          ACTION_OUTCOME: ${{ steps.divergent-force.outcome }}
+          EXPECTED_COMMIT_ID: ${{ steps.divergent-commit.outputs.commit }}
+          STATE_PATH: ${{ github.workspace }}/.e2e-state/force-state.json
+        run: node .candidate-source/src/e2e/scripts/observe-divergent-force.ts
+
+      - name: Create slow-build fixture commit
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: slow-build-commit
+        env:
+          WORKSPACE_DIR: ${{ github.workspace }}
+          COMMIT_LABEL: slow-build-child
+          COMMIT_CONTEXT: slow-build
+        run: node .candidate-source/src/e2e/scripts/create-fixture-commit.ts
+
+      - name: Refresh pinned candidate action metadata
+        if: steps.candidate-state.outputs.proceed == 'true'
+        env:
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
+          CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
+        run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
+
+      - name: Deploy slow-build fixture commit with timeout
+        if: steps.candidate-state.outputs.proceed == 'true'
+        id: timeout-deploy
+        uses: ./.candidate-action
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+        with:
+          appID: ${{ steps.create.outputs.app_id }}
+          timeout: 60
+          quiet: true
+          logFile: .e2e-artifacts/candidate-action/012-timeout.log
+          setEnv: |
+            CC_HEALTH_CHECK_PATH=/health
+            CC_POST_BUILD_HOOK=node scripts/post-build-hook.mjs
+            E2E_SCENARIO=slow-build
+            E2E_BUILD_DELAY_MS=180000
+
+      - name: Assert timeout outcome and contract message
+        if: always() && steps.candidate-state.outputs.proceed == 'true' && steps.timeout-deploy.outcome != 'skipped'
+        id: assert-timeout-deploy
+        env:
+          ACTION_OUTCOME: ${{ steps.timeout-deploy.outcome }}
+          LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/012-timeout.log
+          TRUSTED_WORKFLOW_DIR: ${{ runner.temp }}/trusted-workflow
+        run: node "$TRUSTED_WORKFLOW_DIR"/src/e2e/scripts/assert-timeout-contract.ts
+
+      - name: Cancel timed-out deployment and confirm forced commit stays live
+        if: always() && steps.candidate-state.outputs.proceed == 'true' && steps.timeout-deploy.outcome != 'skipped'
+        id: observe-timeout-deploy
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          EXPECTED_CANCELLED_COMMIT_ID: ${{ steps.slow-build-commit.outputs.commit }}
+          PREVIOUS_INSTANCE_ID: ${{ steps.observe-divergent-force.outputs.instance_id }}
+          PREVIOUS_COMMIT_ID: ${{ steps.observe-divergent-force.outputs.commit_id }}
+          PREVIOUS_DEPLOYMENT_ID: ${{ steps.observe-divergent-force.outputs.deployment_id }}
+        run: node .candidate-source/src/e2e/scripts/observe-timeout-cancellation.ts
+
+      - name: Write structured scenario results
+        if: always() && steps.candidate-state.outputs.proceed == 'true'
+        env:
+          APP_ID_FILE: ${{ github.workspace }}/.e2e-state/app.json
+          RESULTS_PATH: ${{ github.workspace }}/.e2e-state/suite-results.json
+          HEAD_SHA: ${{ inputs.head_sha }}
+          CANDIDATE_DIGEST: ${{ inputs.candidate_digest }}
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          DEPLOY_HEALTHY_OUTCOME: ${{ steps.deploy-healthy.outcome }}
+          OBSERVE_HEALTHY_OUTCOME: ${{ steps.observe-healthy.outcome }}
+          HEALTHY_COMMIT: ${{ steps.fixture.outputs.commit }}
+          HEALTHY_OBSERVED_INSTANCE_ID: ${{ steps.observe-healthy.outputs.instance_id }}
+          HEALTHY_OBSERVED_COMMIT_ID: ${{ steps.observe-healthy.outputs.commit_id }}
+          HEALTHY_OBSERVED_DEPLOYMENT_ID: ${{ steps.observe-healthy.outputs.deployment_id }}
+          DEPLOY_ENV_OUTCOME: ${{ steps.deploy-env.outcome }}
+          OBSERVE_ENV_OUTCOME: ${{ steps.observe-env.outcome }}
+          VERIFY_ENV_LOG_OUTCOME: ${{ steps.verify-env-log.outcome }}
+          ENV_COMMIT: ${{ steps.second-healthy.outputs.commit }}
+          ENV_OBSERVED_INSTANCE_ID: ${{ steps.observe-env.outputs.instance_id }}
+          ENV_OBSERVED_COMMIT_ID: ${{ steps.observe-env.outputs.commit_id }}
+          ENV_OBSERVED_DEPLOYMENT_ID: ${{ steps.observe-env.outputs.deployment_id }}
+          SAME_COMMIT_ERROR_OUTCOME: ${{ steps.same-commit-error.outcome }}
+          ASSERT_SAME_COMMIT_ERROR_OUTCOME: ${{ steps.assert-same-commit-error.outcome }}
+          SAME_COMMIT_IGNORE_OUTCOME: ${{ steps.same-commit-ignore.outcome }}
+          OBSERVE_SAME_COMMIT_IGNORE_OUTCOME: ${{ steps.observe-same-commit-ignore.outcome }}
+          SAME_COMMIT_RESTART_OUTCOME: ${{ steps.same-commit-restart.outcome }}
+          OBSERVE_SAME_COMMIT_RESTART_OUTCOME: ${{ steps.observe-same-commit-restart.outcome }}
+          SAME_COMMIT_REBUILD_OUTCOME: ${{ steps.same-commit-rebuild.outcome }}
+          OBSERVE_SAME_COMMIT_REBUILD_OUTCOME: ${{ steps.observe-same-commit-rebuild.outcome }}
+          BUILD_FAILURE_OUTCOME: ${{ steps.build-failure.outcome }}
+          ASSERT_BUILD_FAILURE_OUTCOME: ${{ steps.assert-build-failure.outcome }}
+          BUILD_FAILURE_COMMIT: ${{ steps.assert-build-failure.outputs.commit_id }}
+          BUILD_FAILURE_INSTANCE_ID: ${{ steps.assert-build-failure.outputs.instance_id }}
+          BUILD_FAILURE_DEPLOYMENT_ID: ${{ steps.assert-build-failure.outputs.deployment_id }}
+          STARTUP_FAILURE_OUTCOME: ${{ steps.startup-failure.outcome }}
+          ASSERT_STARTUP_FAILURE_OUTCOME: ${{ steps.assert-startup-failure.outcome }}
+          STARTUP_FAILURE_COMMIT: ${{ steps.assert-startup-failure.outputs.commit_id }}
+          STARTUP_FAILURE_INSTANCE_ID: ${{ steps.assert-startup-failure.outputs.instance_id }}
+          STARTUP_FAILURE_DEPLOYMENT_ID: ${{ steps.assert-startup-failure.outputs.deployment_id }}
+          RECOVERY_OUTCOME: ${{ steps.recovery.outcome }}
+          OBSERVE_RECOVERY_OUTCOME: ${{ steps.observe-recovery.outcome }}
+          RECOVERY_COMMIT: ${{ steps.recovery-commit.outputs.commit }}
+          RECOVERY_INSTANCE_ID: ${{ steps.observe-recovery.outputs.instance_id }}
+          RECOVERY_COMMIT_ID: ${{ steps.observe-recovery.outputs.commit_id }}
+          RECOVERY_DEPLOYMENT_ID: ${{ steps.observe-recovery.outputs.deployment_id }}
+          DIVERGENT_NO_FORCE_OUTCOME: ${{ steps.divergent-no-force.outcome }}
+          ASSERT_DIVERGENT_NO_FORCE_OUTCOME: ${{ steps.assert-divergent-no-force.outcome }}
+          DIVERGENT_NO_FORCE_INSTANCE_ID: ${{ steps.assert-divergent-no-force.outputs.instance_id }}
+          DIVERGENT_NO_FORCE_COMMIT_ID: ${{ steps.assert-divergent-no-force.outputs.commit_id }}
+          DIVERGENT_NO_FORCE_DEPLOYMENT_ID: ${{ steps.assert-divergent-no-force.outputs.deployment_id }}
+          DIVERGENT_FORCE_OUTCOME: ${{ steps.divergent-force.outcome }}
+          OBSERVE_DIVERGENT_FORCE_OUTCOME: ${{ steps.observe-divergent-force.outcome }}
+          DIVERGENT_FORCE_COMMIT: ${{ steps.divergent-commit.outputs.commit }}
+          DIVERGENT_FORCE_INSTANCE_ID: ${{ steps.observe-divergent-force.outputs.instance_id }}
+          DIVERGENT_FORCE_COMMIT_ID: ${{ steps.observe-divergent-force.outputs.commit_id }}
+          DIVERGENT_FORCE_DEPLOYMENT_ID: ${{ steps.observe-divergent-force.outputs.deployment_id }}
+          TIMEOUT_DEPLOY_OUTCOME: ${{ steps.timeout-deploy.outcome }}
+          ASSERT_TIMEOUT_DEPLOY_OUTCOME: ${{ steps.assert-timeout-deploy.outcome }}
+          OBSERVE_TIMEOUT_DEPLOY_OUTCOME: ${{ steps.observe-timeout-deploy.outcome }}
+          TIMEOUT_COMMIT: ${{ steps.slow-build-commit.outputs.commit }}
+          TIMEOUT_INSTANCE_ID: ${{ steps.observe-timeout-deploy.outputs.instance_id }}
+          TIMEOUT_COMMIT_ID: ${{ steps.observe-timeout-deploy.outputs.commit_id }}
+          TIMEOUT_DEPLOYMENT_ID: ${{ steps.observe-timeout-deploy.outputs.deployment_id }}
+          TIMEOUT_BASELINE_INSTANCE_ID: ${{ steps.observe-divergent-force.outputs.instance_id }}
+          SAME_COMMIT_BASELINE_INSTANCE_ID: ${{ steps.observe-env.outputs.instance_id }}
+          SAME_COMMIT_BASELINE_COMMIT_ID: ${{ steps.observe-env.outputs.commit_id }}
+          SAME_COMMIT_BASELINE_DEPLOYMENT_ID: ${{ steps.observe-env.outputs.deployment_id }}
+          SAME_COMMIT_IGNORE_INSTANCE_ID: ${{ steps.observe-same-commit-ignore.outputs.instance_id }}
+          SAME_COMMIT_IGNORE_COMMIT_ID: ${{ steps.observe-same-commit-ignore.outputs.commit_id }}
+          SAME_COMMIT_IGNORE_DEPLOYMENT_ID: ${{ steps.observe-same-commit-ignore.outputs.deployment_id }}
+          SAME_COMMIT_RESTART_BASELINE_INSTANCE_ID: ${{ steps.observe-env.outputs.instance_id }}
+          SAME_COMMIT_RESTART_INSTANCE_ID: ${{ steps.observe-same-commit-restart.outputs.instance_id }}
+          SAME_COMMIT_RESTART_COMMIT_ID: ${{ steps.observe-same-commit-restart.outputs.commit_id }}
+          SAME_COMMIT_RESTART_DEPLOYMENT_ID: ${{ steps.observe-same-commit-restart.outputs.deployment_id }}
+          SAME_COMMIT_REBUILD_BASELINE_INSTANCE_ID: ${{ steps.observe-same-commit-restart.outputs.instance_id }}
+          SAME_COMMIT_REBUILD_INSTANCE_ID: ${{ steps.observe-same-commit-rebuild.outputs.instance_id }}
+          SAME_COMMIT_REBUILD_COMMIT_ID: ${{ steps.observe-same-commit-rebuild.outputs.commit_id }}
+          SAME_COMMIT_REBUILD_DEPLOYMENT_ID: ${{ steps.observe-same-commit-rebuild.outputs.deployment_id }}
+          FAILED_DEPLOY_BASELINE_INSTANCE_ID: ${{ steps.observe-same-commit-rebuild.outputs.instance_id }}
+          FORCE_BASELINE_INSTANCE_ID: ${{ steps.observe-recovery.outputs.instance_id }}
+        run: node .candidate-source/src/e2e/scripts/write-suite-results.ts
+
+      - name: Delete the captured app
+        if: always() && steps.candidate-state.outputs.proceed == 'true'
+        id: delete-app
+        env:
+          CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+          CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+          E2E_HEALTH_VALUE: ${{ steps.health-value.outputs.value }}
+          APP_ID: ${{ steps.create.outputs.app_id }}
+          APP_NAME: ${{ steps.create.outputs.app_name }}
+          APP_ID_FILE: ${{ github.workspace }}/.e2e-state/app.json
+          HAS_APP_ID_FILE: ${{ hashFiles('.e2e-state/app.json') != '' }}
+          OUTPUT_DIR: ${{ github.workspace }}/.e2e-artifacts/upload
+          RESULTS_PATH: ${{ github.workspace }}/.e2e-state/suite-results.json
+          HEALTHY_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/001-deploy-healthy.log
+          ENV_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/002-deploy-env.log
+          SAME_COMMIT_ERROR_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/003-same-commit-error.log
+          SAME_COMMIT_IGNORE_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/004-same-commit-ignore.log
+          SAME_COMMIT_RESTART_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/005-same-commit-restart.log
+          SAME_COMMIT_REBUILD_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/006-same-commit-rebuild.log
+          BUILD_FAILURE_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/007-build-failure.log
+          STARTUP_FAILURE_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/008-startup-failure.log
+          RECOVERY_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/009-recovery.log
+          DIVERGENT_NO_FORCE_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/010-divergent-no-force.log
+          DIVERGENT_FORCE_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/011-divergent-force.log
+          TIMEOUT_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/012-timeout.log
+          TRUSTED_WORKFLOW_DIR: ${{ runner.temp }}/trusted-workflow
+        run: node "$TRUSTED_WORKFLOW_DIR"/src/e2e/scripts/delete-app-and-prepare-evidence.ts
+
+      - name: Write GitHub step summary
+        if: always() && steps.candidate-state.outputs.proceed == 'true'
+        env:
+          RESULTS_PATH: ${{ github.workspace }}/.e2e-state/suite-results.json
+          HEAD_SHA: ${{ inputs.head_sha }}
+          CANDIDATE_DIGEST: ${{ inputs.candidate_digest }}
+          CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
+          CALLER: ${{ inputs.caller }}
+          TEARDOWN_OUTCOME: ${{ steps.delete-app.outcome }}
+          FAILURE_EVIDENCE_READY: ${{ steps.delete-app.outputs.failure_evidence_ready }}
+        run: node .candidate-source/src/e2e/scripts/write-suite-summary.ts
+
+      - name: Upload failure evidence
+        if: failure() && steps.delete-app.outputs.failure_evidence_ready == 'true'
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        with:
+          name: clever-cloud-e2e-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .e2e-artifacts/upload
+          if-no-files-found: error
+          retention-days: 3
