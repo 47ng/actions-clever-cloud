@@ -932,7 +932,8 @@ test('waits for the timed-out deployment matched by commit to reach WIP, then ke
       pollIntervalMs: 1
     })
   ).resolves.toEqual({
-    cancelledDeployment: {
+    outcome: 'cancelled',
+    deployment: {
       action: 'DEPLOY',
       state: 'CANCELLED',
       uuid: 'deployment-timeout',
@@ -946,6 +947,151 @@ test('waits for the timed-out deployment matched by commit to reach WIP, then ke
       CC_DEPLOYMENT_ID: 'deployment-forced',
       CC_COMMIT_ID: 'commit-forced'
     }
+  })
+})
+
+test('accepts a timed-out deployment that completed before cancellation', async () => {
+  const cancelDeployment = vi.fn()
+
+  await expect(
+    cancelTimedOutDeploymentPreservesLiveApp({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      healthURL: 'https://fixture.example.com/health',
+      expectedCancelledCommitID: 'commit-timeout',
+      expectedScenario: 'healthy',
+      previousCommitID: 'commit-forced',
+      previousDeploymentID: 'deployment-forced',
+      listActivity: async () => [
+        {
+          action: 'DEPLOY',
+          state: 'OK',
+          uuid: 'deployment-timeout',
+          commit: 'commit-timeout'
+        },
+        {
+          action: 'DEPLOY',
+          state: 'SUCCESS',
+          uuid: 'deployment-forced',
+          commit: 'commit-forced'
+        }
+      ],
+      cancelDeployment,
+      fetchHealth: async () => ({
+        status: 200,
+        json: async () => ({
+          scenario: 'healthy',
+          healthValue: null,
+          INSTANCE_ID: 'instance-timeout',
+          INSTANCE_TYPE: 'production',
+          CC_DEPLOYMENT_ID: 'deployment-timeout',
+          CC_COMMIT_ID: 'commit-timeout'
+        })
+      }),
+      sleep: async () => {},
+      settleTimeoutMs: 10_000,
+      pollIntervalMs: 1
+    })
+  ).resolves.toMatchObject({
+    outcome: 'completed',
+    deployment: { uuid: 'deployment-timeout', state: 'OK' },
+    health: { CC_COMMIT_ID: 'commit-timeout' }
+  })
+
+  expect(cancelDeployment).not.toHaveBeenCalled()
+})
+
+test('classifies the settled state when cancellation loses the race', async () => {
+  let activityCalls = 0
+
+  await expect(
+    cancelTimedOutDeploymentPreservesLiveApp({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      healthURL: 'https://fixture.example.com/health',
+      expectedCancelledCommitID: 'commit-timeout',
+      expectedScenario: 'healthy',
+      previousCommitID: 'commit-forced',
+      previousDeploymentID: 'deployment-forced',
+      listActivity: async () => {
+        activityCalls += 1
+        return [
+          {
+            action: 'DEPLOY',
+            state: activityCalls === 1 ? 'WIP' : 'OK',
+            uuid: 'deployment-timeout',
+            commit: 'commit-timeout'
+          }
+        ]
+      },
+      cancelDeployment: async () => {
+        throw new Error(
+          'Deployment deployment-timeout reached OK before it could be cancelled'
+        )
+      },
+      fetchHealth: async () => ({
+        status: 200,
+        json: async () => ({
+          scenario: 'healthy',
+          healthValue: null,
+          INSTANCE_ID: 'instance-timeout',
+          INSTANCE_TYPE: 'production',
+          CC_DEPLOYMENT_ID: 'deployment-timeout',
+          CC_COMMIT_ID: 'commit-timeout'
+        })
+      }),
+      sleep: async () => {},
+      settleTimeoutMs: 10_000,
+      pollIntervalMs: 1
+    })
+  ).resolves.toMatchObject({
+    outcome: 'completed',
+    deployment: { uuid: 'deployment-timeout', state: 'OK' }
+  })
+})
+
+test('verifies the prior app stays live when the timed-out deployment settles failed', async () => {
+  await expect(
+    cancelTimedOutDeploymentPreservesLiveApp({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      healthURL: 'https://fixture.example.com/health',
+      expectedCancelledCommitID: 'commit-timeout',
+      expectedScenario: 'healthy',
+      previousCommitID: 'commit-forced',
+      previousDeploymentID: 'deployment-forced',
+      listActivity: async () => [
+        {
+          action: 'DEPLOY',
+          state: 'FAILED',
+          uuid: 'deployment-timeout',
+          commit: 'commit-timeout'
+        },
+        {
+          action: 'DEPLOY',
+          state: 'SUCCESS',
+          uuid: 'deployment-forced',
+          commit: 'commit-forced'
+        }
+      ],
+      cancelDeployment: async () => {
+        throw new Error('cancel should not run for a settled deployment')
+      },
+      fetchHealth: async () => ({
+        status: 200,
+        json: async () => ({
+          scenario: 'healthy',
+          healthValue: null,
+          INSTANCE_ID: 'instance-forced',
+          INSTANCE_TYPE: 'production',
+          CC_DEPLOYMENT_ID: 'deployment-forced',
+          CC_COMMIT_ID: 'commit-forced'
+        })
+      }),
+      sleep: async () => {},
+      settleTimeoutMs: 10_000,
+      pollIntervalMs: 1
+    })
+  ).resolves.toMatchObject({
+    outcome: 'failed',
+    health: { CC_COMMIT_ID: 'commit-forced' }
   })
 })
 
@@ -1010,7 +1156,7 @@ test('uses one wall-clock deadline across timeout deployment discovery, cancella
   }
 })
 
-test('times out when a timed-out deployment never exposes a cancellable activity for the expected commit', async () => {
+test('times out when the expected timeout commit never produces a deployment', async () => {
   await expect(
     cancelTimedOutDeploymentPreservesLiveApp({
       appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
@@ -1053,7 +1199,7 @@ test('times out when a timed-out deployment never exposes a cancellable activity
       settleTimeoutMs: 2,
       pollIntervalMs: 1
     })
-  ).rejects.toThrow('Timed out while waiting for a cancellable deployment')
+  ).rejects.toThrow('Timed out while waiting for a deployment of commit-timeout')
 })
 
 test('times out when a healthy deploy never reaches a completed activity', async () => {
