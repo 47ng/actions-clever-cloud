@@ -503,8 +503,9 @@ describe('e2e-release-please', () => {
     expect(closure.source).toContain('pr.draft === false')
     expect(closure.source).toContain("pr.user.login === 'github-actions[bot]'")
     expect(closure.source).toContain(
-      "pr.head.ref === 'release-please--branches--master'"
+      'isReleasePleaseCandidateBranch(pr.head.ref)'
     )
+    expect(closure.source).toContain("'release-please--branches--master'")
     expect(closure.source).toContain('autorelease: pending')
     expect(closure.source).toContain('pr.head.repo.full_name === thisRepo')
     expect(closure.source).toContain('pr.base.repo.full_name === thisRepo')
