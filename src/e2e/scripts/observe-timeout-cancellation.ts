@@ -46,19 +46,31 @@ const result = await cancelTimedOutDeploymentPreservesLiveApp({
   cancelDeployment: async (appId, deploymentId, timeoutMs) =>
     controller.cancelDeployment({ appId, deploymentId, timeoutMs }),
   fetchHealth: createFetchHealth(),
-  settleTimeoutMs: 600_000,
   pollIntervalMs: 5_000
 })
 
-if (result.health.INSTANCE_ID !== previousInstanceId) {
-  throw new Error(
-    'Expected timed-out deployment to preserve the prior healthy forced instance ID'
+if (result.outcome === 'completed') {
+  if (result.health.CC_COMMIT_ID !== expectedCancelledCommitID) {
+    throw new Error(
+      'Expected the completed timed-out deployment to serve the timeout commit'
+    )
+  }
+  console.log(
+    'Timed-out deployment completed before cancellation; it is live and healthy'
   )
+} else {
+  if (result.health.INSTANCE_ID !== previousInstanceId) {
+    throw new Error(
+      `Expected the ${result.outcome} timed-out deployment to preserve the prior healthy forced instance ID`
+    )
+  }
+  console.log(`Timed-out deployment settled as ${result.outcome}`)
 }
 
 await appendFile(
   githubOutput,
-  `instance_id=${result.health.INSTANCE_ID ?? ''}\n` +
-    `deployment_id=${result.cancelledDeployment.uuid ?? ''}\n` +
-    `commit_id=${result.cancelledDeployment.commit ?? expectedCancelledCommitID}\n`
+  `outcome=${result.outcome}\n` +
+    `instance_id=${result.health.INSTANCE_ID ?? ''}\n` +
+    `deployment_id=${result.deployment.uuid ?? ''}\n` +
+    `commit_id=${result.deployment.commit ?? expectedCancelledCommitID}\n`
 )
