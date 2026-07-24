@@ -19,10 +19,16 @@ describe('inspectCandidateImage', () => {
       return {
         exitCode: 0,
         stdout: JSON.stringify({
-          'org.opencontainers.image.revision':
-            '0123456789abcdef0123456789abcdef01234567',
-          'org.opencontainers.image.source':
-            'https://github.com/47ng/actions-clever-cloud/tree/0123456789abcdef0123456789abcdef01234567'
+          architecture: 'amd64',
+          os: 'linux',
+          config: {
+            Labels: {
+              'org.opencontainers.image.revision':
+                '0123456789abcdef0123456789abcdef01234567',
+              'org.opencontainers.image.source':
+                'https://github.com/47ng/actions-clever-cloud/tree/0123456789abcdef0123456789abcdef01234567'
+            }
+          }
         }),
         stderr: ''
       }
@@ -68,20 +74,24 @@ describe('inspectCandidateImage', () => {
 
           return {
             exitCode: 0,
-            stdout: JSON.stringify(
-              reference === pinnedImage
-                ? {
-                    'org.opencontainers.image.revision':
-                      '0123456789abcdef0123456789abcdef01234567',
-                    'org.opencontainers.image.source':
-                      'https://github.com/47ng/actions-clever-cloud/tree/0123456789abcdef0123456789abcdef01234567'
-                  }
-                : {
-                    'org.opencontainers.image.revision': 'race-on-mutable-tag',
-                    'org.opencontainers.image.source':
-                      'https://github.com/evil/fork/tree/race-on-mutable-tag'
-                  }
-            ),
+            stdout: JSON.stringify({
+              config: {
+                Labels:
+                  reference === pinnedImage
+                    ? {
+                        'org.opencontainers.image.revision':
+                          '0123456789abcdef0123456789abcdef01234567',
+                        'org.opencontainers.image.source':
+                          'https://github.com/47ng/actions-clever-cloud/tree/0123456789abcdef0123456789abcdef01234567'
+                      }
+                    : {
+                        'org.opencontainers.image.revision':
+                          'race-on-mutable-tag',
+                        'org.opencontainers.image.source':
+                          'https://github.com/evil/fork/tree/race-on-mutable-tag'
+                      }
+              }
+            }),
             stderr: ''
           }
         }
@@ -97,10 +107,130 @@ describe('inspectCandidateImage', () => {
         reference: mutableImage
       },
       {
-        format: '{{json .Image.Config.Labels}}',
+        format: '{{json .Image}}',
         reference: pinnedImage
       }
     ])
+  })
+
+  test('verifies labels on every platform of a multi-arch image', async () => {
+    const matchingLabels = {
+      'org.opencontainers.image.revision':
+        '0123456789abcdef0123456789abcdef01234567',
+      'org.opencontainers.image.source':
+        'https://github.com/47ng/actions-clever-cloud/tree/0123456789abcdef0123456789abcdef01234567'
+    }
+    const inspect = async (format: string) => {
+      if (format === '{{println .Manifest.Digest}}') {
+        return {
+          exitCode: 0,
+          stdout: `sha256:${'a'.repeat(64)}\n`,
+          stderr: ''
+        }
+      }
+
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify({
+          'linux/amd64': { config: { Labels: matchingLabels } },
+          'linux/arm64': { config: { Labels: matchingLabels } },
+          'unknown/unknown': { config: {} }
+        }),
+        stderr: ''
+      }
+    }
+
+    await expect(
+      inspectCandidateImage({
+        image:
+          'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
+        expectedRevision: '0123456789abcdef0123456789abcdef01234567',
+        expectedSourceRepository: '47ng/actions-clever-cloud',
+        inspect
+      })
+    ).resolves.toEqual({
+      digest: `sha256:${'a'.repeat(64)}`,
+      image:
+        'ghcr.io/47ng/actions-clever-cloud@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    })
+  })
+
+  test('rejects a multi-arch image when any platform mismatches', async () => {
+    const inspect = async (format: string) => {
+      if (format === '{{println .Manifest.Digest}}') {
+        return {
+          exitCode: 0,
+          stdout: `sha256:${'a'.repeat(64)}\n`,
+          stderr: ''
+        }
+      }
+
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify({
+          'linux/amd64': {
+            config: {
+              Labels: {
+                'org.opencontainers.image.revision':
+                  '0123456789abcdef0123456789abcdef01234567',
+                'org.opencontainers.image.source':
+                  'https://github.com/47ng/actions-clever-cloud/tree/0123456789abcdef0123456789abcdef01234567'
+              }
+            }
+          },
+          'linux/arm64': {
+            config: {
+              Labels: {
+                'org.opencontainers.image.revision': 'tampered-platform',
+                'org.opencontainers.image.source':
+                  'https://github.com/evil/fork/tree/tampered-platform'
+              }
+            }
+          }
+        }),
+        stderr: ''
+      }
+    }
+
+    await expect(
+      inspectCandidateImage({
+        image:
+          'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
+        expectedRevision: '0123456789abcdef0123456789abcdef01234567',
+        expectedSourceRepository: '47ng/actions-clever-cloud',
+        inspect
+      })
+    ).rejects.toThrow('Candidate image revision mismatch')
+  })
+
+  test('reports missing labels instead of crashing when the config has none', async () => {
+    const inspect = async (format: string) => {
+      if (format === '{{println .Manifest.Digest}}') {
+        return {
+          exitCode: 0,
+          stdout: `sha256:${'a'.repeat(64)}\n`,
+          stderr: ''
+        }
+      }
+
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify({ architecture: 'amd64', config: {} }),
+        stderr: ''
+      }
+    }
+
+    await expect(
+      inspectCandidateImage({
+        image:
+          'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
+        expectedRevision: '0123456789abcdef0123456789abcdef01234567',
+        expectedSourceRepository: '47ng/actions-clever-cloud',
+        inspect
+      })
+    ).rejects.toThrow(
+      'Candidate image revision mismatch: expected 0123456789abcdef0123456789abcdef01234567, got (missing)'
+    )
   })
 
   test('returns undefined when the candidate image is missing', async () => {
@@ -174,10 +304,14 @@ describe('inspectCandidateImage', () => {
             format === '{{println .Manifest.Digest}}'
               ? `sha256:${'a'.repeat(64)}\n`
               : JSON.stringify({
-                  'org.opencontainers.image.revision':
-                    '89abcdef012345670123456789abcdef01234567',
-                  'org.opencontainers.image.source':
-                    'https://github.com/47ng/actions-clever-cloud/tree/89abcdef012345670123456789abcdef01234567'
+                  config: {
+                    Labels: {
+                      'org.opencontainers.image.revision':
+                        '89abcdef012345670123456789abcdef01234567',
+                      'org.opencontainers.image.source':
+                        'https://github.com/47ng/actions-clever-cloud/tree/89abcdef012345670123456789abcdef01234567'
+                    }
+                  }
                 }),
           stderr: ''
         })
@@ -200,10 +334,14 @@ describe('inspectCandidateImage', () => {
             format === '{{println .Manifest.Digest}}'
               ? `sha256:${'a'.repeat(64)}\n`
               : JSON.stringify({
-                  'org.opencontainers.image.revision':
-                    '0123456789abcdef0123456789abcdef01234567',
-                  'org.opencontainers.image.source':
-                    'https://github.com/evil/fork/tree/0123456789abcdef0123456789abcdef01234567'
+                  config: {
+                    Labels: {
+                      'org.opencontainers.image.revision':
+                        '0123456789abcdef0123456789abcdef01234567',
+                      'org.opencontainers.image.source':
+                        'https://github.com/evil/fork/tree/0123456789abcdef0123456789abcdef01234567'
+                    }
+                  }
                 }),
           stderr: ''
         })

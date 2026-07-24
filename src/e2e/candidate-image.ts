@@ -205,38 +205,67 @@ export async function inspectCandidateImage({
   }
 
   const pinnedImage = image.replace(/:[^:@]+$/, `@${digest}`)
-  const labelsResult = await inspect(
-    '{{json .Image.Config.Labels}}',
-    pinnedImage
-  )
-  if (labelsResult.exitCode !== 0) {
-    throw inspectFailure(image, labelsResult.stderr)
-  }
-
-  let labels: Record<string, string>
-  try {
-    labels = JSON.parse(labelsResult.stdout) as Record<string, string>
-  } catch {
-    throw new Error(`Invalid candidate image labels for ${image}`)
-  }
-
-  const actualRevision = labels['org.opencontainers.image.revision']
-  if (actualRevision !== expectedRevision) {
-    throw new Error(
-      `Candidate image revision mismatch: expected ${expectedRevision}, got ${actualRevision ?? '(missing)'}`
-    )
+  const imageResult = await inspect('{{json .Image}}', pinnedImage)
+  if (imageResult.exitCode !== 0) {
+    throw inspectFailure(image, imageResult.stderr)
   }
 
   const expectedSource = `https://github.com/${expectedSourceRepository}/tree/${expectedRevision}`
-  const actualSource = labels['org.opencontainers.image.source']
-  if (actualSource !== expectedSource) {
-    throw new Error(
-      `Candidate image source mismatch: expected ${expectedSource}, got ${actualSource ?? '(missing)'}`
-    )
+  for (const labels of parsePlatformLabels(imageResult.stdout, image)) {
+    const actualRevision = labels['org.opencontainers.image.revision']
+    if (actualRevision !== expectedRevision) {
+      throw new Error(
+        `Candidate image revision mismatch: expected ${expectedRevision}, got ${actualRevision ?? '(missing)'}`
+      )
+    }
+
+    const actualSource = labels['org.opencontainers.image.source']
+    if (actualSource !== expectedSource) {
+      throw new Error(
+        `Candidate image source mismatch: expected ${expectedSource}, got ${actualSource ?? '(missing)'}`
+      )
+    }
   }
 
   return {
     digest,
     image: pinnedImage
   }
+}
+
+type InspectedImageConfig = {
+  config?: { Labels?: Record<string, string> | null }
+}
+
+function parsePlatformLabels(
+  stdout: string,
+  image: string
+): Array<Record<string, string>> {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stdout)
+  } catch {
+    throw new Error(`Invalid candidate image labels for ${image}`)
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new Error(`Invalid candidate image labels for ${image}`)
+  }
+
+  if ('config' in parsed) {
+    return [(parsed as InspectedImageConfig).config?.Labels ?? {}]
+  }
+
+  const platforms = Object.entries(
+    parsed as Record<string, InspectedImageConfig | null>
+  ).filter(([platform]) => !platform.startsWith('unknown/'))
+
+  if (
+    platforms.length === 0 ||
+    platforms.some(([, platformImage]) => typeof platformImage?.config !== 'object')
+  ) {
+    throw new Error(`Invalid candidate image labels for ${image}`)
+  }
+
+  return platforms.map(([, platformImage]) => platformImage?.config?.Labels ?? {})
 }

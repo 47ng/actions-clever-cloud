@@ -148,31 +148,53 @@ jobs:
           }
 
           const pinnedImage = image.replace(/:[^:@]+$/, `@${digest}`)
-          const labelsResult = await inspect('{{json .Image.Config.Labels}}', pinnedImage)
-          if (labelsResult.exitCode !== 0) {
-            throw inspectFailure(labelsResult.stderr)
+          const imageResult = await inspect('{{json .Image}}', pinnedImage)
+          if (imageResult.exitCode !== 0) {
+            throw inspectFailure(imageResult.stderr)
           }
 
-          let labels
+          let inspectedImage
           try {
-            labels = JSON.parse(labelsResult.stdout)
+            inspectedImage = JSON.parse(imageResult.stdout)
           } catch {
             throw new Error(`Invalid candidate image labels for ${image}`)
           }
+          if (typeof inspectedImage !== 'object' || inspectedImage === null) {
+            throw new Error(`Invalid candidate image labels for ${image}`)
+          }
 
-          const actualRevision = labels['org.opencontainers.image.revision']
-          if (actualRevision !== expectedRevision) {
-            throw new Error(
-              `Candidate image revision mismatch: expected ${expectedRevision}, got ${actualRevision ?? '(missing)'}`
+          let platformLabelSets
+          if ('config' in inspectedImage) {
+            platformLabelSets = [inspectedImage.config?.Labels ?? {}]
+          } else {
+            const platforms = Object.entries(inspectedImage).filter(
+              ([platform]) => !platform.startsWith('unknown/')
+            )
+            if (
+              platforms.length === 0 ||
+              platforms.some(([, platformImage]) => typeof platformImage?.config !== 'object')
+            ) {
+              throw new Error(`Invalid candidate image labels for ${image}`)
+            }
+            platformLabelSets = platforms.map(
+              ([, platformImage]) => platformImage?.config?.Labels ?? {}
             )
           }
 
           const expectedSource = `https://github.com/${expectedSourceRepository}/tree/${expectedRevision}`
-          const actualSource = labels['org.opencontainers.image.source']
-          if (actualSource !== expectedSource) {
-            throw new Error(
-              `Candidate image source mismatch: expected ${expectedSource}, got ${actualSource ?? '(missing)'}`
-            )
+          for (const labels of platformLabelSets) {
+            const actualRevision = labels['org.opencontainers.image.revision']
+            if (actualRevision !== expectedRevision) {
+              throw new Error(
+                `Candidate image revision mismatch: expected ${expectedRevision}, got ${actualRevision ?? '(missing)'}`
+              )
+            }
+            const actualSource = labels['org.opencontainers.image.source']
+            if (actualSource !== expectedSource) {
+              throw new Error(
+                `Candidate image source mismatch: expected ${expectedSource}, got ${actualSource ?? '(missing)'}`
+              )
+            }
           }
 
           await appendFile(
