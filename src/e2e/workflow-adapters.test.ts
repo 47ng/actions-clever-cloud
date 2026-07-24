@@ -12,6 +12,7 @@ afterEach(() => {
 
 describe('createRunCommand', () => {
   test('runs the CLI with utf8 output, ambient env, timeout and a 10MB buffer', async () => {
+    vi.stubEnv('RUNNER_TEMP', '/runner/temp')
     const calls: Array<{
       cli: string
       args: string[]
@@ -38,11 +39,27 @@ describe('createRunCommand', () => {
         options: {
           encoding: 'utf8',
           env: process.env,
+          cwd: '/runner/temp',
           timeout: 1234,
           maxBuffer: 1024 * 1024 * 10
         }
       }
     ])
+  })
+
+  test('falls back to the working directory outside the runner', async () => {
+    vi.stubEnv('RUNNER_TEMP', '')
+    let observedCwd: unknown
+
+    const runCommand = createRunCommand({
+      execFileAsync: async (_cli, _args, options) => {
+        observedCwd = (options as { cwd?: string }).cwd
+        return { stdout: '', stderr: '' }
+      }
+    })
+
+    await runCommand('clever', [], { timeoutMs: 1 })
+    expect(observedCwd).toBe(process.cwd())
   })
 
   test('rethrows failures with trimmed stderr, exit details and the cause', async () => {

@@ -22,6 +22,7 @@ type ExecFileAsync = (
   options: {
     encoding: 'utf8'
     env: NodeJS.ProcessEnv
+    cwd: string
     timeout: number
     maxBuffer: number
   }
@@ -43,9 +44,13 @@ export function createRunCommand({
 }: CreateRunCommandOptions = {}): RunCommand {
   return async (cli, args, { timeoutMs }) => {
     try {
+      // The candidate action container writes a root-owned .clever.json into
+      // the workspace; running control commands from there makes clever-tools
+      // fail with EACCES even after a successful remote operation.
       const { stdout, stderr } = await execFileAsync(cli, args, {
         encoding: 'utf8',
         env: process.env,
+        cwd: process.env.RUNNER_TEMP || process.cwd(),
         timeout: timeoutMs,
         maxBuffer: 1024 * 1024 * 10
       })
