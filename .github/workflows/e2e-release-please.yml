@@ -199,6 +199,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+    secrets: inherit
     with:
       head_sha: ${{ needs.resolve.outputs.head_sha }}
       pr_number: ${{ needs.resolve.outputs.pr_number }}
