@@ -93,56 +93,6 @@ export async function createDeployLog(
         }
       }
     }
-    const throwIfConsoleDead = (): void => {
-      if (consoleStream.errored) {
-        throw consoleStream.errored
-      }
-      // A console stream can die without an 'error' event (clean destroy,
-      // write-after-destroy): events alone cannot reveal that, so check
-      // state before trusting write() or waiting on 'drain'.
-      if (
-        consoleStream.closed ||
-        consoleStream.destroyed ||
-        consoleStream.writableEnded
-      ) {
-        throw new Error('console stream closed while writing deploy logs')
-      }
-    }
-    const waitForDrain = async (): Promise<void> => {
-      throwIfConsoleDead()
-      // once() rejects if 'error' fires while waiting, and racing 'close'
-      // covers a console stream destroyed without one — either way the chain
-      // fails instead of stalling on a 'drain' that never comes.
-      const abort = new AbortController()
-      try {
-        await Promise.race([
-          once(consoleStream, 'drain', { signal: abort.signal }),
-          once(consoleStream, 'close', { signal: abort.signal }).then(() => {
-            throw (
-              consoleStream.errored ??
-              new Error('console stream closed while awaiting drain')
-            )
-          })
-        ])
-      } finally {
-        abort.abort()
-      }
-    }
-    const writeLinesToConsole = async (
-      lines: AsyncIterable<string>
-    ): Promise<void> => {
-      for await (const line of lines) {
-        throwIfConsoleDead()
-        if (!consoleStream.write(line)) {
-          await waitForDrain()
-        }
-      }
-      // The no-op 'error' listener absorbs failures between writes; a console
-      // stream that died while idle must still fail the chain, or the error
-      // (and any output it swallowed with it) would vanish once the deploy
-      // ends without another line.
-      throwIfConsoleDead()
-    }
     // The console stream stays out of pipeline()'s custody: it is shared for
     // the whole action process lifetime and must survive this chain ending or
     // failing. chainInput takes the pipe instead, so a chain failure only
@@ -160,7 +110,7 @@ export async function createDeployLog(
       chainInput,
       splitNewlines,
       injectAnnotations,
-      writeLinesToConsole
+      lines => writeLinesToConsole(consoleStream, lines)
     ).finally(() => {
       consoleStream.off('error', onConsoleError)
     })
@@ -190,4 +140,58 @@ export async function createDeployLog(
     await Promise.all(completions)
   }
   return { stream: tee, done }
+}
+
+function throwIfConsoleDead(consoleStream: Writable): void {
+  if (consoleStream.errored) {
+    throw consoleStream.errored
+  }
+  // A console stream can die without an 'error' event (clean destroy,
+  // write-after-destroy): events alone cannot reveal that, so check
+  // state before trusting write() or waiting on 'drain'.
+  if (
+    consoleStream.closed ||
+    consoleStream.destroyed ||
+    consoleStream.writableEnded
+  ) {
+    throw new Error('console stream closed while writing deploy logs')
+  }
+}
+
+async function waitForDrain(consoleStream: Writable): Promise<void> {
+  throwIfConsoleDead(consoleStream)
+  // once() rejects if 'error' fires while waiting, and racing 'close'
+  // covers a console stream destroyed without one — either way the chain
+  // fails instead of stalling on a 'drain' that never comes.
+  const abort = new AbortController()
+  try {
+    await Promise.race([
+      once(consoleStream, 'drain', { signal: abort.signal }),
+      once(consoleStream, 'close', { signal: abort.signal }).then(() => {
+        throw (
+          consoleStream.errored ??
+          new Error('console stream closed while awaiting drain')
+        )
+      })
+    ])
+  } finally {
+    abort.abort()
+  }
+}
+
+async function writeLinesToConsole(
+  consoleStream: Writable,
+  lines: AsyncIterable<string>
+): Promise<void> {
+  for await (const line of lines) {
+    throwIfConsoleDead(consoleStream)
+    if (!consoleStream.write(line)) {
+      await waitForDrain(consoleStream)
+    }
+  }
+  // The no-op 'error' listener absorbs failures between writes; a console
+  // stream that died while idle must still fail the chain, or the error
+  // (and any output it swallowed with it) would vanish once the deploy
+  // ends without another line.
+  throwIfConsoleDead(consoleStream)
 }
