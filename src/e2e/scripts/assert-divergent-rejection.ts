@@ -64,6 +64,7 @@ if (health.CC_COMMIT_ID !== previousState.commitId) {
 
 const logContent = await readFile(logPath, 'utf8')
 const nonFastForwardMarkers = [
+  'not a simple fast-forward',
   'non-fast-forward',
   '[rejected]',
   'fetch first',
