@@ -28,7 +28,7 @@ type NewDeploymentActivityOptions = {
   pollIntervalMs?: number
 }
 
-const DEFAULT_SETTLE_TIMEOUT_MS = 10 * 60_000
+const DEFAULT_SETTLE_TIMEOUT_MS = 5 * 60_000
 const DEFAULT_NO_NEW_ACTIVITY_TIMEOUT_MS = 15_000
 const DEFAULT_POLL_INTERVAL_MS = 5_000
 const DEFAULT_HEALTH_CHECK_TIMEOUT_MS = 10_000
