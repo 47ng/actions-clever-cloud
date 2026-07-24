@@ -351,6 +351,50 @@ test('a console stream closed without error while backpressured fails the chain 
   )
 })
 
+test('a write after an errorless console close fails the chain instead of hanging', async () => {
+  const consoleStream = new Writable({
+    write(_chunk, _encoding, callback) {
+      callback()
+    }
+  })
+  const { stream, done } = await createDeployLog(
+    { quiet: false, consoleStream },
+    { warning }
+  )
+  stream.write(TS + 'first\n')
+  await new Promise(resolve => setImmediate(resolve))
+  consoleStream.destroy()
+  await new Promise(resolve => setImmediate(resolve))
+  stream.write(TS + 'second\n')
+  stream.end()
+  await expect(done()).resolves.toBeUndefined()
+  expect(warning).toHaveBeenCalledWith(
+    'deploy log output degraded (console): console stream closed while writing deploy logs'
+  )
+})
+
+test('an errorless console close that swallowed buffered output degrades instead of reporting success', async () => {
+  const consoleStream = new Writable({
+    write(_chunk, _encoding, _callback) {
+      // Never completes: the line stays in the buffer until destroy()
+      // discards it.
+    }
+  })
+  const { stream, done } = await createDeployLog(
+    { quiet: false, consoleStream },
+    { warning }
+  )
+  stream.write(TS + 'first\n')
+  await new Promise(resolve => setImmediate(resolve))
+  consoleStream.destroy()
+  await new Promise(resolve => setImmediate(resolve))
+  stream.end()
+  await expect(done()).resolves.toBeUndefined()
+  expect(warning).toHaveBeenCalledWith(
+    'deploy log output degraded (console): console stream closed while writing deploy logs'
+  )
+})
+
 test('destroying the deploy log stream settles done() instead of hanging', async () => {
   const logFile = tempLogFilePath('destroyed-tee')
   try {
