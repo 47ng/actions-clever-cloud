@@ -387,33 +387,55 @@ describe('createCleverController', () => {
     ).resolves.toBe('ABEiM0RVZneImaq7zN3u/w==')
   })
 
-  test('looks up the exact app ID and returns its deploy URL', async () => {
+  test('resolves the public origin from the first configured domain', async () => {
+    const calls: Array<{ args: string[]; timeoutMs: number }> = []
     const controller = createCleverController({
       cleverCLI: '/tmp/node_modules/.bin/clever',
-      runCommand: async () => ({
-        stdout: JSON.stringify([
-          {
-            id: 'orga_123',
-            applications: [
-              {
-                app_id: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
-                name: 'actions-clever-cloud-e2e-123-4',
-                deploy_url: 'https://fixture.example.com'
-              }
-            ]
-          }
-        ]),
-        stderr: ''
-      })
+      runCommand: async (_cli, args, { timeoutMs }) => {
+        calls.push({ args, timeoutMs })
+        return {
+          stdout: JSON.stringify([
+            {
+              domainWithPathPrefix:
+                'app-facade42-cafe-babe-cafe-deadf00dbaad.cleverapps.io/'
+            },
+            { domainWithPathPrefix: 'example.com/' }
+          ]),
+          stderr: ''
+        }
+      }
     })
 
     await expect(
-      controller.getApplication('app_facade42-cafe-babe-cafe-deadf00dbaad')
-    ).resolves.toEqual({
-      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
-      name: 'actions-clever-cloud-e2e-123-4',
-      deployURL: 'https://fixture.example.com'
+      controller.getPublicOrigin('app_facade42-cafe-babe-cafe-deadf00dbaad')
+    ).resolves.toBe(
+      'https://app-facade42-cafe-babe-cafe-deadf00dbaad.cleverapps.io/'
+    )
+    expect(calls).toEqual([
+      {
+        args: [
+          'domain',
+          '--app',
+          'app_facade42-cafe-babe-cafe-deadf00dbaad',
+          '--format',
+          'json'
+        ],
+        timeoutMs: 30_000
+      }
+    ])
+  })
+
+  test('fails when the app exposes no public domain', async () => {
+    const controller = createCleverController({
+      cleverCLI: '/tmp/node_modules/.bin/clever',
+      runCommand: async () => ({ stdout: '[]', stderr: '' })
     })
+
+    await expect(
+      controller.getPublicOrigin('app_facade42-cafe-babe-cafe-deadf00dbaad')
+    ).rejects.toThrow(
+      'Application app_facade42-cafe-babe-cafe-deadf00dbaad has no public domain'
+    )
   })
 
   test('does not call cancel-deploy until the exact deployment becomes the latest WIP deployment', async () => {

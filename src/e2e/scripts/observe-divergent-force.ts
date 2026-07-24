@@ -34,8 +34,10 @@ const controller = createCleverController({
   runCommand: createRunCommand()
 })
 
-const application = await controller.getApplication(appId)
-const healthURL = new URL('/health', `${application.deployURL}/`).toString()
+const healthURL = new URL(
+  '/health',
+  await controller.getPublicOrigin(appId)
+).toString()
 const result = await waitForNewHealthyDeployment({
   appId,
   healthURL,

@@ -797,7 +797,7 @@ jobs:
         run: node .candidate-source/src/e2e/scripts/write-suite-results.ts
 
       - name: Delete the captured app
-        if: always() && steps.candidate-state.outputs.proceed == 'true'
+        if: always() && steps.candidate-state.outputs.proceed == 'true' && steps.create.outcome == 'success'
         id: delete-app
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}

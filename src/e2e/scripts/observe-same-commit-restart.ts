@@ -39,8 +39,10 @@ const deployment = await waitForNewSuccessfulDeploymentActivity({
   listActivity: controller.listActivity
 })
 
-const application = await controller.getApplication(appId)
-const healthURL = new URL('/health', `${application.deployURL}/`).toString()
+const healthURL = new URL(
+  '/health',
+  await controller.getPublicOrigin(appId)
+).toString()
 const health = await waitForHealthyDeployment({
   appId,
   healthURL,

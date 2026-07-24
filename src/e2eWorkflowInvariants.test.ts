@@ -185,13 +185,26 @@ describe('shared workflow policies', () => {
   )
 
   test.each(allWorkflows)(
-    '%s never inherits or forwards secrets to called workflows',
+    '%s inherits secrets only where the e2e environment needs them',
     (file, workflow) => {
-      for (const job of Object.values(workflow.jobs)) {
-        expect(job.secrets).toBeUndefined()
+      for (const [jobId, job] of Object.entries(workflow.jobs)) {
+        const isE2ESuiteCall =
+          job.uses === './.github/workflows/e2e-reusable.yml' &&
+          jobId === 'create-and-delete'
+        if (isE2ESuiteCall) {
+          expect(job.secrets).toBe('inherit')
+        } else {
+          expect(job.secrets).toBeUndefined()
+        }
       }
     }
   )
+
+  test('environment secrets can reach the called suite from both e2e callers', () => {
+    for (const workflow of [e2eManual, e2eAutomatic]) {
+      expect(jobOf(workflow, 'create-and-delete').secrets).toBe('inherit')
+    }
+  })
 
   test.each(allWorkflows)(
     '%s never persists checkout credentials',
@@ -724,6 +737,7 @@ describe('e2e-reusable', () => {
       return keys.includes('CLEVER_TOKEN') && keys.includes('E2E_HEALTH_VALUE')
     })
     expect(deleteApp.if).toContain('always()')
+    expect(deleteApp.if).toContain("steps.create.outcome == 'success'")
     expect(deleteApp.run).toBe(
       'node "$TRUSTED_WORKFLOW_DIR"/src/e2e/scripts/delete-app-and-prepare-evidence.ts'
     )
