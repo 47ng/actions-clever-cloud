@@ -12,8 +12,10 @@ name: PR Preview (manual)
 #     so a force-push after dispatch cannot swap in different code (no TOCTOU).
 #   - The untrusted build runs in an isolated job with ONLY `contents: read` +
 #     `packages: write` — no deploy secrets, no `id-token`, no `pull-requests:write`.
-#   - Images go to a SEPARATE `…-preview` GHCR package, never the release namespace,
-#     and only ever get `pr-<n>` / `git-<sha>` tags (never `:latest` / `:x.y.z`).
+#   - Images only ever get `pr-<n>` / `git-<sha>` tags (never `:latest` / `:x.y.z`),
+#     and their `org.opencontainers.image.source` label names the FORK repository,
+#     so every trusted consumer (candidate verification, e2e) rejects them by label
+#     even when they share the release package.
 #   - No PR-controlled string (title / body / branch) is ever interpolated.
 
 on:
@@ -155,7 +157,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read # checkout the fork at the vetted SHA
-      packages: write # push the preview image to the …-preview GHCR package
+      packages: write # push pr-<n> / git-<sha> preview tags
     outputs:
       digest: ${{ steps.docker-build-push.outputs.digest }}
       tags: ${{ steps.meta.outputs.tags }}
@@ -176,7 +178,7 @@ jobs:
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
         run: |
-          IMAGE="ghcr.io/47ng/actions-clever-cloud-preview"
+          IMAGE="ghcr.io/47ng/actions-clever-cloud"
           {
             echo "tags<<__TAGS_EOF__"
             echo "${IMAGE}:pr-${PR_NUMBER}"
@@ -264,7 +266,7 @@ jobs:
             const fork = process.env.FORK;
             const digest = process.env.DIGEST;
             const tags = process.env.TAGS;
-            const image = "ghcr.io/47ng/actions-clever-cloud-preview";
+            const image = "ghcr.io/47ng/actions-clever-cloud";
             const marker = "<!-- docker-preview-manual-comment -->";
 
             const body = [

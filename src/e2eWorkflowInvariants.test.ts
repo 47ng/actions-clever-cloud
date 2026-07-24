@@ -378,14 +378,16 @@ describe('pr-preview-manual', () => {
     }
   })
 
-  test('publishes fork builds only to the isolated preview package', () => {
-    expect(JSON.stringify(manualPreview)).toContain(
-      'ghcr.io/47ng/actions-clever-cloud-preview'
+  test('publishes fork builds only as sha-bound tags labelled with the fork source', () => {
+    const meta = onlyStep(stepsOf(manualPreview), step => step.id === 'meta')
+    const run = meta.run ?? ''
+    expect(run).toContain('"${IMAGE}:pr-${PR_NUMBER}"')
+    expect(run).toContain('"${IMAGE}:git-${HEAD_SHA}"')
+    expect(run).not.toContain(':latest')
+    expect(run).toContain(
+      'org.opencontainers.image.source=https://github.com/${FORK}/tree/${HEAD_SHA}'
     )
-    expect(JSON.stringify(preview)).not.toContain(
-      'actions-clever-cloud-preview'
-    )
-    expect(JSON.stringify(release)).not.toContain(
+    expect(JSON.stringify(manualPreview)).not.toContain(
       'actions-clever-cloud-preview'
     )
   })
