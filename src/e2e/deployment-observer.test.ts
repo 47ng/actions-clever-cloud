@@ -1054,6 +1054,76 @@ test('classifies the settled state when cancellation loses the race', async () =
   warnSpy.mockRestore()
 })
 
+test('classifies a deployment row that vanishes behind a settled CANCEL activity as cancelled', async () => {
+  let activityCalls = 0
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+  await expect(
+    cancelTimedOutDeploymentPreservesLiveApp({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      healthURL: 'https://fixture.example.com/health',
+      expectedCancelledCommitID: 'commit-timeout',
+      expectedScenario: 'healthy',
+      previousCommitID: 'commit-forced',
+      previousDeploymentID: 'deployment-forced',
+      listActivity: async () => {
+        activityCalls += 1
+        return activityCalls === 1
+          ? [
+              {
+                action: 'DEPLOY',
+                state: 'WIP',
+                uuid: 'deployment-timeout',
+                commit: 'commit-timeout'
+              },
+              {
+                action: 'DEPLOY',
+                state: 'SUCCESS',
+                uuid: 'deployment-forced',
+                commit: 'commit-forced'
+              }
+            ]
+          : [
+              {
+                action: 'CANCEL',
+                state: 'OK',
+                uuid: 'activity-cancel'
+              },
+              {
+                action: 'DEPLOY',
+                state: 'SUCCESS',
+                uuid: 'deployment-forced',
+                commit: 'commit-forced'
+              }
+            ]
+      },
+      cancelDeployment: async () => {
+        throw new Error('cancel-deploy exited before the row settled')
+      },
+      fetchHealth: async () => ({
+        status: 200,
+        json: async () => ({
+          scenario: 'healthy',
+          healthValue: null,
+          INSTANCE_ID: 'instance-forced',
+          INSTANCE_TYPE: 'production',
+          CC_DEPLOYMENT_ID: 'deployment-forced',
+          CC_COMMIT_ID: 'commit-forced'
+        })
+      }),
+      sleep: async () => {},
+      settleTimeoutMs: 10_000,
+      pollIntervalMs: 1
+    })
+  ).resolves.toMatchObject({
+    outcome: 'cancelled',
+    deployment: { uuid: 'deployment-timeout', state: 'CANCELLED' },
+    health: { CC_COMMIT_ID: 'commit-forced' }
+  })
+
+  warnSpy.mockRestore()
+})
+
 test('verifies the prior app stays live when the timed-out deployment settles failed', async () => {
   await expect(
     cancelTimedOutDeploymentPreservesLiveApp({

@@ -594,20 +594,25 @@ async function waitForSettledDeployment({
   for (;;) {
     throwIfDeadlineReached()
 
-    const deployment = (
-      await listActivity(
-        appId,
-        Math.min(
-          DEFAULT_HEALTH_CHECK_TIMEOUT_MS,
-          Math.max(1, remainingBeforeDeadline(deadlineAt))
-        )
+    const activity = await listActivity(
+      appId,
+      Math.min(
+        DEFAULT_HEALTH_CHECK_TIMEOUT_MS,
+        Math.max(1, remainingBeforeDeadline(deadlineAt))
       )
-    ).find(entry => entry.uuid === deploymentId)
+    )
+    const deployment = activity.find(entry => entry.uuid === deploymentId)
 
     throwIfDeadlineReached()
 
-    if (deployment && !isInProgressState(deployment.state)) {
+    if (deployment?.state && !isInProgressState(deployment.state)) {
       return deployment
+    }
+
+    // Clever removes the DEPLOY row of a cancelled deployment and replaces
+    // it with a CANCEL activity entry under a new uuid.
+    if (!deployment && hasSettledCancelActivity(activity)) {
+      return { uuid: deploymentId, action: 'DEPLOY', state: 'CANCELLED' }
     }
 
     await sleepUntilNextPoll({
@@ -616,6 +621,15 @@ async function waitForSettledDeployment({
       deadlineAt
     })
   }
+}
+
+function hasSettledCancelActivity(activity: DeploymentActivity[]): boolean {
+  return activity.some(
+    entry =>
+      entry.action === 'CANCEL' &&
+      Boolean(entry.state) &&
+      !isInProgressState(entry.state)
+  )
 }
 
 function isInProgressState(state: string | undefined): boolean {
