@@ -203,6 +203,64 @@ describe('inspectCandidateImage', () => {
     ).rejects.toThrow('Candidate image revision mismatch')
   })
 
+  test('rejects an index containing only attestation manifests', async () => {
+    const inspect = async (format: string) => {
+      if (format === '{{println .Manifest.Digest}}') {
+        return {
+          exitCode: 0,
+          stdout: `sha256:${'a'.repeat(64)}\n`,
+          stderr: ''
+        }
+      }
+
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify({ 'unknown/unknown': { config: {} } }),
+        stderr: ''
+      }
+    }
+
+    await expect(
+      inspectCandidateImage({
+        image:
+          'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
+        expectedRevision: '0123456789abcdef0123456789abcdef01234567',
+        expectedSourceRepository: '47ng/actions-clever-cloud',
+        inspect
+      })
+    ).rejects.toThrow('Invalid candidate image labels')
+  })
+
+  test('rejects a multi-arch entry without an image config', async () => {
+    const inspect = async (format: string) => {
+      if (format === '{{println .Manifest.Digest}}') {
+        return {
+          exitCode: 0,
+          stdout: `sha256:${'a'.repeat(64)}\n`,
+          stderr: ''
+        }
+      }
+
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify({
+          'linux/amd64': { architecture: 'amd64' }
+        }),
+        stderr: ''
+      }
+    }
+
+    await expect(
+      inspectCandidateImage({
+        image:
+          'ghcr.io/47ng/actions-clever-cloud:git-0123456789abcdef0123456789abcdef01234567',
+        expectedRevision: '0123456789abcdef0123456789abcdef01234567',
+        expectedSourceRepository: '47ng/actions-clever-cloud',
+        inspect
+      })
+    ).rejects.toThrow('Invalid candidate image labels')
+  })
+
   test('reports missing labels instead of crashing when the config has none', async () => {
     const inspect = async (format: string) => {
       if (format === '{{println .Manifest.Digest}}') {

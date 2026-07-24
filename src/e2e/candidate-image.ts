@@ -6,8 +6,7 @@ type InspectResult = {
   stderr: string
 }
 
-type InspectFormat =
-  '{{println .Manifest.Digest}}' | '{{json .Image.Config.Labels}}'
+type InspectFormat = '{{println .Manifest.Digest}}' | '{{json .Image}}'
 
 type InspectCommand = (
   format: InspectFormat,

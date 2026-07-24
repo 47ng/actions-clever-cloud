@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
 import { parse } from 'yaml'
@@ -39,32 +39,34 @@ type Workflow = {
   jobs: Record<string, Job>
 }
 
-function loadWorkflow(file: string): Workflow {
-  const url = new URL(`../.github/workflows/${file}`, import.meta.url)
-  return parse(readFileSync(fileURLToPath(url), 'utf8')) as Workflow
+const workflowsDir = fileURLToPath(
+  new URL('../.github/workflows/', import.meta.url)
+)
+
+const allWorkflows: Array<[string, Workflow]> = readdirSync(workflowsDir)
+  .filter(file => file.endsWith('.yml'))
+  .sort()
+  .map(file => [
+    file,
+    parse(readFileSync(`${workflowsDir}${file}`, 'utf8')) as Workflow
+  ])
+
+function workflowOf(file: string): Workflow {
+  const entry = allWorkflows.find(([name]) => name === file)
+  if (entry === undefined) {
+    throw new Error(`Missing workflow ${file}`)
+  }
+  return entry[1]
 }
 
-const release = loadWorkflow('main.yml')
-const preview = loadWorkflow('pr-preview.yml')
-const manualPreview = loadWorkflow('pr-preview-manual.yml')
-const e2eManual = loadWorkflow('e2e-manual.yml')
-const e2eAutomatic = loadWorkflow('e2e-release-please.yml')
-const e2eReusable = loadWorkflow('e2e-reusable.yml')
+const release = workflowOf('main.yml')
+const preview = workflowOf('pr-preview.yml')
+const manualPreview = workflowOf('pr-preview-manual.yml')
+const e2eManual = workflowOf('e2e-manual.yml')
+const e2eAutomatic = workflowOf('e2e-release-please.yml')
+const e2eReusable = workflowOf('e2e-reusable.yml')
 
-const allWorkflows: Array<[string, Workflow]> = [
-  ['main.yml', release],
-  ['pr-preview.yml', preview],
-  ['pr-preview-manual.yml', manualPreview],
-  ['e2e-manual.yml', e2eManual],
-  ['e2e-release-please.yml', e2eAutomatic],
-  ['e2e-reusable.yml', e2eReusable]
-]
-
-const e2eWorkflows: Array<[string, Workflow]> = [
-  ['e2e-manual.yml', e2eManual],
-  ['e2e-release-please.yml', e2eAutomatic],
-  ['e2e-reusable.yml', e2eReusable]
-]
+const e2eWorkflows = allWorkflows.filter(([name]) => name.startsWith('e2e-'))
 
 function jobOf(workflow: Workflow, id: string): Job {
   const job = workflow.jobs[id]
@@ -151,13 +153,23 @@ describe('shared workflow policies', () => {
   )
 
   test.each(allWorkflows)(
-    '%s never interpolates pull request event data into scripts',
+    '%s never interpolates attacker-controllable event data into scripts',
     (file, workflow) => {
+      const forbiddenInterpolations = [
+        '${{ github.event.pull_request.',
+        '${{ github.event.client_payload.',
+        '${{ github.event.issue.',
+        '${{ github.event.comment.',
+        '${{ github.event.review',
+        '${{ github.head_ref'
+      ]
       for (const script of [
         ...runScriptsOf(workflow),
         ...githubScriptsOf(workflow)
       ]) {
-        expect(script).not.toContain('${{ github.event.pull_request.')
+        for (const interpolation of forbiddenInterpolations) {
+          expect(script).not.toContain(interpolation)
+        }
       }
     }
   )
@@ -191,6 +203,11 @@ describe('shared workflow policies', () => {
       for (const step of setupNodeSteps) {
         expect(step.with?.['cache']).toBeUndefined()
       }
+      expect(
+        stepsOf(workflow).filter(
+          step => step.uses?.startsWith('actions/cache@') ?? false
+        )
+      ).toEqual([])
     }
   )
 })
@@ -500,6 +517,28 @@ describe('e2e-reusable', () => {
     expect(run.indexOf('failure_evidence_ready=true')).toBeGreaterThan(
       verifyIndex
     )
+  })
+
+  test('redacts every credential encoding covered by the evidence module', () => {
+    const deleteApp = onlyStep(suiteSteps, step => {
+      const keys = envKeysOf(step)
+      return keys.includes('CLEVER_TOKEN') && keys.includes('E2E_HEALTH_VALUE')
+    })
+    const run = deleteApp.run ?? ''
+    const evidenceSource = readFileSync(
+      fileURLToPath(new URL('./e2e/evidence.ts', import.meta.url)),
+      'utf8'
+    )
+    const encodingMarkers = [
+      '${credentials.token}:${credentials.secret}',
+      'encodeURIComponent(value)',
+      ".toString('base64')",
+      "replaceAll('+', '-')"
+    ]
+    for (const marker of encodingMarkers) {
+      expect(evidenceSource).toContain(marker)
+      expect(run).toContain(marker)
+    }
   })
 
   test('uploads failure evidence without credentials and only after the redaction scan', () => {
