@@ -189,7 +189,12 @@ export async function cancelTimedOutDeploymentPreservesLiveApp({
         found.uuid,
         remainingBeforeDeadline(deadlineAt)
       )
-    } catch {
+    } catch (error) {
+      console.warn(
+        `Cancellation did not settle the deployment: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
       deployment = await waitForSettledDeployment({
         appId,
         deploymentId: found.uuid,

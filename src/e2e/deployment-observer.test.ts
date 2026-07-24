@@ -1002,6 +1002,7 @@ test('accepts a timed-out deployment that completed before cancellation', async 
 
 test('classifies the settled state when cancellation loses the race', async () => {
   let activityCalls = 0
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
   await expect(
     cancelTimedOutDeploymentPreservesLiveApp({
@@ -1046,6 +1047,11 @@ test('classifies the settled state when cancellation loses the race', async () =
     outcome: 'completed',
     deployment: { uuid: 'deployment-timeout', state: 'OK' }
   })
+
+  expect(warnSpy).toHaveBeenCalledWith(
+    'Cancellation did not settle the deployment: Deployment deployment-timeout reached OK before it could be cancelled'
+  )
+  warnSpy.mockRestore()
 })
 
 test('verifies the prior app stays live when the timed-out deployment settles failed', async () => {
