@@ -13,10 +13,11 @@
     "node",
     "deploy",
     "deployment",
-    "clever-cloud"
+    "clever-cloud",
+    "e2e"
   ],
   "author": {
-    "name": "François Best",
+    "name": "Fran\u00e7ois Best",
     "email": "contact@francoisbest.com",
     "url": "https://francoisbest.com"
   },
