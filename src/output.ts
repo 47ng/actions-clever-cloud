@@ -1,6 +1,7 @@
+import { once } from 'node:events'
 import fs from 'node:fs/promises'
-import { PassThrough, Transform, type Writable } from 'node:stream'
-import { finished } from 'node:stream/promises'
+import { PassThrough, type Writable } from 'node:stream'
+import { finished, pipeline } from 'node:stream/promises'
 import { StringDecoder } from 'node:string_decoder'
 import type { Host } from './github.ts'
 
@@ -13,26 +14,37 @@ export type DeployLog = {
    * Resolves once every sink fed by `stream` (the console pipeline, the log
    * file) has finished processing whatever was written before `stream.end()`
    * was called. A sink failing (e.g. ENOSPC, EPIPE) is reported via
-   * `host.warning` rather than rejecting — losing log output must never
-   * override the deploy's real outcome.
+   * `host.warning` at failure time rather than rejecting — losing log output
+   * must never override the deploy's real outcome.
    */
   done(): Promise<void>
 }
 
 export async function createDeployLog(
-  options: { quiet: boolean; logFile?: string },
+  options: { quiet: boolean; logFile?: string; consoleStream?: Writable },
   host: Pick<Host, 'warning'>
 ): Promise<DeployLog> {
-  const { quiet, logFile } = options
+  const { quiet, logFile, consoleStream = process.stdout } = options
   const tee = new PassThrough()
   const completions: Promise<void>[] = []
-  const completionErrors: unknown[] = []
   let liveSinkCount = 0
-  const monitor = (completion: Promise<void>): void => {
+  const degrade = (sink: string, error: unknown): void => {
+    host.warning(
+      `deploy log output degraded (${sink}): ${error instanceof Error ? error.message : String(error)}`
+    )
+  }
+  const monitor = (
+    sink: string,
+    completion: Promise<void>,
+    unpipeDeadSink: () => void
+  ): void => {
     liveSinkCount += 1
     completions.push(
       completion.catch(error => {
-        completionErrors.push(error)
+        degrade(sink, error)
+        // A dead sink must not hold the tee back through pipe backpressure:
+        // detach it so surviving sinks keep flowing.
+        unpipeDeadSink()
         liveSinkCount -= 1
         if (liveSinkCount === 0) {
           tee.resume()
@@ -81,21 +93,52 @@ export async function createDeployLog(
         }
       }
     }
-    const lastTransform = tee
-      .pipe(Transform.from(splitNewlines))
-      .pipe(Transform.from(injectAnnotations))
-    // `end: false`: process.stdout is shared for the whole action process
-    // lifetime — this tee ending must not close it.
-    lastTransform.pipe(process.stdout, { end: false })
-    monitor(finished(lastTransform))
+    const writeLinesToConsole = async (
+      lines: AsyncIterable<string>
+    ): Promise<void> => {
+      for await (const line of lines) {
+        if (consoleStream.errored) {
+          throw consoleStream.errored
+        }
+        if (!consoleStream.write(line)) {
+          // once() rejects if 'error' fires while waiting, so a console
+          // stream dying under backpressure (e.g. EPIPE) fails the chain
+          // instead of stalling it.
+          await once(consoleStream, 'drain')
+        }
+      }
+    }
+    // The console stream stays out of pipeline()'s custody: it is shared for
+    // the whole action process lifetime and must survive this chain ending or
+    // failing. chainInput takes the pipe instead, so a chain failure only
+    // costs the tee one unpipe.
+    const chainInput = new PassThrough()
+    tee.pipe(chainInput)
+    // An 'error' listener must exist between writes, or a console stream
+    // error would crash the process before writeLinesToConsole observes it.
+    const onConsoleError = (): void => {}
+    consoleStream.on('error', onConsoleError)
+    // pipeline() (unlike bare .pipe()) fails the whole chain when any stage
+    // fails, so this one completion sees every console failure mode.
+    const consoleDone = pipeline(
+      chainInput,
+      splitNewlines,
+      injectAnnotations,
+      writeLinesToConsole
+    ).finally(() => {
+      consoleStream.off('error', onConsoleError)
+    })
+    monitor('console', consoleDone, () => tee.unpipe(chainInput))
   }
   if (logFile) {
     try {
       const logFileStream = (await fs.open(logFile, 'w')).createWriteStream()
       tee.pipe(logFileStream)
-      monitor(finished(logFileStream))
+      monitor('log file', finished(logFileStream), () =>
+        tee.unpipe(logFileStream)
+      )
     } catch (error) {
-      completionErrors.push(error)
+      degrade('log file', error)
     }
   }
   if (liveSinkCount === 0) {
@@ -103,12 +146,6 @@ export async function createDeployLog(
   }
   const done = async (): Promise<void> => {
     await Promise.all(completions)
-    if (completionErrors.length > 0) {
-      const error = completionErrors[0]
-      host.warning(
-        `deploy log output degraded: ${error instanceof Error ? error.message : String(error)}`
-      )
-    }
   }
   return { stream: tee, done }
 }

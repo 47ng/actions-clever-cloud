@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Writable } from 'node:stream'
+import { StringDecoder } from 'node:string_decoder'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import {
   createDeployLog,
@@ -163,20 +164,22 @@ test('quiet + logFile: file gets content, stdout gets nothing', async () => {
   await fs.unlink(logFile)
 })
 
-test('log file open failure degrades with a warning and keeps draining', async () => {
+test('log file open failure warns immediately and keeps draining', async () => {
   const openSpy = vi
     .spyOn(fs, 'open')
     .mockRejectedValue(new Error('ENOENT: missing directory'))
   try {
     const { stream, done } = await deployLog(true, '/missing/deploy.log')
+    // The warning fires at open time, not deferred until done(): a deploy
+    // that later hangs should still have surfaced the degraded log output.
+    expect(warning).toHaveBeenCalledWith(
+      'deploy log output degraded (log file): ENOENT: missing directory'
+    )
     for (let index = 0; index < 256; index += 1) {
       stream.write(Buffer.alloc(1024))
     }
     stream.end()
     await expect(done()).resolves.toBeUndefined()
-    expect(warning).toHaveBeenCalledWith(
-      'deploy log output degraded: ENOENT: missing directory'
-    )
   } finally {
     openSpy.mockRestore()
   }
@@ -205,11 +208,127 @@ test('log sink failure is handled early and later output keeps draining', async 
     stream.end()
     await expect(done()).resolves.toBeUndefined()
     expect(warning).toHaveBeenCalledWith(
-      'deploy log output degraded: disk full'
+      'deploy log output degraded (log file): disk full'
     )
   } finally {
     openSpy.mockRestore()
   }
+})
+
+// -- Console pipeline failure scenarios (issue #257) --
+
+function failingSink(message: string): Writable {
+  return new Writable({
+    highWaterMark: 1,
+    write(_chunk, _encoding, callback) {
+      callback(new Error(message))
+    }
+  })
+}
+
+test('non-quiet: a console stream write error degrades with a warning and keeps draining', async () => {
+  const consoleStream = failingSink('EPIPE: broken pipe')
+  const { stream, done } = await createDeployLog(
+    { quiet: false, consoleStream },
+    { warning }
+  )
+  stream.write(TS + 'first\n')
+  await new Promise(resolve => setImmediate(resolve))
+  for (let index = 0; index < 256; index += 1) {
+    stream.write(Buffer.alloc(1024))
+  }
+  stream.end()
+  await expect(done()).resolves.toBeUndefined()
+  expect(warning).toHaveBeenCalledWith(
+    'deploy log output degraded (console): EPIPE: broken pipe'
+  )
+})
+
+test('a mid-chain transform failure degrades console while the log file keeps writing', async () => {
+  const decoderSpy = vi
+    .spyOn(StringDecoder.prototype, 'write')
+    .mockImplementation(() => {
+      throw new Error('split boom')
+    })
+  const logFile = tempLogFilePath('mid-chain')
+  try {
+    const { stream, done } = await deployLog(false, logFile)
+    stream.write(TS + 'hello\n')
+    stream.end()
+    await expect(done()).resolves.toBeUndefined()
+    expect(warning).toHaveBeenCalledWith(
+      'deploy log output degraded (console): split boom'
+    )
+    const content = await fs.readFile(logFile, 'utf8')
+    expect(content).toBe(TS + 'hello\n')
+  } finally {
+    decoderSpy.mockRestore()
+    await fs.unlink(logFile)
+  }
+})
+
+test('a console stream dying under backpressure degrades while the log file keeps writing', async () => {
+  const consoleStream = failingSink('EPIPE: broken pipe')
+  const logFile = tempLogFilePath('backpressure')
+  try {
+    const { stream, done } = await createDeployLog(
+      { quiet: false, logFile, consoleStream },
+      { warning }
+    )
+    // Enough data to overwhelm every buffer between the tee and the dead
+    // chain: backpressure from the stalled console pipeline must not starve
+    // the healthy file sink.
+    const filler = (TS + 'x'.repeat(1017) + '\n').repeat(256)
+    stream.write(filler)
+    stream.end()
+    await expect(done()).resolves.toBeUndefined()
+    expect(warning).toHaveBeenCalledWith(
+      'deploy log output degraded (console): EPIPE: broken pipe'
+    )
+    const content = await fs.readFile(logFile, 'utf8')
+    expect(content).toBe(filler)
+  } finally {
+    await fs.unlink(logFile)
+  }
+})
+
+test('non-quiet without a log file: a dead console chain still drains the tee', async () => {
+  const decoderSpy = vi
+    .spyOn(StringDecoder.prototype, 'write')
+    .mockImplementation(() => {
+      throw new Error('split boom')
+    })
+  try {
+    const { stream, done } = await deployLog(false)
+    stream.write(TS + 'first\n')
+    await new Promise(resolve => setImmediate(resolve))
+    for (let index = 0; index < 256; index += 1) {
+      stream.write(Buffer.alloc(1024))
+    }
+    stream.end()
+    await expect(done()).resolves.toBeUndefined()
+    expect(warning).toHaveBeenCalledWith(
+      'deploy log output degraded (console): split boom'
+    )
+  } finally {
+    decoderSpy.mockRestore()
+  }
+})
+
+test('the console stream error listener is removed once the chain settles', async () => {
+  const consoleStream = new Writable({
+    write(_chunk, _encoding, callback) {
+      callback()
+    }
+  })
+  const { stream, done } = await createDeployLog(
+    { quiet: false, consoleStream },
+    { warning }
+  )
+  stream.write(TS + 'hello\n')
+  stream.end()
+  await done()
+  expect(consoleStream.listenerCount('error')).toBe(0)
 })
 
 test('non-quiet: adopts \\r\\n as the line separator once seen', async () => {
