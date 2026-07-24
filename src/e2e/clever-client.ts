@@ -57,7 +57,7 @@ type CleverController = {
   ) => Promise<CreatedApplication>
   findApplicationByName: (name: string) => Promise<CreatedApplication>
   getEnvironmentValue: (appId: string, name: string) => Promise<string | null>
-  getApplication: (appId: string) => Promise<RetrievedApplication>
+  getPublicOrigin: (appId: string) => Promise<string>
   deleteApplication: (options: DeleteApplicationOptions) => Promise<void>
 }
 
@@ -66,10 +66,6 @@ type CreateApplicationController = {
     options: CreateApplicationOptions
   ) => Promise<CreatedApplication>
   findApplicationByName: (name: string) => Promise<CreatedApplication>
-}
-
-type RetrievedApplication = CreatedApplication & {
-  deployURL: string
 }
 
 type DeploymentActivity = {
@@ -463,20 +459,20 @@ export function createCleverController({
       return typeof match?.value === 'string' ? match.value : null
     },
 
-    async getApplication(appId: string): Promise<RetrievedApplication> {
-      const match = (await listApplications())
-        .flatMap(organisation => organisation.applications ?? [])
-        .find(application => application.app_id === appId)
-
-      if (!match || !match.name || !match.deploy_url) {
-        throw new Error(`Application ${appId} is missing its name or deploy URL`)
+    async getPublicOrigin(appId: string): Promise<string> {
+      const result = await runCommand(
+        cleverCLI,
+        ['domain', '--app', appId, '--format', 'json'],
+        { timeoutMs: COMMAND_TIMEOUT_MS }
+      )
+      const domains = JSON.parse(result.stdout) as Array<{
+        domainWithPathPrefix?: string
+      }>
+      const domain = domains[0]?.domainWithPathPrefix
+      if (!domain) {
+        throw new Error(`Application ${appId} has no public domain`)
       }
-
-      return {
-        appId,
-        name: match.name,
-        deployURL: match.deploy_url
-      }
+      return `https://${domain.endsWith('/') ? domain : `${domain}/`}`
     },
 
     async deleteApplication({
