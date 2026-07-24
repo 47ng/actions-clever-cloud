@@ -479,6 +479,20 @@ describe('e2e-manual', () => {
 })
 
 describe('e2e-release-please', () => {
+  test('the dispatch filter matches the candidate policy branch predicate', () => {
+    const dispatch = onlyStep(
+      jobOf(release, 'dispatch-release-please-candidates').steps ?? [],
+      step => scriptOf(step) !== null
+    )
+    const script = scriptOf(dispatch) ?? ''
+    // main.yml cannot import isReleasePleaseCandidateBranch, so it carries a
+    // hand-copied predicate; pin both halves so drift fails here instead of
+    // silently never dispatching e2e for release PRs again.
+    expect(script).toContain("'release-please--branches--master'")
+    expect(script).toContain("pr.headBranchName.startsWith(branch + '--')")
+    expect(script).toContain("'autorelease: pending'")
+  })
+
   test('triggers only on repository dispatch and deliberate pull request target events', () => {
     expect(e2eAutomatic.on['pull_request']).toBeUndefined()
     expect(e2eAutomatic.on['repository_dispatch']?.types).toContain(
