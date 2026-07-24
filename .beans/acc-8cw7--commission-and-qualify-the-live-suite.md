@@ -1,14 +1,14 @@
 ---
 # acc-8cw7
 title: Commission and qualify the live suite
-status: todo
+status: in-progress
 type: task
 priority: high
 tags:
     - e2e
     - hitl
 created_at: 2026-07-23T11:05:26Z
-updated_at: 2026-07-23T11:05:26Z
+updated_at: 2026-07-24T06:35:04Z
 parent: acc-9ddy
 blocked_by:
     - acc-rtwf

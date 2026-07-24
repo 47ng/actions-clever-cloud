@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { assertMatchingHealthValue, generateHealthValue } from './health-value'
+import { assertMatchingHealthValue, generateHealthValue } from './health-value.ts'
 
 test('generates a 16-byte base64 health value with == padding', () => {
   const value = generateHealthValue(size => {

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Writable } from 'node:stream'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { getOutputStream } from './action'
+import { getOutputStream } from './action.ts'
 
 // getOutputStream tees its non-quiet output into the shared process.stdout.
 // This suite pipes into it repeatedly, which trips Node's 10-listener leak

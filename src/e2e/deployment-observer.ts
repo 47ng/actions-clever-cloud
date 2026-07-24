@@ -1,8 +1,8 @@
-import type { FixtureHealth } from './fixture-app'
+import type { FixtureHealth } from './fixture-app.ts'
 import {
   assertMatchingHealthValue,
   HEALTH_VALUE_ENV_NAME
-} from './health-value'
+} from './health-value.ts'
 
 type Sleep = (timeoutMs: number) => Promise<void>
 

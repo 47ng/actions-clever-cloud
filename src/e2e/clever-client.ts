@@ -38,6 +38,29 @@ type CreatedApplication = {
   name: string
 }
 
+type CancelDeploymentOptions = {
+  appId: string
+  deploymentId: string
+  timeoutMs?: number
+}
+
+type CleverController = {
+  listActivity: (
+    appId: string,
+    timeoutMs?: number
+  ) => Promise<DeploymentActivity[]>
+  cancelDeployment: (
+    options: CancelDeploymentOptions
+  ) => Promise<DeploymentActivity>
+  createApplication: (
+    options: CreateApplicationOptions
+  ) => Promise<CreatedApplication>
+  findApplicationByName: (name: string) => Promise<CreatedApplication>
+  getEnvironmentValue: (appId: string, name: string) => Promise<string | null>
+  getApplication: (appId: string) => Promise<RetrievedApplication>
+  deleteApplication: (options: DeleteApplicationOptions) => Promise<void>
+}
+
 type CreateApplicationController = {
   createApplication: (
     options: CreateApplicationOptions
@@ -73,7 +96,7 @@ type ListedEnvironment = {
   }>
 }
 
-const APP_ID_REGEX =
+export const APP_ID_REGEX: RegExp =
   /^app_[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/
 const COMMAND_TIMEOUT_MS = 30_000
 const DEFAULT_SETTLE_TIMEOUT_MS = 10 * 60_000
@@ -143,7 +166,7 @@ export function createCleverController({
   sleep = defaultSleep,
   settleTimeoutMs = DEFAULT_SETTLE_TIMEOUT_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS
-}: CleverControllerOptions) {
+}: CleverControllerOptions): CleverController {
   async function listActivity(
     appId: string,
     timeoutMs = COMMAND_TIMEOUT_MS

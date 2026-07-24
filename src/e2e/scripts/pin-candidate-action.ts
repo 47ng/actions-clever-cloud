@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { pinActionMetadata } from '../../src/e2e/candidate-image.ts'
+import { pinActionMetadata } from '../candidate-image.ts'
 
 const image = process.env.CANDIDATE_IMAGE
 const outputActionPath = process.env.OUTPUT_ACTION_PATH

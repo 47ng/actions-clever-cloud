@@ -1,11 +1,11 @@
 import * as core from '@actions/core'
 import { exec, type ExecOptions } from '@actions/exec'
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcessByStdio } from 'node:child_process'
 import fs from 'node:fs/promises'
-import { PassThrough, Transform, Writable } from 'node:stream'
+import { PassThrough, Transform, Writable, type Readable } from 'node:stream'
 import { finished } from 'node:stream/promises'
 import { StringDecoder } from 'node:string_decoder'
-import type { Arguments } from './arguments'
+import type { Arguments } from './arguments.ts'
 
 const DEPLOY_TERMINATION_GRACE_PERIOD_MS = 5000
 const DEPLOY_FORCE_KILL_WAIT_MS = 5000
@@ -288,7 +288,10 @@ function spawnDeploy(
   cleverCLI: string,
   args: string[],
   options: ExecOptions
-): { child: ReturnType<typeof spawn>; exited: Promise<number> } {
+): {
+  child: ChildProcessByStdio<null, Readable, Readable>
+  exited: Promise<number>
+} {
   const child = spawn(cleverCLI, args, {
     cwd: options.cwd,
     stdio: ['ignore', 'pipe', 'pipe']

@@ -1,40 +1,10 @@
 import { isMap, isScalar, parseDocument, type Scalar, type YAMLMap } from 'yaml'
 
-type InspectResult = {
-  exitCode: number
-  stdout: string
-  stderr: string
-}
-
-type InspectFormat = '{{println .Manifest.Digest}}' | '{{json .Image}}'
-
-type InspectCommand = (
-  format: InspectFormat,
-  reference: string
-) => Promise<InspectResult>
-
-type InspectCandidateImageOptions = {
-  image: string
-  expectedRevision: string
-  expectedSourceRepository: string
-  inspect: InspectCommand
-}
-
-type CandidateImage = {
-  digest: string
-  image: string
-}
-
 type PinActionMetadataOptions = {
   actionMetadata: string
   image: string
 }
 
-function isMissingImage(stderr: string): boolean {
-  return /not found|manifest unknown|name unknown/i.test(stderr)
-}
-
-const DIGEST_REGEX = /^sha256:[0-9a-f]{64}$/
 const PINNED_IMAGE_REGEX = /^[^@\s]+@sha256:[0-9a-f]{64}$/
 const ROOT_EXECUTION_KEYS = new Set([
   'using',
@@ -62,12 +32,6 @@ const DOCKER_RUNS_KEYS = new Set([
   'args',
   'env'
 ])
-
-function inspectFailure(image: string, stderr: string): Error {
-  return new Error(
-    `Failed to inspect ${image}: ${stderr || 'unknown registry inspection error'}`
-  )
-}
 
 function candidateMetadataError(message: string): Error {
   return new Error(message)
@@ -182,89 +146,4 @@ export function pinActionMetadata({
   imageNode.value = `docker://${image}`
 
   return String(document)
-}
-
-export async function inspectCandidateImage({
-  image,
-  expectedRevision,
-  expectedSourceRepository,
-  inspect
-}: InspectCandidateImageOptions): Promise<CandidateImage | undefined> {
-  const digestResult = await inspect('{{println .Manifest.Digest}}', image)
-  if (digestResult.exitCode !== 0) {
-    if (isMissingImage(digestResult.stderr)) {
-      return undefined
-    }
-    throw inspectFailure(image, digestResult.stderr)
-  }
-
-  const digest = digestResult.stdout.trim()
-  if (!DIGEST_REGEX.test(digest)) {
-    throw new Error(`Invalid candidate image digest: ${digest}`)
-  }
-
-  const pinnedImage = image.replace(/:[^:@]+$/, `@${digest}`)
-  const imageResult = await inspect('{{json .Image}}', pinnedImage)
-  if (imageResult.exitCode !== 0) {
-    throw inspectFailure(image, imageResult.stderr)
-  }
-
-  const expectedSource = `https://github.com/${expectedSourceRepository}/tree/${expectedRevision}`
-  for (const labels of parsePlatformLabels(imageResult.stdout, image)) {
-    const actualRevision = labels['org.opencontainers.image.revision']
-    if (actualRevision !== expectedRevision) {
-      throw new Error(
-        `Candidate image revision mismatch: expected ${expectedRevision}, got ${actualRevision ?? '(missing)'}`
-      )
-    }
-
-    const actualSource = labels['org.opencontainers.image.source']
-    if (actualSource !== expectedSource) {
-      throw new Error(
-        `Candidate image source mismatch: expected ${expectedSource}, got ${actualSource ?? '(missing)'}`
-      )
-    }
-  }
-
-  return {
-    digest,
-    image: pinnedImage
-  }
-}
-
-type InspectedImageConfig = {
-  config?: { Labels?: Record<string, string> | null }
-}
-
-function parsePlatformLabels(
-  stdout: string,
-  image: string
-): Array<Record<string, string>> {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(stdout)
-  } catch {
-    throw new Error(`Invalid candidate image labels for ${image}`)
-  }
-
-  if (typeof parsed !== 'object' || parsed === null) {
-    throw new Error(`Invalid candidate image labels for ${image}`)
-  }
-
-  if ('config' in parsed) {
-    return [(parsed as InspectedImageConfig).config?.Labels ?? {}]
-  }
-
-  const platforms = Object.entries(
-    parsed as Record<string, InspectedImageConfig | null>
-  ).filter(([platform]) => !platform.startsWith('unknown/'))
-
-  if (
-    platforms.length === 0 ||
-    platforms.some(([, platformImage]) => typeof platformImage?.config !== 'object')
-  ) {
-    throw new Error(`Invalid candidate image labels for ${image}`)
-  }
-
-  return platforms.map(([, platformImage]) => platformImage?.config?.Labels ?? {})
 }

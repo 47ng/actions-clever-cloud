@@ -144,72 +144,7 @@ jobs:
           EXPECTED_REVISION: ${{ steps.sha.outputs.sha }}
           EXPECTED_SOURCE_REPOSITORY: ${{ github.repository }}
           OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action.yml
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile, readFile, writeFile } from 'node:fs/promises'
-          import { execFile } from 'node:child_process'
-          import { promisify } from 'node:util'
-          import { inspectCandidateImage, pinActionMetadata } from './src/e2e/candidate-image.ts'
-
-          const execFileAsync = promisify(execFile)
-          const image = process.env.CANDIDATE_IMAGE
-          const expectedRevision = process.env.EXPECTED_REVISION
-          const expectedSourceRepository = process.env.EXPECTED_SOURCE_REPOSITORY
-          const outputActionPath = process.env.OUTPUT_ACTION_PATH
-          const githubOutput = process.env.GITHUB_OUTPUT
-
-          if (
-            !image ||
-            !expectedRevision ||
-            !expectedSourceRepository ||
-            !outputActionPath ||
-            !githubOutput
-          ) {
-            throw new Error('Missing candidate verification environment variables')
-          }
-
-          const inspect = async (format, reference) => {
-            try {
-              const { stdout, stderr } = await execFileAsync(
-                'docker',
-                ['buildx', 'imagetools', 'inspect', '--format', format, reference],
-                { encoding: 'utf8', timeout: 60_000 }
-              )
-              return { exitCode: 0, stdout, stderr }
-            } catch (error) {
-              return {
-                exitCode: error.code ?? 1,
-                stdout: error.stdout ?? '',
-                stderr: error.stderr ?? error.message
-              }
-            }
-          }
-
-          const candidate = await inspectCandidateImage({
-            image,
-            expectedRevision,
-            expectedSourceRepository,
-            inspect
-          })
-
-          if (!candidate) {
-            throw new Error(`Missing candidate image ${image}`)
-          }
-
-          const actionMetadata = await readFile('action.yml', 'utf8')
-          const pinnedMetadata = pinActionMetadata({
-            actionMetadata,
-            image: candidate.image
-          })
-
-          await writeFile(outputActionPath, pinnedMetadata)
-          await appendFile(
-            githubOutput,
-            `digest=${candidate.digest}\n` +
-              `image=${candidate.image}\n` +
-              `action_metadata_path=${outputActionPath}\n`
-          )
-          EOF
+        run: node src/e2e/scripts/pin-preview-action.ts
 
       - name: Generate step summary
         env:
@@ -230,91 +165,30 @@ jobs:
             echo "\`\`\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Isolated so the only `pull-requests: write` token in the workflow lives in a
-  # job that runs no untrusted code (it never checks out the PR). All values are
-  # passed via env, never interpolated into the script.
+  # Isolated so the only `pull-requests: write` token in the workflow lives in
+  # its own job. All values are passed via env, never interpolated into the
+  # script.
   comment:
     name: Comment on PR
     needs: build
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: write
     steps:
+      - name: Checkout trusted workflow definition
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
       - name: Comment on PR
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           TAG: ${{ needs.build.outputs.tag }}
           SHA: ${{ needs.build.outputs.sha }}
           DIGEST: ${{ needs.build.outputs.digest }}
           TAGS: ${{ needs.build.outputs.tags }}
           LABELS: ${{ needs.build.outputs.labels }}
-        with:
-          script: |
-            const tag = process.env.TAG;
-            const sha = process.env.SHA;
-            const digest = process.env.DIGEST;
-            const tags = process.env.TAGS;
-            const labels = process.env.LABELS;
-            const marker = "<!-- docker-build-comment -->";
-
-            const body = [
-              marker,
-              "## 🐳 &nbsp;Docker image preview",
-              "",
-              "Preview this PR in your workflow:",
-              "",
-              "```yaml",
-              "# Use the PR number to follow changes in this PR",
-              `- uses: docker://ghcr.io/47ng/actions-clever-cloud:${tag}`,
-              "",
-              "# Use the git SHA for pinning to a specific commit",
-              `- uses: docker://ghcr.io/47ng/actions-clever-cloud:git-${sha}`,
-              "```",
-              "",
-              "<details>",
-              "<summary>Image metadata</summary>",
-              "",
-              `Digest: \`${digest}\``,
-              "",
-              "### 📌 &nbsp;Tags",
-              "```",
-              tags,
-              "```",
-              "",
-              "### 🏷 &nbsp;Labels",
-              "```",
-              labels,
-              "```",
-              "",
-              "</details>",
-              "",
-              "---",
-              "<sub>🤖 This comment is updated on every push</sub>",
-            ].join("\n");
-
-            // Find existing comment by marker
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-
-            const botComment = comments.find(
-              (comment) => comment.body && comment.body.startsWith(marker),
-            );
-
-            if (botComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: node src/e2e/scripts/comment-docker-preview.ts

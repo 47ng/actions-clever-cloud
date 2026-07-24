@@ -10,12 +10,12 @@ import { afterEach, expect, test } from 'vitest'
 import {
   FIXTURE_BUILD_FAILURE_MARKER,
   FIXTURE_STARTUP_FAILURE_MARKER
-} from './fixture-app'
+} from './fixture-app.ts'
 import {
   createDivergentFixtureCommit,
   createFixtureRepository,
   createHealthyFixtureCommit
-} from './git-fixture'
+} from './git-fixture.ts'
 
 const execFileAsync = promisify(execFile)
 const temporaryDirectories: string[] = []

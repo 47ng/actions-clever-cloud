@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
 import { parse } from 'yaml'
@@ -42,6 +43,8 @@ type Workflow = {
 const workflowsDir = fileURLToPath(
   new URL('../.github/workflows/', import.meta.url)
 )
+const e2eModulesDir = fileURLToPath(new URL('./e2e/', import.meta.url))
+const scriptsDir = join(e2eModulesDir, 'scripts')
 
 const allWorkflows: Array<[string, Workflow]> = readdirSync(workflowsDir)
   .filter(file => file.endsWith('.yml'))
@@ -67,6 +70,13 @@ const e2eAutomatic = workflowOf('e2e-release-please.yml')
 const e2eReusable = workflowOf('e2e-reusable.yml')
 
 const e2eWorkflows = allWorkflows.filter(([name]) => name.startsWith('e2e-'))
+
+const extractedWorkflows: Array<[string, Workflow]> = [
+  ['e2e-manual.yml', e2eManual],
+  ['e2e-release-please.yml', e2eAutomatic],
+  ['e2e-reusable.yml', e2eReusable],
+  ['pr-preview.yml', preview]
+]
 
 function jobOf(workflow: Workflow, id: string): Job {
   const job = workflow.jobs[id]
@@ -119,11 +129,51 @@ function onlyStep(steps: Step[], predicate: (step: Step) => boolean): Step {
   return match
 }
 
-function importSpecifiersOf(script: string): string[] {
+function importSpecifiersOf(source: string): string[] {
   return Array.from(
-    script.matchAll(/from\s+'([^']+)'/g),
+    source.matchAll(/from\s+'([^']+)'/g),
     match => match[1] ?? ''
   )
+}
+
+type ModuleClosure = {
+  source: string
+  externals: string[]
+}
+
+function closureOfScript(scriptName: string): ModuleClosure {
+  const externals: string[] = []
+  const sources: string[] = []
+  const queue = [join(scriptsDir, scriptName)]
+  const seen = new Set<string>()
+  while (queue.length > 0) {
+    const file = queue.pop()
+    if (file === undefined || seen.has(file)) {
+      continue
+    }
+    seen.add(file)
+    const source = readFileSync(file, 'utf8')
+    sources.push(source)
+    for (const specifier of importSpecifiersOf(source)) {
+      if (specifier.startsWith('.')) {
+        queue.push(resolve(dirname(file), specifier))
+      } else {
+        externals.push(specifier)
+      }
+    }
+  }
+  return { source: sources.join('\n'), externals }
+}
+
+function expectNodeBuiltinsOnly(closure: ModuleClosure): void {
+  expect(closure.externals.length).toBeGreaterThan(0)
+  for (const specifier of closure.externals) {
+    expect(specifier).toMatch(/^node:/)
+  }
+}
+
+function scriptSourceOf(scriptName: string): string {
+  return readFileSync(join(scriptsDir, scriptName), 'utf8')
 }
 
 describe('shared workflow policies', () => {
@@ -194,6 +244,27 @@ describe('shared workflow policies', () => {
     }
   })
 
+  test.each(allWorkflows)(
+    '%s runs no inline node heredocs',
+    (file, workflow) => {
+      for (const run of runScriptsOf(workflow)) {
+        expect(run).not.toContain('--input-type')
+        expect(run).not.toContain("<<'EOF'")
+      }
+    }
+  )
+
+  test.each(extractedWorkflows)(
+    '%s no longer uses github-script steps',
+    (file, workflow) => {
+      expect(
+        stepsOf(workflow).filter(
+          step => step.uses?.includes('github-script') ?? false
+        )
+      ).toEqual([])
+    }
+  )
+
   test.each(e2eWorkflows)(
     '%s never restores a shared package cache',
     (file, workflow) => {
@@ -210,6 +281,23 @@ describe('shared workflow policies', () => {
       ).toEqual([])
     }
   )
+})
+
+describe('runtime module resolution', () => {
+  test('every relative import under src/e2e names its .ts source explicitly', () => {
+    const files = readdirSync(e2eModulesDir, { recursive: true })
+      .map(String)
+      .filter(file => file.endsWith('.ts'))
+    expect(files.length).toBeGreaterThan(0)
+    for (const file of files) {
+      const source = readFileSync(join(e2eModulesDir, file), 'utf8')
+      for (const specifier of importSpecifiersOf(source)) {
+        if (specifier.startsWith('.')) {
+          expect(specifier, `${file} imports ${specifier}`).toMatch(/\.ts$/)
+        }
+      }
+    }
+  })
 })
 
 describe('pr-preview', () => {
@@ -242,6 +330,21 @@ describe('pr-preview', () => {
     expect(paths).toContain('!src/**/*.test.ts')
     expect(paths).not.toContain('README.md')
     expect(paths.filter(path => path.startsWith('docs/'))).toEqual([])
+  })
+
+  test('comments on the pull request only from a checkout pinned to the workflow SHA', () => {
+    const commentSteps = jobOf(preview, 'comment').steps ?? []
+    const checkout = onlyStep(
+      commentSteps,
+      step => step.uses?.startsWith('actions/checkout@') ?? false
+    )
+    expect(checkout.with?.['ref']).toBe('${{ github.sha }}')
+    const comment = onlyStep(
+      commentSteps,
+      step => step.env?.['GH_TOKEN'] !== undefined
+    )
+    expect(comment.env?.['GH_TOKEN']).toBe('${{ github.token }}')
+    expect(comment.run).toBe('node src/e2e/scripts/comment-docker-preview.ts')
   })
 })
 
@@ -290,36 +393,47 @@ describe('pr-preview-manual', () => {
 
 describe('e2e-manual', () => {
   test('accepts only the current head of exactly one open internal pull request, dispatched from master', () => {
-    const script = githubScriptsOf(e2eManual).join('\n')
-    expect(script).toContain('^[0-9a-f]{40}$')
-    expect(script).toContain('pr.head.repo.full_name === thisRepo')
-    expect(script).toContain('pr.head.sha === headSha')
-    expect(script).toContain('matches.length !== 1')
-    expect(script).toContain("runRef !== 'refs/heads/master'")
+    const resolveStep = onlyStep(
+      jobOf(e2eManual, 'resolve').steps ?? [],
+      step => step.env?.['GH_TOKEN'] !== undefined
+    )
+    expect(resolveStep.run).toBe(
+      'node src/e2e/scripts/resolve-manual-candidate.ts'
+    )
+    expect(resolveStep.env?.['GH_TOKEN']).toBe('${{ github.token }}')
+    expect(resolveStep.env?.['HEAD_SHA']).toBe('${{ inputs.head_sha }}')
+    expect(resolveStep.env?.['RUN_REF']).toBe('${{ github.ref }}')
+    const closure = closureOfScript('resolve-manual-candidate.ts')
+    expect(closure.source).toContain('^[0-9a-f]{40}$')
+    expect(closure.source).toContain("runRef !== 'refs/heads/master'")
+    expect(closure.source).toContain('matches.length !== 1')
+    expect(closure.source).toContain('pr.head.repo.full_name === thisRepo')
+    expect(closure.source).toContain('pr.head.sha === headSha')
+    expect(closure.source).toContain('https://api.github.com')
+    expectNodeBuiltinsOnly(closure)
   })
 
-  test('verifies the candidate image without checkout, setup-node, or repository imports', () => {
-    const candidateSteps = jobOf(e2eManual, 'candidate').steps ?? []
-    expect(
-      candidateSteps.filter(step => step.uses?.startsWith('actions/checkout@'))
-    ).toEqual([])
-    expect(
-      candidateSteps.filter(step =>
-        step.uses?.startsWith('actions/setup-node@')
-      )
-    ).toEqual([])
-    const verify = onlyStep(
-      candidateSteps,
-      step => step.env?.['CANDIDATE_IMAGE'] !== undefined
-    )
-    const specifiers = importSpecifiersOf(verify.run ?? '')
-    expect(specifiers.length).toBeGreaterThan(0)
-    for (const specifier of specifiers) {
-      expect(specifier).toMatch(/^node:/)
+  test('verifies the candidate image with builtin-only scripts from checkouts pinned to the workflow SHA', () => {
+    for (const checkout of checkoutStepsOf(e2eManual)) {
+      expect(checkout.with?.['ref']).toBe('${{ github.sha }}')
     }
+    const steps = stepsOf(e2eManual)
+    expect(
+      steps.filter(step => step.uses?.startsWith('actions/setup-node@'))
+    ).toEqual([])
+    expect(
+      steps.filter(step => step.uses?.startsWith('pnpm/action-setup@'))
+    ).toEqual([])
     for (const run of runScriptsOf(e2eManual)) {
+      expect(run).not.toContain('pnpm install')
       expect(run).not.toContain('candidate-image')
     }
+    const verify = onlyStep(
+      jobOf(e2eManual, 'candidate').steps ?? [],
+      step => step.env?.['CANDIDATE_IMAGE'] !== undefined
+    )
+    expect(verify.run).toBe('node src/e2e/scripts/verify-image.ts')
+    expectNodeBuiltinsOnly(closureOfScript('verify-image.ts'))
   })
 
   test('passes the digest-pinned candidate identity to the reusable suite', () => {
@@ -349,31 +463,41 @@ describe('e2e-release-please', () => {
   })
 
   test('requires the exact release please candidate identity', () => {
-    const eligibility = scriptOf(
-      onlyStep(
-        jobOf(e2eAutomatic, 'resolve').steps ?? [],
-        step => scriptOf(step) !== null
-      )
+    const identity = onlyStep(
+      jobOf(e2eAutomatic, 'resolve').steps ?? [],
+      step => step.id === 'identity'
     )
-    expect(eligibility).toContain('pr.draft === false')
-    expect(eligibility).toContain("pr.user.login === 'github-actions[bot]'")
-    expect(eligibility).toContain(
+    expect(identity.run).toBe(
+      'node src/e2e/scripts/capture-release-candidate-identity.ts'
+    )
+    expect(identity.env?.['GH_TOKEN']).toBe('${{ github.token }}')
+    const closure = closureOfScript('capture-release-candidate-identity.ts')
+    expect(closure.source).toContain('pr.draft === false')
+    expect(closure.source).toContain("pr.user.login === 'github-actions[bot]'")
+    expect(closure.source).toContain(
       "pr.head.ref === 'release-please--branches--master'"
     )
-    expect(eligibility).toContain('autorelease: pending')
-    expect(eligibility).toContain('pr.head.repo.full_name === thisRepo')
-    expect(eligibility).toContain('pr.base.repo.full_name === thisRepo')
-    expect(eligibility).toContain('pr.base.ref === defaultBranch')
+    expect(closure.source).toContain('autorelease: pending')
+    expect(closure.source).toContain('pr.head.repo.full_name === thisRepo')
+    expect(closure.source).toContain('pr.base.repo.full_name === thisRepo')
+    expect(closure.source).toContain('pr.base.ref === defaultBranch')
+    expect(closure.source).toContain('https://api.github.com')
+    expectNodeBuiltinsOnly(closure)
   })
 
   test('rechecks candidate freshness before image work and app creation', () => {
-    const recheck = scriptOf(
-      onlyStep(
-        jobOf(e2eAutomatic, 'current-state').steps ?? [],
-        step => scriptOf(step) !== null
-      )
+    const recheck = onlyStep(
+      jobOf(e2eAutomatic, 'current-state').steps ?? [],
+      step => step.id === 'current-state'
     )
-    expect(recheck).toContain('pr.head.sha === headSha')
+    expect(recheck.run).toBe(
+      'node src/e2e/scripts/recheck-release-candidate-freshness.ts'
+    )
+    expect(recheck.env?.['GH_TOKEN']).toBe('${{ github.token }}')
+    const closure = closureOfScript('recheck-release-candidate-freshness.ts')
+    expect(closure.source).toContain('pr.head.sha === headSha')
+    expect(closure.source).toContain('buildSupersededSummary')
+    expectNodeBuiltinsOnly(closure)
     expect(jobOf(e2eAutomatic, 'candidate').if).toBe(
       "needs.current-state.outputs.proceed == 'true'"
     )
@@ -382,34 +506,50 @@ describe('e2e-release-please', () => {
     )
   })
 
-  test('verifies candidate images with self-contained scripts and pinned checkouts', () => {
+  test('verifies candidate images with builtin-only scripts protected from the candidate checkout', () => {
     expect(
       stepsOf(e2eAutomatic).filter(step =>
         step.uses?.startsWith('actions/setup-node@')
       )
     ).toEqual([])
+    for (const run of runScriptsOf(e2eAutomatic)) {
+      expect(run).not.toContain('pnpm install')
+      expect(run).not.toContain('candidate-image')
+    }
     const candidateSteps = jobOf(e2eAutomatic, 'candidate').steps ?? []
-    const verifySteps = candidateSteps.filter(
+    const protect = onlyStep(candidateSteps, step =>
+      (step.run ?? '').includes('trusted-e2e')
+    )
+    expect(protect.run).toContain('cp -R src/e2e')
+    const sourceCheckout = onlyStep(
+      candidateSteps,
       step =>
-        step.env?.['EXPECTED_REVISION'] !== undefined &&
-        typeof step.run === 'string'
+        (step.uses?.startsWith('actions/checkout@') ?? false) &&
+        step.with?.['ref'] === '${{ needs.resolve.outputs.head_sha }}'
+    )
+    expect(candidateSteps.indexOf(protect)).toBeLessThan(
+      candidateSteps.indexOf(sourceCheckout)
+    )
+    for (const checkout of checkoutStepsOf(e2eAutomatic)) {
+      if (checkout === sourceCheckout) {
+        continue
+      }
+      expect(checkout.with?.['ref']).toBe('${{ github.sha }}')
+    }
+    const verifySteps = candidateSteps.filter(
+      step => step.env?.['EXPECTED_REVISION'] !== undefined
     )
     expect(verifySteps.length).toBeGreaterThan(0)
     for (const step of verifySteps) {
-      const specifiers = importSpecifiersOf(step.run ?? '')
-      expect(specifiers.length).toBeGreaterThan(0)
-      for (const specifier of specifiers) {
-        expect(specifier).toMatch(/^node:/)
-      }
-    }
-    for (const checkout of checkoutStepsOf(e2eAutomatic)) {
-      expect(checkout.with?.['ref']).toBe(
-        '${{ needs.resolve.outputs.head_sha }}'
+      expect(step.env?.['TRUSTED_E2E_DIR']).toBe(
+        '${{ runner.temp }}/trusted-e2e'
+      )
+      expect(step.run).toMatch(
+        /^node "\$TRUSTED_E2E_DIR"\/scripts\/[a-z-]+\.ts$/
       )
     }
-    for (const run of runScriptsOf(e2eAutomatic)) {
-      expect(run).not.toContain('candidate-image')
-    }
+    expectNodeBuiltinsOnly(closureOfScript('probe-existing-image.ts'))
+    expectNodeBuiltinsOnly(closureOfScript('verify-image.ts'))
   })
 
   test('passes the digest-pinned candidate identity to the reusable suite', () => {
@@ -436,6 +576,14 @@ describe('e2e-release-please', () => {
 describe('e2e-reusable', () => {
   const suiteJob = jobOf(e2eReusable, 'create-and-delete')
   const suiteSteps = suiteJob.steps ?? []
+  const trustedScriptNames = [
+    'validate-candidate-inputs.ts',
+    'recheck-candidate-staleness.ts',
+    'prepare-evidence-directories.ts',
+    'assert-timeout-contract.ts',
+    'delete-app-and-prepare-evidence.ts',
+    'pin-candidate-action.ts'
+  ]
 
   test('gates credentialed work behind the protected environment', () => {
     const environment = suiteJob.environment
@@ -449,22 +597,64 @@ describe('e2e-reusable', () => {
     expect(e2eReusable.concurrency?.['cancel-in-progress']).toBe(false)
   })
 
+  test('invokes every extracted script from an explicit trust source', () => {
+    const invocations = runScriptsOf(e2eReusable).filter(run =>
+      run.startsWith('node ')
+    )
+    expect(invocations.length).toBeGreaterThan(0)
+    for (const run of invocations) {
+      const trusted =
+        run.startsWith('node .workflow-source/src/e2e/scripts/') ||
+        run.startsWith('node "$TRUSTED_WORKFLOW_DIR"/src/e2e/scripts/') ||
+        run === 'node "$PIN_CANDIDATE_ACTION_SCRIPT"'
+      const candidate = run.startsWith(
+        'node .candidate-source/src/e2e/scripts/'
+      )
+      expect(trusted || candidate, run).toBe(true)
+      if (candidate) {
+        for (const scriptName of trustedScriptNames) {
+          expect(run).not.toContain(scriptName)
+        }
+      }
+    }
+    for (const step of suiteSteps) {
+      if ((step.run ?? '').includes('$TRUSTED_WORKFLOW_DIR')) {
+        expect(step.env?.['TRUSTED_WORKFLOW_DIR']).toBe(
+          '${{ runner.temp }}/trusted-workflow'
+        )
+      }
+    }
+  })
+
   test('validates candidate identity inputs against digest pinning and repository origin', () => {
     const validate = onlyStep(
       suiteSteps,
       step => step.env?.['CANDIDATE_SOURCE_REPOSITORY'] !== undefined
     )
-    expect(validate.run).toContain('sha256:[0-9a-f]{64}')
-    expect(validate.run).toContain('endsWith(`@${candidateDigest}`)')
-    expect(validate.run).toContain('candidateSourceRepository !== thisRepo')
+    expect(validate.run).toBe(
+      'node .workflow-source/src/e2e/scripts/validate-candidate-inputs.ts'
+    )
+    const source = scriptSourceOf('validate-candidate-inputs.ts')
+    expect(source).toContain('sha256:[0-9a-f]{64}')
+    expect(source).toContain('endsWith(`@${candidateDigest}`)')
+    expect(source).toContain('candidateSourceRepository !== thisRepo')
+    expect(importSpecifiersOf(source)).toEqual([])
   })
 
   test('rechecks staleness after approval and gates every later step on the result', () => {
     const recheck = onlyStep(suiteSteps, step => step.id === 'candidate-state')
-    expect(scriptOf(recheck)).toContain('pr.head.sha !== headSha')
+    expect(recheck.run).toBe(
+      'node .workflow-source/src/e2e/scripts/recheck-candidate-staleness.ts'
+    )
+    expect(recheck.env?.['GH_TOKEN']).toBe('${{ github.token }}')
+    const closure = closureOfScript('recheck-candidate-staleness.ts')
+    expect(closure.source).toContain('pr.head.sha !== headSha')
+    expect(closure.source).toContain('buildSupersededSummary')
+    expect(closure.source).toContain('https://api.github.com')
+    expectNodeBuiltinsOnly(closure)
     const recheckIndex = suiteSteps.indexOf(recheck)
     for (const step of suiteSteps.slice(0, recheckIndex)) {
-      expect(step.run ?? '').not.toContain('.candidate-source')
+      expect(JSON.stringify(step)).not.toContain('.candidate-source')
       expect(step.uses ?? '').not.toMatch(/^\.\//)
     }
     for (const step of suiteSteps.slice(recheckIndex + 1)) {
@@ -488,45 +678,61 @@ describe('e2e-reusable', () => {
   test('pins candidate action metadata only with the trusted workflow copy of the pin script', () => {
     const pinSteps = suiteSteps.filter(step =>
       Object.values(step.env ?? {}).some(value =>
-        String(value).includes('pin-candidate-action.mjs')
+        String(value).includes('pin-candidate-action')
       )
     )
     expect(pinSteps.length).toBeGreaterThan(0)
     for (const step of pinSteps) {
       expect(step.env?.['PIN_CANDIDATE_ACTION_SCRIPT']).toBe(
-        '${{ runner.temp }}/trusted-workflow/.github/scripts/pin-candidate-action.mjs'
+        '${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts'
       )
-      expect(step.run).toContain('node "$PIN_CANDIDATE_ACTION_SCRIPT"')
+      expect(step.run).toBe('node "$PIN_CANDIDATE_ACTION_SCRIPT"')
     }
     for (const run of runScriptsOf(e2eReusable)) {
-      expect(run).not.toContain('pin-candidate-action.mjs')
+      expect(run).not.toContain('pin-candidate-action')
     }
+    expect(
+      existsSync(
+        fileURLToPath(
+          new URL(
+            '../.github/scripts/pin-candidate-action.mjs',
+            import.meta.url
+          )
+        )
+      )
+    ).toBe(false)
   })
 
-  test('keeps candidate imports out of the credentialed teardown step', () => {
+  test('keeps candidate code out of the credentialed teardown step', () => {
     const deleteApp = onlyStep(suiteSteps, step => {
       const keys = envKeysOf(step)
       return keys.includes('CLEVER_TOKEN') && keys.includes('E2E_HEALTH_VALUE')
     })
     expect(deleteApp.if).toContain('always()')
-    const run = deleteApp.run ?? ''
-    expect(run).not.toMatch(/from\s+'[^']*\.candidate-source/)
-    expect(run).toContain('scanArtifactContent')
-    const verifyIndex = run.indexOf('await verifyPreparedFailureEvidence(')
-    expect(verifyIndex).toBeGreaterThan(-1)
-    expect(run.indexOf('failure_evidence_ready=true')).toBeGreaterThan(
-      verifyIndex
+    expect(deleteApp.run).toBe(
+      'node "$TRUSTED_WORKFLOW_DIR"/src/e2e/scripts/delete-app-and-prepare-evidence.ts'
     )
+    expect(deleteApp.env?.['TRUSTED_WORKFLOW_DIR']).toBe(
+      '${{ runner.temp }}/trusted-workflow'
+    )
+    const closure = closureOfScript('delete-app-and-prepare-evidence.ts')
+    for (const specifier of importSpecifiersOf(closure.source)) {
+      expect(specifier).not.toContain('.candidate-source')
+    }
+    expectNodeBuiltinsOnly(closure)
   })
 
-  test('redacts every credential encoding covered by the evidence module', () => {
-    const deleteApp = onlyStep(suiteSteps, step => {
-      const keys = envKeysOf(step)
-      return keys.includes('CLEVER_TOKEN') && keys.includes('E2E_HEALTH_VALUE')
-    })
-    const run = deleteApp.run ?? ''
+  test('prepares and verifies failure evidence through the trusted evidence module', () => {
+    const source = scriptSourceOf('delete-app-and-prepare-evidence.ts')
+    expect(importSpecifiersOf(source)).toContain('../evidence.ts')
+    expect(source).toContain('prepareFailureEvidence')
+    const verifyIndex = source.indexOf('await verifyPreparedFailureEvidence(')
+    expect(verifyIndex).toBeGreaterThan(-1)
+    expect(source.indexOf('failure_evidence_ready=true')).toBeGreaterThan(
+      verifyIndex
+    )
     const evidenceSource = readFileSync(
-      fileURLToPath(new URL('./e2e/evidence.ts', import.meta.url)),
+      join(e2eModulesDir, 'evidence.ts'),
       'utf8'
     )
     const encodingMarkers = [
@@ -537,7 +743,6 @@ describe('e2e-reusable', () => {
     ]
     for (const marker of encodingMarkers) {
       expect(evidenceSource).toContain(marker)
-      expect(run).toContain(marker)
     }
   })
 
@@ -561,15 +766,21 @@ describe('e2e-reusable', () => {
     )
     expect(envKeysOf(summary)).not.toContain('E2E_HEALTH_VALUE')
     expect(summary.run ?? '').not.toContain('E2E_HEALTH_VALUE')
+    expect(scriptSourceOf('write-suite-summary.ts')).not.toContain(
+      'E2E_HEALTH_VALUE'
+    )
   })
 
-  test('asserts the documented timeout contract message', () => {
+  test('asserts the documented timeout contract message from the trusted workflow copy', () => {
     const timeoutAssertion = onlyStep(
       suiteSteps,
       step =>
         step.env?.['ACTION_OUTCOME'] === '${{ steps.timeout-deploy.outcome }}'
     )
-    expect(timeoutAssertion.run).toContain(
+    expect(timeoutAssertion.run).toBe(
+      'node "$TRUSTED_WORKFLOW_DIR"/src/e2e/scripts/assert-timeout-contract.ts'
+    )
+    expect(scriptSourceOf('assert-timeout-contract.ts')).toContain(
       'Deployment timed out, moving on with workflow run'
     )
   })

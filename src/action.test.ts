@@ -24,7 +24,7 @@ vi.mock('node:child_process', () => ({
 import { setFailed, setSecret, warning } from '@actions/core'
 import { exec } from '@actions/exec'
 import { spawn } from 'node:child_process'
-import { run } from './action'
+import { run } from './action.ts'
 
 // Every non-quiet run() tees output into the shared process.stdout. The real
 // action does this once per process; this suite does it dozens of times, which
@@ -494,7 +494,7 @@ test('timeout writes the documented success message into the quiet deployment lo
 
   const openSpy = vi.spyOn(fs, 'open').mockResolvedValue({
     createWriteStream: () => fileStream
-  } as Awaited<ReturnType<typeof fs.open>>)
+  } as unknown as Awaited<ReturnType<typeof fs.open>>)
 
   try {
     vi.useFakeTimers()

@@ -13,7 +13,7 @@ import {
   scanArtifactContent,
   verifyPreparedFailureEvidence,
   writeSuiteResults
-} from './evidence'
+} from './evidence.ts'
 
 test('treats a checked expected failure as a successful scenario outcome', () => {
   expect(

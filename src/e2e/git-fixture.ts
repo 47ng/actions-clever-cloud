@@ -8,7 +8,7 @@ import {
   FIXTURE_READY_MARKER,
   FIXTURE_STARTUP_FAILURE_MARKER,
   FIXTURE_START_MARKER
-} from './fixture-app'
+} from './fixture-app.ts'
 
 const execFileAsync = promisify(execFile)
 

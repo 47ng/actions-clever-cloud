@@ -41,6 +41,30 @@ jobs:
     environment:
       name: clever-cloud-e2e
     steps:
+      - name: Validate trusted workflow SHA
+        env:
+          TRUSTED_WORKFLOW_SHA: ${{ inputs.trusted_workflow_sha }}
+        run: |
+          if ! printf '%s' "$TRUSTED_WORKFLOW_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo '::error::trusted_workflow_sha must be a full 40-character lowercase hex commit SHA.'
+            exit 1
+          fi
+
+      - name: Checkout workflow source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.trusted_workflow_sha }}
+          path: .workflow-source
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.10.0
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .workflow-source/.node-version
+
       - name: Validate candidate identity inputs
         env:
           HEAD_SHA: ${{ inputs.head_sha }}
@@ -50,125 +74,16 @@ jobs:
           CANDIDATE_SOURCE_REPOSITORY: ${{ inputs.candidate_source_repository }}
           TRUSTED_WORKFLOW_SHA: ${{ inputs.trusted_workflow_sha }}
           CALLER: ${{ inputs.caller }}
-        run: |
-          node --input-type=module <<'EOF'
-          const headSha = process.env.HEAD_SHA
-          const prNumber = process.env.PR_NUMBER
-          const candidateDigest = process.env.CANDIDATE_DIGEST
-          const candidateImage = process.env.CANDIDATE_IMAGE
-          const candidateSourceRepository = process.env.CANDIDATE_SOURCE_REPOSITORY
-          const trustedWorkflowSha = process.env.TRUSTED_WORKFLOW_SHA
-          const caller = process.env.CALLER
-          const thisRepo = process.env.GITHUB_REPOSITORY
-
-          if (!/^[0-9a-f]{40}$/.test(headSha ?? '')) {
-            throw new Error('head_sha must be a full 40-character lowercase hex commit SHA.')
-          }
-
-          if (!/^\d+$/.test(prNumber ?? '')) {
-            throw new Error('pr_number must be a decimal pull request number.')
-          }
-
-          if (!/^sha256:[0-9a-f]{64}$/.test(candidateDigest ?? '')) {
-            throw new Error('candidate_digest must be a canonical sha256 digest.')
-          }
-
-          if (!/^ghcr\.io\/47ng\/actions-clever-cloud@sha256:[0-9a-f]{64}$/.test(candidateImage ?? '')) {
-            throw new Error('candidate_image must be pinned to a canonical sha256 digest.')
-          }
-
-          if (!candidateImage?.endsWith(`@${candidateDigest}`)) {
-            throw new Error(
-              `candidate_image must end with ${candidateDigest}, got ${candidateImage ?? '(missing)'}`
-            )
-          }
-
-          if (!thisRepo || candidateSourceRepository !== thisRepo) {
-            throw new Error(
-              `candidate_source_repository must match ${thisRepo}, got ${candidateSourceRepository ?? '(missing)'}`
-            )
-          }
-
-          if (!/^[0-9a-f]{40}$/.test(trustedWorkflowSha ?? '')) {
-            throw new Error('trusted_workflow_sha must be a full 40-character lowercase hex commit SHA.')
-          }
-
-          if (caller !== 'manual' && caller !== 'automatic') {
-            throw new Error(`caller must be manual or automatic, got ${caller ?? '(missing)'}`)
-          }
-          EOF
+        run: node .workflow-source/src/e2e/scripts/validate-candidate-inputs.ts
 
       - name: Recheck staleness after approval
         id: candidate-state
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HEAD_SHA: ${{ inputs.head_sha }}
           PR_NUMBER: ${{ inputs.pr_number }}
           CALLER: ${{ inputs.caller }}
-        with:
-          script: |
-            const headSha = process.env.HEAD_SHA;
-            const prNumber = Number(process.env.PR_NUMBER);
-            const caller = process.env.CALLER;
-            const thisRepo = `${context.repo.owner}/${context.repo.repo}`;
-
-            const [{ data: pr }, { data: repository }] = await Promise.all([
-              github.rest.pulls.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: prNumber,
-              }),
-              github.rest.repos.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-              }),
-            ]);
-
-            const isStale =
-              pr.state !== "open" ||
-              pr.base.repo.full_name !== thisRepo ||
-              pr.base.ref !== repository.default_branch ||
-              pr.head.repo.full_name !== thisRepo ||
-              pr.head.sha !== headSha;
-
-            const isAutomaticCandidate =
-              caller === "automatic" &&
-              (
-                pr.draft ||
-                pr.user.login !== "github-actions[bot]" ||
-                pr.head.ref !== "release-please--branches--master" ||
-                !pr.labels.some((label) => label.name === "autorelease: pending")
-              );
-
-            if (isStale || isAutomaticCandidate) {
-              if (caller === "automatic") {
-                core.setOutput("proceed", "false");
-                await core.summary
-                  .addHeading("Superseded")
-                  .addRaw('superseded')
-                  .addEOL()
-                  .addRaw(
-                    `Pull request #${prNumber} no longer matches the approved candidate identity for ${headSha}.`,
-                  )
-                  .write();
-                return;
-              }
-
-              core.setFailed(
-                `PR #${prNumber} is stale. Expected ${headSha}, found ${pr.head.sha}. Dispatch again with the current head.`,
-              );
-              return;
-            }
-
-            core.setOutput("proceed", "true");
-
-      - name: Checkout workflow source
-        if: steps.candidate-state.outputs.proceed == 'true'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: ${{ inputs.trusted_workflow_sha }}
-          path: .workflow-source
-          persist-credentials: false
+          GH_TOKEN: ${{ github.token }}
+        run: node .workflow-source/src/e2e/scripts/recheck-candidate-staleness.ts
 
       - name: Checkout candidate source
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -177,16 +92,6 @@ jobs:
           ref: ${{ inputs.head_sha }}
           path: .candidate-source
           persist-credentials: false
-
-      - if: steps.candidate-state.outputs.proceed == 'true'
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-        with:
-          version: 11.10.0
-
-      - if: steps.candidate-state.outputs.proceed == 'true'
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version-file: .workflow-source/.node-version
 
       - name: Install workflow pinning dependencies
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -213,7 +118,7 @@ jobs:
           CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
           OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
           CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
-          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/.github/scripts/pin-candidate-action.mjs
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
         run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
 
       - name: Build run-based app name
@@ -222,68 +127,22 @@ jobs:
         env:
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile } from 'node:fs/promises'
-          import { buildE2EApplicationName } from './.candidate-source/src/e2e/clever-client.ts'
-
-          const runId = process.env.RUN_ID
-          const runAttempt = process.env.RUN_ATTEMPT
-          const githubOutput = process.env.GITHUB_OUTPUT
-
-          if (!runId || !runAttempt || !githubOutput) {
-            throw new Error('Missing run identity for app naming')
-          }
-
-          const name = buildE2EApplicationName({ runId, runAttempt })
-          await appendFile(githubOutput, `name=${name}\n`)
-          EOF
+        run: node .candidate-source/src/e2e/scripts/build-app-name.ts
 
       - name: Create fixture repository
         if: steps.candidate-state.outputs.proceed == 'true'
         id: fixture
         env:
           WORKSPACE_DIR: ${{ github.workspace }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile } from 'node:fs/promises'
-          import { createFixtureRepository } from './.candidate-source/src/e2e/git-fixture.ts'
-
-          const workspaceDir = process.env.WORKSPACE_DIR
-          const githubOutput = process.env.GITHUB_OUTPUT
-          if (!workspaceDir || !githubOutput) {
-            throw new Error('Missing fixture setup outputs')
-          }
-
-          const fixture = await createFixtureRepository({ workspaceDir })
-          await appendFile(githubOutput, `commit=${fixture.commit}\n`)
-          EOF
+        run: node .candidate-source/src/e2e/scripts/create-fixture-repository.ts
 
       - name: Prepare evidence directories
         if: steps.candidate-state.outputs.proceed == 'true'
         env:
           E2E_STATE_DIR: ${{ github.workspace }}/.e2e-state
           E2E_ARTIFACTS_DIR: ${{ github.workspace }}/.e2e-artifacts/candidate-action
-        run: |
-          node --input-type=module <<'EOF'
-          import { mkdir } from 'node:fs/promises'
-
-          const stateDir = process.env.E2E_STATE_DIR
-          const artifactsDir = process.env.E2E_ARTIFACTS_DIR
-
-          if (!stateDir || !artifactsDir) {
-            throw new Error('Missing evidence directories')
-          }
-
-          await Promise.all([
-            mkdir(stateDir, {
-              recursive: true,
-            }),
-            mkdir(artifactsDir, {
-              recursive: true,
-            }),
-          ])
-          EOF
+          TRUSTED_WORKFLOW_DIR: ${{ runner.temp }}/trusted-workflow
+        run: node "$TRUSTED_WORKFLOW_DIR"/src/e2e/scripts/prepare-evidence-directories.ts
 
       - name: Create personal Node.js app
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -294,68 +153,7 @@ jobs:
           CLEVER_E2E_REGION: ${{ vars.CLEVER_E2E_REGION }}
           APP_NAME: ${{ steps.app-name.outputs.name }}
           APP_ID_FILE: ${{ github.workspace }}/.e2e-state/app.json
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile, mkdir, writeFile } from 'node:fs/promises'
-          import path from 'node:path'
-          import {
-            createApplicationWithRecovery,
-            createCleverController
-          } from './.candidate-source/src/e2e/clever-client.ts'
-          import {
-            createRunCommand,
-            resolveCleverCLI
-          } from './.candidate-source/src/e2e/workflow-adapters.ts'
-
-          const githubOutput = process.env.GITHUB_OUTPUT
-          const appName = process.env.APP_NAME
-          const appIdFile = process.env.APP_ID_FILE
-          const region = process.env.CLEVER_E2E_REGION || 'par'
-          const cleverCLI = resolveCleverCLI()
-
-          if (!githubOutput || !appName || !appIdFile) {
-            throw new Error('Missing create-app workflow outputs')
-          }
-
-          await mkdir(path.dirname(appIdFile), {
-            recursive: true
-          })
-
-          const controller = createCleverController({
-            cleverCLI,
-            runCommand: createRunCommand()
-          })
-
-          const application = await createApplicationWithRecovery(controller, {
-            name: appName,
-            region,
-          })
-
-          try {
-            await writeFile(appIdFile, JSON.stringify(application), 'utf8')
-            await appendFile(
-              githubOutput,
-              `app_id=${application.appId}\n` + `app_name=${application.name}\n`,
-            )
-          } catch (error) {
-            try {
-              await controller.deleteApplication({
-                appId: application.appId,
-                name: application.name,
-              })
-            } catch (rollbackError) {
-              const rollbackMessage =
-                rollbackError instanceof Error
-                  ? rollbackError.message
-                  : String(rollbackError)
-              throw new Error(
-                `${error.message}; rollback deletion of ${application.appId} (${application.name}) also failed: ${rollbackMessage}`,
-                { cause: error }
-              )
-            }
-            throw error
-          }
-          EOF
+        run: node .candidate-source/src/e2e/scripts/create-e2e-app.ts
 
       - name: Remove provisioning link
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -367,7 +165,7 @@ jobs:
           CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
           OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
           CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
-          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/.github/scripts/pin-candidate-action.mjs
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
         run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
 
       - name: Deploy healthy fixture commit
@@ -392,99 +190,21 @@ jobs:
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
           APP_ID: ${{ steps.create.outputs.app_id }}
           FIXTURE_COMMIT: ${{ steps.fixture.outputs.commit }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile } from 'node:fs/promises'
-          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
-          import { waitForHealthyDeployment } from './.candidate-source/src/e2e/deployment-observer.ts'
-          import {
-            createFetchHealth,
-            createRunCommand,
-            resolveCleverCLI
-          } from './.candidate-source/src/e2e/workflow-adapters.ts'
-
-          const appId = process.env.APP_ID
-          const expectedCommitID = process.env.FIXTURE_COMMIT
-          const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = resolveCleverCLI()
-
-          if (!appId || !expectedCommitID || !githubOutput) {
-            throw new Error('Missing deployment observation inputs')
-          }
-
-          const controller = createCleverController({
-            cleverCLI,
-            runCommand: createRunCommand()
-          })
-
-          const application = await controller.getApplication(appId)
-          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
-          const health = await waitForHealthyDeployment({
-            appId,
-            healthURL,
-            expectedScenario: 'healthy',
-            expectedCommitID,
-            listActivity: controller.listActivity,
-            fetchHealth: createFetchHealth()
-          })
-
-          await appendFile(
-            githubOutput,
-            `instance_id=${health.INSTANCE_ID ?? ''}\n` +
-              `deployment_id=${health.CC_DEPLOYMENT_ID ?? ''}\n` +
-              `commit_id=${health.CC_COMMIT_ID ?? ''}\n`,
-          )
-          EOF
+        run: node .candidate-source/src/e2e/scripts/observe-healthy-deployment.ts
 
       - name: Generate padded health value
         if: steps.candidate-state.outputs.proceed == 'true'
         id: health-value
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile } from 'node:fs/promises'
-          import { generateHealthValue, HEALTH_VALUE_ENV_NAME } from './.candidate-source/src/e2e/health-value.ts'
-
-          const githubOutput = process.env.GITHUB_OUTPUT
-
-          if (!githubOutput) {
-            throw new Error('Missing GITHUB_OUTPUT for health value generation')
-          }
-
-          const value = generateHealthValue()
-          if (!value.endsWith('==')) {
-            throw new Error('Generated health value must use 16-byte base64 padding')
-          }
-
-          await appendFile(
-            githubOutput,
-            `name=${HEALTH_VALUE_ENV_NAME}\nvalue=${value}\n`,
-          )
-          EOF
+        run: node .candidate-source/src/e2e/scripts/generate-health-value.ts
 
       - name: Create second healthy fixture commit
         if: steps.candidate-state.outputs.proceed == 'true'
         id: second-healthy
         env:
           WORKSPACE_DIR: ${{ github.workspace }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile } from 'node:fs/promises'
-          import { createHealthyFixtureCommit } from './.candidate-source/src/e2e/git-fixture.ts'
-
-          const workspaceDir = process.env.WORKSPACE_DIR
-          const githubOutput = process.env.GITHUB_OUTPUT
-
-          if (!workspaceDir || !githubOutput) {
-            throw new Error('Missing second fixture commit outputs')
-          }
-
-          const commit = await createHealthyFixtureCommit({
-            workspaceDir,
-            label: 'healthy-2'
-          })
-
-          await appendFile(githubOutput, `commit=${commit}\n`)
-          EOF
+          COMMIT_LABEL: healthy-2
+          COMMIT_CONTEXT: second
+        run: node .candidate-source/src/e2e/scripts/create-fixture-commit.ts
 
       - name: Refresh pinned candidate action metadata
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -492,7 +212,7 @@ jobs:
           CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
           OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
           CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
-          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/.github/scripts/pin-candidate-action.mjs
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
         run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
 
       - name: Deploy healthy fixture commit with quiet env checks
@@ -521,79 +241,14 @@ jobs:
           APP_ID: ${{ steps.create.outputs.app_id }}
           FIXTURE_COMMIT: ${{ steps.second-healthy.outputs.commit }}
           EXPECTED_HEALTH_VALUE: ${{ steps.health-value.outputs.value }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile } from 'node:fs/promises'
-          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
-          import { waitForHealthyDeployment } from './.candidate-source/src/e2e/deployment-observer.ts'
-          import {
-            createFetchHealth,
-            createRunCommand,
-            resolveCleverCLI
-          } from './.candidate-source/src/e2e/workflow-adapters.ts'
-
-          const appId = process.env.APP_ID
-          const expectedCommitID = process.env.FIXTURE_COMMIT
-          const expectedHealthValue = process.env.EXPECTED_HEALTH_VALUE
-          const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = resolveCleverCLI()
-
-          if (!appId || !expectedCommitID || !expectedHealthValue || !githubOutput) {
-            throw new Error('Missing env deployment observation inputs')
-          }
-
-          const controller = createCleverController({
-            cleverCLI,
-            runCommand: createRunCommand()
-          })
-
-          const application = await controller.getApplication(appId)
-          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
-          const health = await waitForHealthyDeployment({
-            appId,
-            healthURL,
-            expectedScenario: 'healthy',
-            expectedCommitID,
-            expectedHealthValue,
-            listActivity: controller.listActivity,
-            lookupEnvironmentValue: controller.getEnvironmentValue,
-            fetchHealth: createFetchHealth()
-          })
-
-          await appendFile(
-            githubOutput,
-            `instance_id=${health.INSTANCE_ID ?? ''}\n` +
-              `deployment_id=${health.CC_DEPLOYMENT_ID ?? ''}\n` +
-              `commit_id=${health.CC_COMMIT_ID ?? ''}\n`,
-          )
-          EOF
+        run: node .candidate-source/src/e2e/scripts/observe-env-deployment.ts
 
       - name: Verify quiet deployment log markers
         if: steps.candidate-state.outputs.proceed == 'true'
         id: verify-env-log
         env:
           LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/002-deploy-env.log
-        run: |
-          node --input-type=module <<'EOF'
-          import { readFile } from 'node:fs/promises'
-          import {
-            FIXTURE_BUILD_MARKER,
-            FIXTURE_START_MARKER
-          } from './.candidate-source/src/e2e/fixture-app.ts'
-
-          const logPath = process.env.LOG_PATH
-
-          if (!logPath) {
-            throw new Error('Missing quiet deployment log path')
-          }
-
-          const logContent = await readFile(logPath, 'utf8')
-          for (const marker of [FIXTURE_BUILD_MARKER, FIXTURE_START_MARKER]) {
-            if (!logContent.includes(marker)) {
-              throw new Error(`Expected quiet deployment log to contain ${marker}`)
-            }
-          }
-          EOF
+        run: node .candidate-source/src/e2e/scripts/verify-quiet-log-markers.ts
 
       - name: Capture same-commit baseline state
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -606,46 +261,8 @@ jobs:
           BASELINE_INSTANCE_ID: ${{ steps.observe-env.outputs.instance_id }}
           BASELINE_DEPLOYMENT_ID: ${{ steps.observe-env.outputs.deployment_id }}
           BASELINE_COMMIT_ID: ${{ steps.observe-env.outputs.commit_id }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { writeFile } from 'node:fs/promises'
-          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
-          import {
-            createRunCommand,
-            resolveCleverCLI
-          } from './.candidate-source/src/e2e/workflow-adapters.ts'
-
-          const appId = process.env.APP_ID
-          const statePath = process.env.STATE_PATH
-          const instanceId = process.env.BASELINE_INSTANCE_ID
-          const deploymentId = process.env.BASELINE_DEPLOYMENT_ID
-          const commitId = process.env.BASELINE_COMMIT_ID
-          const cleverCLI = resolveCleverCLI()
-
-          if (!appId || !statePath || !instanceId || !deploymentId || !commitId) {
-            throw new Error('Missing same-commit baseline inputs')
-          }
-
-          const controller = createCleverController({
-            cleverCLI,
-            runCommand: createRunCommand()
-          })
-
-          await writeFile(
-            statePath,
-            JSON.stringify(
-              {
-                activity: await controller.listActivity(appId),
-                instanceId,
-                deploymentId,
-                commitId,
-              },
-              null,
-              2,
-            ),
-            'utf8',
-          )
-          EOF
+          BASELINE_CONTEXT: same-commit
+        run: node .candidate-source/src/e2e/scripts/capture-baseline-state.ts
 
       - name: Refresh pinned candidate action metadata
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -653,7 +270,7 @@ jobs:
           CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
           OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
           CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
-          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/.github/scripts/pin-candidate-action.mjs
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
         run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
 
       - name: Deploy same commit with default error policy
@@ -680,51 +297,7 @@ jobs:
           ACTION_OUTCOME: ${{ steps.same-commit-error.outcome }}
           STATE_PATH: ${{ github.workspace }}/.e2e-state/same-commit-state.json
           LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/003-same-commit-error.log
-        run: |
-          node --input-type=module <<'EOF'
-          import { readFile } from 'node:fs/promises'
-          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
-          import { confirmNoNewDeploymentActivity } from './.candidate-source/src/e2e/deployment-observer.ts'
-          import {
-            createRunCommand,
-            resolveCleverCLI
-          } from './.candidate-source/src/e2e/workflow-adapters.ts'
-
-          const appId = process.env.APP_ID
-          const actionOutcome = process.env.ACTION_OUTCOME
-          const statePath = process.env.STATE_PATH
-          const logPath = process.env.LOG_PATH
-          const cleverCLI = resolveCleverCLI()
-
-          if (!appId || !actionOutcome || !statePath || !logPath) {
-            throw new Error('Missing same-commit error assertion inputs')
-          }
-
-          if (actionOutcome !== 'failure') {
-            throw new Error('Expected the default same-commit policy to fail')
-          }
-
-          const previousState = JSON.parse(await readFile(statePath, 'utf8'))
-          const controller = createCleverController({
-            cleverCLI,
-            runCommand: createRunCommand()
-          })
-
-          await confirmNoNewDeploymentActivity({
-            appId,
-            previousActivity: previousState.activity,
-            listActivity: controller.listActivity,
-            settleTimeoutMs: 15_000,
-            pollIntervalMs: 5_000,
-          })
-
-          const logContent = await readFile(logPath, 'utf8')
-          if (!logContent.includes('Remote HEAD has the same commit as the one to push')) {
-            throw new Error(
-              'Expected default same-commit error log to mention the known same-commit message'
-            )
-          }
-          EOF
+        run: node .candidate-source/src/e2e/scripts/assert-same-commit-error.ts
 
       - name: Refresh pinned candidate action metadata
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -732,7 +305,7 @@ jobs:
           CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
           OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
           CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
-          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/.github/scripts/pin-candidate-action.mjs
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
         run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
 
       - name: Deploy same commit with ignore policy
@@ -758,74 +331,7 @@ jobs:
           APP_ID: ${{ steps.create.outputs.app_id }}
           ACTION_OUTCOME: ${{ steps.same-commit-ignore.outcome }}
           STATE_PATH: ${{ github.workspace }}/.e2e-state/same-commit-state.json
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile, readFile } from 'node:fs/promises'
-          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
-          import { confirmNoNewDeploymentActivity, waitForHealthyDeployment, waitForNewSuccessfulDeploymentActivity } from './.candidate-source/src/e2e/deployment-observer.ts'
-          import {
-            createFetchHealth,
-            createRunCommand,
-            resolveCleverCLI
-          } from './.candidate-source/src/e2e/workflow-adapters.ts'
-
-          const appId = process.env.APP_ID
-          const actionOutcome = process.env.ACTION_OUTCOME
-          const statePath = process.env.STATE_PATH
-          const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = resolveCleverCLI()
-
-          if (!appId || !actionOutcome || !statePath || !githubOutput) {
-            throw new Error('Missing same-commit ignore observation inputs')
-          }
-
-          if (actionOutcome !== 'success') {
-            throw new Error('Expected sameCommitPolicy: ignore to succeed')
-          }
-
-          const previousState = JSON.parse(await readFile(statePath, 'utf8'))
-          const controller = createCleverController({
-            cleverCLI,
-            runCommand: createRunCommand()
-          })
-
-          await confirmNoNewDeploymentActivity({
-            appId,
-            previousActivity: previousState.activity,
-            listActivity: controller.listActivity,
-            settleTimeoutMs: 15_000,
-            pollIntervalMs: 5_000,
-          })
-
-          const application = await controller.getApplication(appId)
-          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
-          const health = await waitForHealthyDeployment({
-            appId,
-            healthURL,
-            expectedScenario: 'healthy',
-            expectedCommitID: previousState.commitId,
-            expectedDeploymentID: previousState.deploymentId,
-            listActivity: controller.listActivity,
-            fetchHealth: createFetchHealth()
-          })
-
-          if (health.INSTANCE_ID !== previousState.instanceId) {
-            throw new Error('Expected sameCommitPolicy: ignore to keep the same instance ID')
-          }
-          if (health.CC_DEPLOYMENT_ID !== previousState.deploymentId) {
-            throw new Error('Expected sameCommitPolicy: ignore to keep the same deployment ID')
-          }
-          if (health.CC_COMMIT_ID !== previousState.commitId) {
-            throw new Error('Expected sameCommitPolicy: ignore to keep the same commit ID')
-          }
-
-          await appendFile(
-            githubOutput,
-            `instance_id=${health.INSTANCE_ID ?? ''}\n` +
-              `deployment_id=${health.CC_DEPLOYMENT_ID ?? ''}\n` +
-              `commit_id=${health.CC_COMMIT_ID ?? ''}\n`,
-          )
-          EOF
+        run: node .candidate-source/src/e2e/scripts/observe-same-commit-ignore.ts
 
       - name: Refresh pinned candidate action metadata
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -833,7 +339,7 @@ jobs:
           CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
           OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
           CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
-          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/.github/scripts/pin-candidate-action.mjs
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
         run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
 
       - name: Deploy same commit with restart policy
@@ -860,99 +366,7 @@ jobs:
           ACTION_OUTCOME: ${{ steps.same-commit-restart.outcome }}
           STATE_PATH: ${{ github.workspace }}/.e2e-state/same-commit-state.json
           LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/005-same-commit-restart.log
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile, readFile, writeFile } from 'node:fs/promises'
-          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
-          import { confirmNoNewDeploymentActivity, waitForHealthyDeployment, waitForNewSuccessfulDeploymentActivity } from './.candidate-source/src/e2e/deployment-observer.ts'
-          import { FIXTURE_BUILD_MARKER } from './.candidate-source/src/e2e/fixture-app.ts'
-          import {
-            createFetchHealth,
-            createRunCommand,
-            resolveCleverCLI
-          } from './.candidate-source/src/e2e/workflow-adapters.ts'
-
-          const appId = process.env.APP_ID
-          const actionOutcome = process.env.ACTION_OUTCOME
-          const statePath = process.env.STATE_PATH
-          const logPath = process.env.LOG_PATH
-          const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = resolveCleverCLI()
-
-          if (!appId || !actionOutcome || !statePath || !logPath || !githubOutput) {
-            throw new Error('Missing same-commit restart observation inputs')
-          }
-
-          if (actionOutcome !== 'success') {
-            throw new Error('Expected sameCommitPolicy: restart to succeed')
-          }
-
-          const previousState = JSON.parse(await readFile(statePath, 'utf8'))
-          const controller = createCleverController({
-            cleverCLI,
-            runCommand: createRunCommand()
-          })
-
-          const deployment = await waitForNewSuccessfulDeploymentActivity({
-            appId,
-            expectedCommitID: previousState.commitId,
-            previousActivity: previousState.activity,
-            listActivity: controller.listActivity,
-          })
-
-          const application = await controller.getApplication(appId)
-          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
-          const health = await waitForHealthyDeployment({
-            appId,
-            healthURL,
-            expectedScenario: 'healthy',
-            expectedCommitID: previousState.commitId,
-            expectedDeploymentID: deployment.uuid,
-            listActivity: controller.listActivity,
-            fetchHealth: createFetchHealth()
-          })
-
-          if (!health.INSTANCE_ID) {
-            throw new Error('Expected sameCommitPolicy: restart to report a new instance ID')
-          }
-          if (health.INSTANCE_ID === previousState.instanceId) {
-            throw new Error('Expected sameCommitPolicy: restart to change the instance ID')
-          }
-          if (health.CC_DEPLOYMENT_ID === previousState.deploymentId) {
-            throw new Error('Expected sameCommitPolicy: restart to change the deployment ID')
-          }
-          if (health.CC_COMMIT_ID !== previousState.commitId) {
-            throw new Error('Expected sameCommitPolicy: restart to keep the same commit ID')
-          }
-
-          const logContent = await readFile(logPath, 'utf8')
-          if (logContent.includes(FIXTURE_BUILD_MARKER)) {
-            throw new Error('Expected restart to reuse cache without a new install marker')
-          }
-
-          const activity = await controller.listActivity(appId)
-          await writeFile(
-            statePath,
-            JSON.stringify(
-              {
-                activity,
-                instanceId: health.INSTANCE_ID,
-                deploymentId: health.CC_DEPLOYMENT_ID,
-                commitId: health.CC_COMMIT_ID,
-              },
-              null,
-              2,
-            ),
-            'utf8',
-          )
-
-          await appendFile(
-            githubOutput,
-            `instance_id=${health.INSTANCE_ID ?? ''}\n` +
-              `deployment_id=${health.CC_DEPLOYMENT_ID ?? ''}\n` +
-              `commit_id=${health.CC_COMMIT_ID ?? ''}\n`,
-          )
-          EOF
+        run: node .candidate-source/src/e2e/scripts/observe-same-commit-restart.ts
 
       - name: Refresh pinned candidate action metadata
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -960,7 +374,7 @@ jobs:
           CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
           OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
           CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
-          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/.github/scripts/pin-candidate-action.mjs
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
         run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
 
       - name: Deploy same commit with rebuild policy
@@ -987,86 +401,7 @@ jobs:
           ACTION_OUTCOME: ${{ steps.same-commit-rebuild.outcome }}
           STATE_PATH: ${{ github.workspace }}/.e2e-state/same-commit-state.json
           LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/006-same-commit-rebuild.log
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile, readFile } from 'node:fs/promises'
-          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
-          import { confirmNoNewDeploymentActivity, waitForHealthyDeployment, waitForNewSuccessfulDeploymentActivity } from './.candidate-source/src/e2e/deployment-observer.ts'
-          import { FIXTURE_BUILD_MARKER } from './.candidate-source/src/e2e/fixture-app.ts'
-          import {
-            createFetchHealth,
-            createRunCommand,
-            resolveCleverCLI
-          } from './.candidate-source/src/e2e/workflow-adapters.ts'
-
-          const appId = process.env.APP_ID
-          const actionOutcome = process.env.ACTION_OUTCOME
-          const statePath = process.env.STATE_PATH
-          const logPath = process.env.LOG_PATH
-          const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = resolveCleverCLI()
-
-          if (!appId || !actionOutcome || !statePath || !logPath || !githubOutput) {
-            throw new Error('Missing same-commit rebuild observation inputs')
-          }
-
-          if (actionOutcome !== 'success') {
-            throw new Error('Expected sameCommitPolicy: rebuild to succeed')
-          }
-
-          const previousState = JSON.parse(await readFile(statePath, 'utf8'))
-          const controller = createCleverController({
-            cleverCLI,
-            runCommand: createRunCommand()
-          })
-
-          const deployment = await waitForNewSuccessfulDeploymentActivity({
-            appId,
-            expectedCommitID: previousState.commitId,
-            previousActivity: previousState.activity,
-            listActivity: controller.listActivity,
-          })
-
-          const application = await controller.getApplication(appId)
-          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
-          const health = await waitForHealthyDeployment({
-            appId,
-            healthURL,
-            expectedScenario: 'healthy',
-            expectedCommitID: previousState.commitId,
-            expectedDeploymentID: deployment.uuid,
-            listActivity: controller.listActivity,
-            fetchHealth: createFetchHealth()
-          })
-
-          if (!health.INSTANCE_ID) {
-            throw new Error('Expected sameCommitPolicy: rebuild to report a new instance ID')
-          }
-          if (health.INSTANCE_ID === previousState.instanceId) {
-            throw new Error('Expected sameCommitPolicy: rebuild to change the instance ID')
-          }
-          if (health.CC_DEPLOYMENT_ID === previousState.deploymentId) {
-            throw new Error('Expected sameCommitPolicy: rebuild to change the deployment ID')
-          }
-          if (health.CC_COMMIT_ID !== previousState.commitId) {
-            throw new Error('Expected sameCommitPolicy: rebuild to keep the same commit ID')
-          }
-
-          const logContent = await readFile(logPath, 'utf8')
-          if (!logContent.includes('without using cache')) {
-            throw new Error('Expected sameCommitPolicy: rebuild to report without using cache')
-          }
-          if (!logContent.includes(FIXTURE_BUILD_MARKER)) {
-            throw new Error('Expected sameCommitPolicy: rebuild to emit a new install marker')
-          }
-
-          await appendFile(
-            githubOutput,
-            `instance_id=${health.INSTANCE_ID ?? ''}\n` +
-              `deployment_id=${health.CC_DEPLOYMENT_ID ?? ''}\n` +
-              `commit_id=${health.CC_COMMIT_ID ?? ''}\n`,
-          )
-          EOF
+        run: node .candidate-source/src/e2e/scripts/observe-same-commit-rebuild.ts
 
       - name: Capture failed-deploy baseline state
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -1079,71 +414,17 @@ jobs:
           BASELINE_INSTANCE_ID: ${{ steps.observe-same-commit-rebuild.outputs.instance_id }}
           BASELINE_DEPLOYMENT_ID: ${{ steps.observe-same-commit-rebuild.outputs.deployment_id }}
           BASELINE_COMMIT_ID: ${{ steps.observe-same-commit-rebuild.outputs.commit_id }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { writeFile } from 'node:fs/promises'
-          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
-          import {
-            createRunCommand,
-            resolveCleverCLI
-          } from './.candidate-source/src/e2e/workflow-adapters.ts'
-
-          const appId = process.env.APP_ID
-          const statePath = process.env.STATE_PATH
-          const instanceId = process.env.BASELINE_INSTANCE_ID
-          const deploymentId = process.env.BASELINE_DEPLOYMENT_ID
-          const commitId = process.env.BASELINE_COMMIT_ID
-          const cleverCLI = resolveCleverCLI()
-
-          if (!appId || !statePath || !instanceId || !deploymentId || !commitId) {
-            throw new Error('Missing failed-deploy baseline inputs')
-          }
-
-          const controller = createCleverController({
-            cleverCLI,
-            runCommand: createRunCommand()
-          })
-
-          await writeFile(
-            statePath,
-            JSON.stringify(
-              {
-                activity: await controller.listActivity(appId),
-                instanceId,
-                deploymentId,
-                commitId,
-              },
-              null,
-              2,
-            ),
-            'utf8',
-          )
-          EOF
+          BASELINE_CONTEXT: failed-deploy
+        run: node .candidate-source/src/e2e/scripts/capture-baseline-state.ts
 
       - name: Create build-failure fixture commit
         if: steps.candidate-state.outputs.proceed == 'true'
         id: build-failure-commit
         env:
           WORKSPACE_DIR: ${{ github.workspace }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile } from 'node:fs/promises'
-          import { createHealthyFixtureCommit } from './.candidate-source/src/e2e/git-fixture.ts'
-
-          const workspaceDir = process.env.WORKSPACE_DIR
-          const githubOutput = process.env.GITHUB_OUTPUT
-
-          if (!workspaceDir || !githubOutput) {
-            throw new Error('Missing build-failure fixture commit outputs')
-          }
-
-          const commit = await createHealthyFixtureCommit({
-            workspaceDir,
-            label: 'build-failure'
-          })
-
-          await appendFile(githubOutput, `commit=${commit}\n`)
-          EOF
+          COMMIT_LABEL: build-failure
+          COMMIT_CONTEXT: build-failure
+        run: node .candidate-source/src/e2e/scripts/create-fixture-commit.ts
 
       - name: Refresh pinned candidate action metadata
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -1151,7 +432,7 @@ jobs:
           CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
           OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
           CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
-          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/.github/scripts/pin-candidate-action.mjs
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
         run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
 
       - name: Deploy build-failure fixture commit
@@ -1183,100 +464,16 @@ jobs:
           EXPECTED_COMMIT_ID: ${{ steps.build-failure-commit.outputs.commit }}
           STATE_PATH: ${{ github.workspace }}/.e2e-state/failed-deploy-state.json
           LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/007-build-failure.log
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile, readFile } from 'node:fs/promises'
-          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
-          import { waitForHealthyDeployment, waitForNewFailedDeploymentActivity } from './.candidate-source/src/e2e/deployment-observer.ts'
-          import { FIXTURE_BUILD_FAILURE_MARKER } from './.candidate-source/src/e2e/fixture-app.ts'
-          import {
-            createFetchHealth,
-            createRunCommand,
-            resolveCleverCLI
-          } from './.candidate-source/src/e2e/workflow-adapters.ts'
-
-          const appId = process.env.APP_ID
-          const actionOutcome = process.env.ACTION_OUTCOME
-          const expectedCommitID = process.env.EXPECTED_COMMIT_ID
-          const statePath = process.env.STATE_PATH
-          const logPath = process.env.LOG_PATH
-          const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = resolveCleverCLI()
-
-          if (!appId || !actionOutcome || !expectedCommitID || !statePath || !logPath || !githubOutput) {
-            throw new Error('Missing build-failure assertion inputs')
-          }
-
-          if (actionOutcome !== 'failure') {
-            throw new Error('Expected build-failure deployment to fail')
-          }
-
-          const previousState = JSON.parse(await readFile(statePath, 'utf8'))
-          const controller = createCleverController({
-            cleverCLI,
-            runCommand: createRunCommand()
-          })
-
-          const failedDeployment = await waitForNewFailedDeploymentActivity({
-            appId,
-            expectedCommitID,
-            previousActivity: previousState.activity,
-            listActivity: controller.listActivity,
-          })
-
-          const application = await controller.getApplication(appId)
-          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
-          const health = await waitForHealthyDeployment({
-            appId,
-            healthURL,
-            expectedScenario: 'healthy',
-            expectedCommitID: previousState.commitId,
-            expectedDeploymentID: previousState.deploymentId,
-            listActivity: controller.listActivity,
-            fetchHealth: createFetchHealth()
-          })
-
-          if (health.INSTANCE_ID !== previousState.instanceId) {
-            throw new Error('Expected build-failure deployment to preserve the prior healthy instance ID')
-          }
-
-          const logContent = await readFile(logPath, 'utf8')
-          if (!logContent.includes(FIXTURE_BUILD_FAILURE_MARKER)) {
-            throw new Error('Expected build-failure log to contain the deterministic fixture marker')
-          }
-
-          await appendFile(
-            githubOutput,
-            `instance_id=${health.INSTANCE_ID ?? ''}\n` +
-              `deployment_id=${failedDeployment.uuid ?? ''}\n` +
-              `commit_id=${failedDeployment.commit ?? expectedCommitID}\n`,
-          )
-          EOF
+        run: node .candidate-source/src/e2e/scripts/assert-build-failure.ts
 
       - name: Create startup-failure fixture commit
         if: steps.candidate-state.outputs.proceed == 'true'
         id: startup-failure-commit
         env:
           WORKSPACE_DIR: ${{ github.workspace }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile } from 'node:fs/promises'
-          import { createHealthyFixtureCommit } from './.candidate-source/src/e2e/git-fixture.ts'
-
-          const workspaceDir = process.env.WORKSPACE_DIR
-          const githubOutput = process.env.GITHUB_OUTPUT
-
-          if (!workspaceDir || !githubOutput) {
-            throw new Error('Missing startup-failure fixture commit outputs')
-          }
-
-          const commit = await createHealthyFixtureCommit({
-            workspaceDir,
-            label: 'startup-failure'
-          })
-
-          await appendFile(githubOutput, `commit=${commit}\n`)
-          EOF
+          COMMIT_LABEL: startup-failure
+          COMMIT_CONTEXT: startup-failure
+        run: node .candidate-source/src/e2e/scripts/create-fixture-commit.ts
 
       - name: Refresh pinned candidate action metadata
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -1284,7 +481,7 @@ jobs:
           CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
           OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
           CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
-          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/.github/scripts/pin-candidate-action.mjs
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
         run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
 
       - name: Deploy startup-failure fixture commit
@@ -1315,100 +512,16 @@ jobs:
           EXPECTED_COMMIT_ID: ${{ steps.startup-failure-commit.outputs.commit }}
           STATE_PATH: ${{ github.workspace }}/.e2e-state/failed-deploy-state.json
           LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/008-startup-failure.log
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile, readFile } from 'node:fs/promises'
-          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
-          import { waitForHealthyDeployment, waitForNewFailedDeploymentActivity } from './.candidate-source/src/e2e/deployment-observer.ts'
-          import { FIXTURE_STARTUP_FAILURE_MARKER } from './.candidate-source/src/e2e/fixture-app.ts'
-          import {
-            createFetchHealth,
-            createRunCommand,
-            resolveCleverCLI
-          } from './.candidate-source/src/e2e/workflow-adapters.ts'
-
-          const appId = process.env.APP_ID
-          const actionOutcome = process.env.ACTION_OUTCOME
-          const expectedCommitID = process.env.EXPECTED_COMMIT_ID
-          const statePath = process.env.STATE_PATH
-          const logPath = process.env.LOG_PATH
-          const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = resolveCleverCLI()
-
-          if (!appId || !actionOutcome || !expectedCommitID || !statePath || !logPath || !githubOutput) {
-            throw new Error('Missing startup-failure assertion inputs')
-          }
-
-          if (actionOutcome !== 'failure') {
-            throw new Error('Expected startup-failure deployment to fail')
-          }
-
-          const previousState = JSON.parse(await readFile(statePath, 'utf8'))
-          const controller = createCleverController({
-            cleverCLI,
-            runCommand: createRunCommand()
-          })
-
-          const failedDeployment = await waitForNewFailedDeploymentActivity({
-            appId,
-            expectedCommitID,
-            previousActivity: previousState.activity,
-            listActivity: controller.listActivity,
-          })
-
-          const application = await controller.getApplication(appId)
-          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
-          const health = await waitForHealthyDeployment({
-            appId,
-            healthURL,
-            expectedScenario: 'healthy',
-            expectedCommitID: previousState.commitId,
-            expectedDeploymentID: previousState.deploymentId,
-            listActivity: controller.listActivity,
-            fetchHealth: createFetchHealth()
-          })
-
-          if (health.INSTANCE_ID !== previousState.instanceId) {
-            throw new Error('Expected startup-failure deployment to preserve the prior healthy instance ID')
-          }
-
-          const logContent = await readFile(logPath, 'utf8')
-          if (!logContent.includes(FIXTURE_STARTUP_FAILURE_MARKER)) {
-            throw new Error('Expected startup-failure log to contain the fixture startup marker')
-          }
-
-          await appendFile(
-            githubOutput,
-            `instance_id=${health.INSTANCE_ID ?? ''}\n` +
-              `deployment_id=${failedDeployment.uuid ?? ''}\n` +
-              `commit_id=${failedDeployment.commit ?? expectedCommitID}\n`,
-          )
-          EOF
+        run: node .candidate-source/src/e2e/scripts/assert-startup-failure.ts
 
       - name: Create recovery fixture commit
         if: steps.candidate-state.outputs.proceed == 'true'
         id: recovery-commit
         env:
           WORKSPACE_DIR: ${{ github.workspace }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile } from 'node:fs/promises'
-          import { createHealthyFixtureCommit } from './.candidate-source/src/e2e/git-fixture.ts'
-
-          const workspaceDir = process.env.WORKSPACE_DIR
-          const githubOutput = process.env.GITHUB_OUTPUT
-
-          if (!workspaceDir || !githubOutput) {
-            throw new Error('Missing recovery fixture commit outputs')
-          }
-
-          const commit = await createHealthyFixtureCommit({
-            workspaceDir,
-            label: 'healthy-3'
-          })
-
-          await appendFile(githubOutput, `commit=${commit}\n`)
-          EOF
+          COMMIT_LABEL: healthy-3
+          COMMIT_CONTEXT: recovery
+        run: node .candidate-source/src/e2e/scripts/create-fixture-commit.ts
 
       - name: Refresh pinned candidate action metadata
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -1416,7 +529,7 @@ jobs:
           CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
           OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
           CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
-          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/.github/scripts/pin-candidate-action.mjs
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
         run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
 
       - name: Deploy recovery fixture commit
@@ -1443,49 +556,7 @@ jobs:
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
           APP_ID: ${{ steps.create.outputs.app_id }}
           EXPECTED_COMMIT_ID: ${{ steps.recovery-commit.outputs.commit }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile } from 'node:fs/promises'
-          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
-          import { waitForHealthyDeployment } from './.candidate-source/src/e2e/deployment-observer.ts'
-          import {
-            createFetchHealth,
-            createRunCommand,
-            resolveCleverCLI
-          } from './.candidate-source/src/e2e/workflow-adapters.ts'
-
-          const appId = process.env.APP_ID
-          const expectedCommitID = process.env.EXPECTED_COMMIT_ID
-          const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = resolveCleverCLI()
-
-          if (!appId || !expectedCommitID || !githubOutput) {
-            throw new Error('Missing recovery deployment observation inputs')
-          }
-
-          const controller = createCleverController({
-            cleverCLI,
-            runCommand: createRunCommand()
-          })
-
-          const application = await controller.getApplication(appId)
-          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
-          const health = await waitForHealthyDeployment({
-            appId,
-            healthURL,
-            expectedScenario: 'healthy',
-            expectedCommitID,
-            listActivity: controller.listActivity,
-            fetchHealth: createFetchHealth()
-          })
-
-          await appendFile(
-            githubOutput,
-            `instance_id=${health.INSTANCE_ID ?? ''}\n` +
-              `deployment_id=${health.CC_DEPLOYMENT_ID ?? ''}\n` +
-              `commit_id=${health.CC_COMMIT_ID ?? ''}\n`,
-          )
-          EOF
+        run: node .candidate-source/src/e2e/scripts/observe-recovery-deployment.ts
 
       - name: Capture force baseline state
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -1498,46 +569,8 @@ jobs:
           BASELINE_INSTANCE_ID: ${{ steps.observe-recovery.outputs.instance_id }}
           BASELINE_DEPLOYMENT_ID: ${{ steps.observe-recovery.outputs.deployment_id }}
           BASELINE_COMMIT_ID: ${{ steps.observe-recovery.outputs.commit_id }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { writeFile } from 'node:fs/promises'
-          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
-          import {
-            createRunCommand,
-            resolveCleverCLI
-          } from './.candidate-source/src/e2e/workflow-adapters.ts'
-
-          const appId = process.env.APP_ID
-          const statePath = process.env.STATE_PATH
-          const instanceId = process.env.BASELINE_INSTANCE_ID
-          const deploymentId = process.env.BASELINE_DEPLOYMENT_ID
-          const commitId = process.env.BASELINE_COMMIT_ID
-          const cleverCLI = resolveCleverCLI()
-
-          if (!appId || !statePath || !instanceId || !deploymentId || !commitId) {
-            throw new Error('Missing force baseline inputs')
-          }
-
-          const controller = createCleverController({
-            cleverCLI,
-            runCommand: createRunCommand()
-          })
-
-          await writeFile(
-            statePath,
-            JSON.stringify(
-              {
-                activity: await controller.listActivity(appId),
-                instanceId,
-                deploymentId,
-                commitId,
-              },
-              null,
-              2,
-            ),
-            'utf8',
-          )
-          EOF
+          BASELINE_CONTEXT: force
+        run: node .candidate-source/src/e2e/scripts/capture-baseline-state.ts
 
       - name: Create divergent fixture commit
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -1545,27 +578,7 @@ jobs:
         env:
           WORKSPACE_DIR: ${{ github.workspace }}
           ANCESTOR_COMMIT: ${{ steps.second-healthy.outputs.commit }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile } from 'node:fs/promises'
-          import { createDivergentFixtureCommit } from './.candidate-source/src/e2e/git-fixture.ts'
-
-          const workspaceDir = process.env.WORKSPACE_DIR
-          const ancestorCommit = process.env.ANCESTOR_COMMIT
-          const githubOutput = process.env.GITHUB_OUTPUT
-
-          if (!workspaceDir || !ancestorCommit || !githubOutput) {
-            throw new Error('Missing divergent fixture commit inputs')
-          }
-
-          const commit = await createDivergentFixtureCommit({
-            workspaceDir,
-            ancestorCommit,
-            label: 'healthy-force'
-          })
-
-          await appendFile(githubOutput, `commit=${commit}\n`)
-          EOF
+        run: node .candidate-source/src/e2e/scripts/create-divergent-fixture-commit.ts
 
       - name: Refresh pinned candidate action metadata
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -1573,7 +586,7 @@ jobs:
           CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
           OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
           CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
-          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/.github/scripts/pin-candidate-action.mjs
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
         run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
 
       - name: Deploy divergent fixture commit without force
@@ -1603,84 +616,7 @@ jobs:
           ACTION_OUTCOME: ${{ steps.divergent-no-force.outcome }}
           STATE_PATH: ${{ github.workspace }}/.e2e-state/force-state.json
           LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/010-divergent-no-force.log
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile, readFile } from 'node:fs/promises'
-          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
-          import { confirmRejectedDeploymentPreservesLiveApp } from './.candidate-source/src/e2e/deployment-observer.ts'
-          import {
-            createFetchHealth,
-            createRunCommand,
-            resolveCleverCLI
-          } from './.candidate-source/src/e2e/workflow-adapters.ts'
-
-          const appId = process.env.APP_ID
-          const actionOutcome = process.env.ACTION_OUTCOME
-          const statePath = process.env.STATE_PATH
-          const logPath = process.env.LOG_PATH
-          const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = resolveCleverCLI()
-
-          if (!appId || !actionOutcome || !statePath || !logPath || !githubOutput) {
-            throw new Error('Missing divergent rejection assertion inputs')
-          }
-
-          if (actionOutcome !== 'failure') {
-            throw new Error('Expected divergent deployment without force to fail')
-          }
-
-          const previousState = JSON.parse(await readFile(statePath, 'utf8'))
-          const controller = createCleverController({
-            cleverCLI,
-            runCommand: createRunCommand()
-          })
-
-          const application = await controller.getApplication(appId)
-          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
-          const health = await confirmRejectedDeploymentPreservesLiveApp({
-            appId,
-            healthURL,
-            expectedScenario: 'healthy',
-            previousActivity: previousState.activity,
-            previousCommitID: previousState.commitId,
-            previousDeploymentID: previousState.deploymentId,
-            listActivity: controller.listActivity,
-            fetchHealth: createFetchHealth(),
-            noNewActivityTimeoutMs: 15_000,
-            settleTimeoutMs: 600_000,
-            pollIntervalMs: 5_000
-          })
-
-          if (health.INSTANCE_ID !== previousState.instanceId) {
-            throw new Error('Expected divergent rejection to preserve the prior healthy instance ID')
-          }
-          if (health.CC_DEPLOYMENT_ID !== previousState.deploymentId) {
-            throw new Error('Expected divergent rejection to preserve the prior healthy deployment ID')
-          }
-          if (health.CC_COMMIT_ID !== previousState.commitId) {
-            throw new Error('Expected divergent rejection to preserve the prior healthy commit ID')
-          }
-
-          const logContent = await readFile(logPath, 'utf8')
-          const nonFastForwardMarkers = [
-            'non-fast-forward',
-            '[rejected]',
-            'fetch first',
-            'Updates were rejected'
-          ]
-          if (!nonFastForwardMarkers.some(marker => logContent.includes(marker))) {
-            throw new Error(
-              'Expected divergent deployment without force log to mention a non-fast-forward rejection'
-            )
-          }
-
-          await appendFile(
-            githubOutput,
-            `instance_id=${health.INSTANCE_ID ?? ''}\n` +
-              `deployment_id=${health.CC_DEPLOYMENT_ID ?? ''}\n` +
-              `commit_id=${health.CC_COMMIT_ID ?? ''}\n`,
-          )
-          EOF
+        run: node .candidate-source/src/e2e/scripts/assert-divergent-rejection.ts
 
       - name: Refresh pinned candidate action metadata
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -1688,7 +624,7 @@ jobs:
           CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
           OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
           CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
-          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/.github/scripts/pin-candidate-action.mjs
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
         run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
 
       - name: Deploy divergent fixture commit with force
@@ -1718,89 +654,16 @@ jobs:
           ACTION_OUTCOME: ${{ steps.divergent-force.outcome }}
           EXPECTED_COMMIT_ID: ${{ steps.divergent-commit.outputs.commit }}
           STATE_PATH: ${{ github.workspace }}/.e2e-state/force-state.json
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile, readFile } from 'node:fs/promises'
-          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
-          import { confirmRejectedDeploymentPreservesLiveApp, waitForNewHealthyDeployment } from './.candidate-source/src/e2e/deployment-observer.ts'
-          import {
-            createFetchHealth,
-            createRunCommand,
-            resolveCleverCLI
-          } from './.candidate-source/src/e2e/workflow-adapters.ts'
-
-          const appId = process.env.APP_ID
-          const actionOutcome = process.env.ACTION_OUTCOME
-          const expectedCommitID = process.env.EXPECTED_COMMIT_ID
-          const statePath = process.env.STATE_PATH
-          const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = resolveCleverCLI()
-
-          if (!appId || !actionOutcome || !expectedCommitID || !statePath || !githubOutput) {
-            throw new Error('Missing divergent force observation inputs')
-          }
-
-          if (actionOutcome !== 'success') {
-            throw new Error('Expected divergent deployment with force to succeed')
-          }
-
-          const previousState = JSON.parse(await readFile(statePath, 'utf8'))
-          const controller = createCleverController({
-            cleverCLI,
-            runCommand: createRunCommand()
-          })
-
-          const application = await controller.getApplication(appId)
-          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
-          const result = await waitForNewHealthyDeployment({
-            appId,
-            healthURL,
-            expectedScenario: 'healthy',
-            expectedCommitID,
-            previousActivity: previousState.activity,
-            listActivity: controller.listActivity,
-            fetchHealth: createFetchHealth()
-          })
-
-          if (result.health.CC_COMMIT_ID === previousState.commitId) {
-            throw new Error('Expected forced divergent deployment to change the live commit ID')
-          }
-          if (result.health.CC_DEPLOYMENT_ID === previousState.deploymentId) {
-            throw new Error('Expected forced divergent deployment to change the live deployment ID')
-          }
-
-          await appendFile(
-            githubOutput,
-            `instance_id=${result.health.INSTANCE_ID ?? ''}\n` +
-              `deployment_id=${result.deployment.uuid ?? result.health.CC_DEPLOYMENT_ID ?? ''}\n` +
-              `commit_id=${result.health.CC_COMMIT_ID ?? ''}\n`,
-          )
-          EOF
+        run: node .candidate-source/src/e2e/scripts/observe-divergent-force.ts
 
       - name: Create slow-build fixture commit
         if: steps.candidate-state.outputs.proceed == 'true'
         id: slow-build-commit
         env:
           WORKSPACE_DIR: ${{ github.workspace }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile } from 'node:fs/promises'
-          import { createHealthyFixtureCommit } from './.candidate-source/src/e2e/git-fixture.ts'
-
-          const workspaceDir = process.env.WORKSPACE_DIR
-          const githubOutput = process.env.GITHUB_OUTPUT
-
-          if (!workspaceDir || !githubOutput) {
-            throw new Error('Missing slow-build fixture commit outputs')
-          }
-
-          const commit = await createHealthyFixtureCommit({
-            workspaceDir,
-            label: 'slow-build-child'
-          })
-
-          await appendFile(githubOutput, `commit=${commit}\n`)
-          EOF
+          COMMIT_LABEL: slow-build-child
+          COMMIT_CONTEXT: slow-build
+        run: node .candidate-source/src/e2e/scripts/create-fixture-commit.ts
 
       - name: Refresh pinned candidate action metadata
         if: steps.candidate-state.outputs.proceed == 'true'
@@ -1808,7 +671,7 @@ jobs:
           CANDIDATE_IMAGE: ${{ inputs.candidate_image }}
           OUTPUT_ACTION_PATH: ${{ github.workspace }}/.candidate-action/action.yml
           CANDIDATE_ACTION_PATH: ${{ runner.temp }}/candidate-action.yml
-          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/.github/scripts/pin-candidate-action.mjs
+          PIN_CANDIDATE_ACTION_SCRIPT: ${{ runner.temp }}/trusted-workflow/src/e2e/scripts/pin-candidate-action.ts
         run: node "$PIN_CANDIDATE_ACTION_SCRIPT"
 
       - name: Deploy slow-build fixture commit with timeout
@@ -1835,28 +698,8 @@ jobs:
         env:
           ACTION_OUTCOME: ${{ steps.timeout-deploy.outcome }}
           LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/012-timeout.log
-        run: |
-          node --input-type=module <<'EOF'
-          import { readFile } from 'node:fs/promises'
-
-          const actionOutcome = process.env.ACTION_OUTCOME
-          const logPath = process.env.LOG_PATH
-
-          if (!actionOutcome || !logPath) {
-            throw new Error('Missing timeout assertion inputs')
-          }
-
-          if (actionOutcome !== 'success') {
-            throw new Error('Expected timed-out deployment action to succeed')
-          }
-
-          const logContent = await readFile(logPath, 'utf8')
-          if (!logContent.includes('Deployment timed out, moving on with workflow run')) {
-            throw new Error(
-              'Expected timed-out deployment log to contain the documented timeout message'
-            )
-          }
-          EOF
+          TRUSTED_WORKFLOW_DIR: ${{ runner.temp }}/trusted-workflow
+        run: node "$TRUSTED_WORKFLOW_DIR"/src/e2e/scripts/assert-timeout-contract.ts
 
       - name: Cancel timed-out deployment and confirm forced commit stays live
         if: always() && steps.candidate-state.outputs.proceed == 'true' && steps.timeout-deploy.outcome != 'skipped'
@@ -1869,69 +712,7 @@ jobs:
           PREVIOUS_INSTANCE_ID: ${{ steps.observe-divergent-force.outputs.instance_id }}
           PREVIOUS_COMMIT_ID: ${{ steps.observe-divergent-force.outputs.commit_id }}
           PREVIOUS_DEPLOYMENT_ID: ${{ steps.observe-divergent-force.outputs.deployment_id }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile } from 'node:fs/promises'
-          import { createCleverController } from './.candidate-source/src/e2e/clever-client.ts'
-          import { cancelTimedOutDeploymentPreservesLiveApp } from './.candidate-source/src/e2e/deployment-observer.ts'
-          import {
-            createFetchHealth,
-            createRunCommand,
-            resolveCleverCLI
-          } from './.candidate-source/src/e2e/workflow-adapters.ts'
-
-          const appId = process.env.APP_ID
-          const expectedCancelledCommitID = process.env.EXPECTED_CANCELLED_COMMIT_ID
-          const previousInstanceId = process.env.PREVIOUS_INSTANCE_ID
-          const previousCommitId = process.env.PREVIOUS_COMMIT_ID
-          const previousDeploymentId = process.env.PREVIOUS_DEPLOYMENT_ID
-          const githubOutput = process.env.GITHUB_OUTPUT
-          const cleverCLI = resolveCleverCLI()
-
-          if (
-            !appId ||
-            !expectedCancelledCommitID ||
-            !previousInstanceId ||
-            !previousCommitId ||
-            !previousDeploymentId ||
-            !githubOutput
-          ) {
-            throw new Error('Missing timeout observation inputs')
-          }
-
-          const controller = createCleverController({
-            cleverCLI,
-            runCommand: createRunCommand()
-          })
-
-          const application = await controller.getApplication(appId)
-          const healthURL = new URL('/health', `${application.deployURL}/`).toString()
-          const result = await cancelTimedOutDeploymentPreservesLiveApp({
-            appId,
-            healthURL,
-            expectedCancelledCommitID,
-            expectedScenario: 'healthy',
-            previousCommitID: previousCommitId,
-            previousDeploymentID: previousDeploymentId,
-            listActivity: controller.listActivity,
-            cancelDeployment: async (appId, deploymentId, timeoutMs) =>
-              controller.cancelDeployment({ appId, deploymentId, timeoutMs }),
-            fetchHealth: createFetchHealth(),
-            settleTimeoutMs: 600_000,
-            pollIntervalMs: 5_000
-          })
-
-          if (result.health.INSTANCE_ID !== previousInstanceId) {
-            throw new Error('Expected timed-out deployment to preserve the prior healthy forced instance ID')
-          }
-
-          await appendFile(
-            githubOutput,
-            `instance_id=${result.health.INSTANCE_ID ?? ''}\n` +
-              `deployment_id=${result.cancelledDeployment.uuid ?? ''}\n` +
-              `commit_id=${result.cancelledDeployment.commit ?? expectedCancelledCommitID}\n`,
-          )
-          EOF
+        run: node .candidate-source/src/e2e/scripts/observe-timeout-cancellation.ts
 
       - name: Write structured scenario results
         if: always() && steps.candidate-state.outputs.proceed == 'true'
@@ -2013,246 +794,7 @@ jobs:
           SAME_COMMIT_REBUILD_DEPLOYMENT_ID: ${{ steps.observe-same-commit-rebuild.outputs.deployment_id }}
           FAILED_DEPLOY_BASELINE_INSTANCE_ID: ${{ steps.observe-same-commit-rebuild.outputs.instance_id }}
           FORCE_BASELINE_INSTANCE_ID: ${{ steps.observe-recovery.outputs.instance_id }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { readFile } from 'node:fs/promises'
-          import {
-            buildExpectedFailureOutcome,
-            buildSuccessfulScenarioOutcome,
-            buildSuiteResults,
-            writeSuiteResults
-          } from './.candidate-source/src/e2e/evidence.ts'
-
-          const appIdFile = process.env.APP_ID_FILE
-          const resultsPath = process.env.RESULTS_PATH
-          const headSha = process.env.HEAD_SHA
-          const candidateDigest = process.env.CANDIDATE_DIGEST
-          const candidateImage = process.env.CANDIDATE_IMAGE
-
-          if (
-            !appIdFile ||
-            !resultsPath ||
-            !headSha ||
-            !candidateDigest ||
-            !candidateImage
-          ) {
-            throw new Error('Missing structured results inputs')
-          }
-
-          const app = {
-            id: null,
-            name: null,
-          }
-
-          try {
-            const persisted = JSON.parse(await readFile(appIdFile, 'utf8'))
-            if (typeof persisted.appId === 'string') {
-              app.id = persisted.appId
-            }
-            if (typeof persisted.name === 'string') {
-              app.name = persisted.name
-            }
-          } catch (error) {
-            if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') {
-              throw error
-            }
-          }
-
-          await writeSuiteResults(
-            resultsPath,
-            buildSuiteResults({
-              candidate: {
-                headSha,
-                imageDigest: candidateDigest,
-                imageReference: candidateImage
-              },
-              app,
-              scenarios: [
-                {
-                  name: 'deploy-healthy-fixture-commit',
-                  outcome: buildSuccessfulScenarioOutcome(
-                    process.env.DEPLOY_HEALTHY_OUTCOME,
-                    process.env.OBSERVE_HEALTHY_OUTCOME
-                  ),
-                  baselineInstanceId: null,
-                  instanceId: process.env.HEALTHY_OBSERVED_INSTANCE_ID || null,
-                  commitId:
-                    process.env.HEALTHY_OBSERVED_COMMIT_ID ||
-                    process.env.HEALTHY_COMMIT ||
-                    null,
-                  deploymentId: process.env.HEALTHY_OBSERVED_DEPLOYMENT_ID || null,
-                  candidateActionLogs: ['candidate-action/001-deploy-healthy.log']
-                },
-                {
-                  name: 'deploy-healthy-fixture-env-check',
-                  outcome: buildSuccessfulScenarioOutcome(
-                    process.env.DEPLOY_ENV_OUTCOME,
-                    process.env.OBSERVE_ENV_OUTCOME,
-                    process.env.VERIFY_ENV_LOG_OUTCOME
-                  ),
-                  baselineInstanceId: null,
-                  instanceId: process.env.ENV_OBSERVED_INSTANCE_ID || null,
-                  commitId:
-                    process.env.ENV_OBSERVED_COMMIT_ID ||
-                    process.env.ENV_COMMIT ||
-                    null,
-                  deploymentId: process.env.ENV_OBSERVED_DEPLOYMENT_ID || null,
-                  candidateActionLogs: ['candidate-action/002-deploy-env.log']
-                },
-                {
-                  name: 'same-commit-error',
-                  outcome: buildExpectedFailureOutcome({
-                    actionOutcome: process.env.SAME_COMMIT_ERROR_OUTCOME,
-                    assertionOutcome: process.env.ASSERT_SAME_COMMIT_ERROR_OUTCOME
-                  }),
-                  baselineInstanceId: process.env.SAME_COMMIT_BASELINE_INSTANCE_ID || null,
-                  instanceId: process.env.SAME_COMMIT_BASELINE_INSTANCE_ID || null,
-                  commitId: process.env.SAME_COMMIT_BASELINE_COMMIT_ID || null,
-                  deploymentId: null,
-                  candidateActionLogs: ['candidate-action/003-same-commit-error.log']
-                },
-                {
-                  name: 'same-commit-ignore',
-                  outcome: buildSuccessfulScenarioOutcome(
-                    process.env.SAME_COMMIT_IGNORE_OUTCOME,
-                    process.env.OBSERVE_SAME_COMMIT_IGNORE_OUTCOME
-                  ),
-                  baselineInstanceId: process.env.SAME_COMMIT_BASELINE_INSTANCE_ID || null,
-                  instanceId:
-                    process.env.SAME_COMMIT_IGNORE_INSTANCE_ID ||
-                    process.env.SAME_COMMIT_BASELINE_INSTANCE_ID ||
-                    null,
-                  commitId:
-                    process.env.SAME_COMMIT_IGNORE_COMMIT_ID ||
-                    process.env.SAME_COMMIT_BASELINE_COMMIT_ID ||
-                    null,
-                  deploymentId:
-                    process.env.SAME_COMMIT_IGNORE_DEPLOYMENT_ID ||
-                    process.env.SAME_COMMIT_BASELINE_DEPLOYMENT_ID ||
-                    null,
-                  candidateActionLogs: ['candidate-action/004-same-commit-ignore.log']
-                },
-                {
-                  name: 'same-commit-restart',
-                  outcome: buildSuccessfulScenarioOutcome(
-                    process.env.SAME_COMMIT_RESTART_OUTCOME,
-                    process.env.OBSERVE_SAME_COMMIT_RESTART_OUTCOME
-                  ),
-                  baselineInstanceId:
-                    process.env.SAME_COMMIT_RESTART_BASELINE_INSTANCE_ID || null,
-                  instanceId: process.env.SAME_COMMIT_RESTART_INSTANCE_ID || null,
-                  commitId: process.env.SAME_COMMIT_RESTART_COMMIT_ID || null,
-                  deploymentId: process.env.SAME_COMMIT_RESTART_DEPLOYMENT_ID || null,
-                  candidateActionLogs: ['candidate-action/005-same-commit-restart.log']
-                },
-                {
-                  name: 'same-commit-rebuild',
-                  outcome: buildSuccessfulScenarioOutcome(
-                    process.env.SAME_COMMIT_REBUILD_OUTCOME,
-                    process.env.OBSERVE_SAME_COMMIT_REBUILD_OUTCOME
-                  ),
-                  baselineInstanceId:
-                    process.env.SAME_COMMIT_REBUILD_BASELINE_INSTANCE_ID || null,
-                  instanceId: process.env.SAME_COMMIT_REBUILD_INSTANCE_ID || null,
-                  commitId: process.env.SAME_COMMIT_REBUILD_COMMIT_ID || null,
-                  deploymentId: process.env.SAME_COMMIT_REBUILD_DEPLOYMENT_ID || null,
-                  candidateActionLogs: ['candidate-action/006-same-commit-rebuild.log']
-                },
-                {
-                  name: 'build-failure',
-                  outcome: buildExpectedFailureOutcome({
-                    actionOutcome: process.env.BUILD_FAILURE_OUTCOME,
-                    assertionOutcome: process.env.ASSERT_BUILD_FAILURE_OUTCOME
-                  }),
-                  baselineInstanceId:
-                    process.env.FAILED_DEPLOY_BASELINE_INSTANCE_ID || null,
-                  instanceId: process.env.BUILD_FAILURE_INSTANCE_ID || null,
-                  commitId: process.env.BUILD_FAILURE_COMMIT || null,
-                  deploymentId: process.env.BUILD_FAILURE_DEPLOYMENT_ID || null,
-                  candidateActionLogs: ['candidate-action/007-build-failure.log']
-                },
-                {
-                  name: 'startup-failure',
-                  outcome: buildExpectedFailureOutcome({
-                    actionOutcome: process.env.STARTUP_FAILURE_OUTCOME,
-                    assertionOutcome: process.env.ASSERT_STARTUP_FAILURE_OUTCOME
-                  }),
-                  baselineInstanceId:
-                    process.env.FAILED_DEPLOY_BASELINE_INSTANCE_ID || null,
-                  instanceId: process.env.STARTUP_FAILURE_INSTANCE_ID || null,
-                  commitId: process.env.STARTUP_FAILURE_COMMIT || null,
-                  deploymentId: process.env.STARTUP_FAILURE_DEPLOYMENT_ID || null,
-                  candidateActionLogs: ['candidate-action/008-startup-failure.log']
-                },
-                {
-                  name: 'recovery',
-                  outcome: buildSuccessfulScenarioOutcome(
-                    process.env.RECOVERY_OUTCOME,
-                    process.env.OBSERVE_RECOVERY_OUTCOME
-                  ),
-                  baselineInstanceId:
-                    process.env.FAILED_DEPLOY_BASELINE_INSTANCE_ID || null,
-                  instanceId: process.env.RECOVERY_INSTANCE_ID || null,
-                  commitId:
-                    process.env.RECOVERY_COMMIT_ID ||
-                    process.env.RECOVERY_COMMIT ||
-                    null,
-                  deploymentId: process.env.RECOVERY_DEPLOYMENT_ID || null,
-                  candidateActionLogs: ['candidate-action/009-recovery.log']
-                },
-                {
-                  name: 'divergent-no-force',
-                  outcome: buildExpectedFailureOutcome({
-                    actionOutcome: process.env.DIVERGENT_NO_FORCE_OUTCOME,
-                    assertionOutcome: process.env.ASSERT_DIVERGENT_NO_FORCE_OUTCOME
-                  }),
-                  baselineInstanceId: process.env.FORCE_BASELINE_INSTANCE_ID || null,
-                  instanceId:
-                    process.env.DIVERGENT_NO_FORCE_INSTANCE_ID ||
-                    process.env.FORCE_BASELINE_INSTANCE_ID ||
-                    null,
-                  commitId: process.env.DIVERGENT_NO_FORCE_COMMIT_ID || null,
-                  deploymentId: process.env.DIVERGENT_NO_FORCE_DEPLOYMENT_ID || null,
-                  candidateActionLogs: ['candidate-action/010-divergent-no-force.log']
-                },
-                {
-                  name: 'divergent-force',
-                  outcome: buildSuccessfulScenarioOutcome(
-                    process.env.DIVERGENT_FORCE_OUTCOME,
-                    process.env.OBSERVE_DIVERGENT_FORCE_OUTCOME
-                  ),
-                  baselineInstanceId: process.env.FORCE_BASELINE_INSTANCE_ID || null,
-                  instanceId: process.env.DIVERGENT_FORCE_INSTANCE_ID || null,
-                  commitId:
-                    process.env.DIVERGENT_FORCE_COMMIT_ID ||
-                    process.env.DIVERGENT_FORCE_COMMIT ||
-                    null,
-                  deploymentId: process.env.DIVERGENT_FORCE_DEPLOYMENT_ID || null,
-                  candidateActionLogs: ['candidate-action/011-divergent-force.log']
-                },
-                {
-                  name: 'timeout-cancelled',
-                  outcome: buildSuccessfulScenarioOutcome(
-                    process.env.TIMEOUT_DEPLOY_OUTCOME,
-                    process.env.ASSERT_TIMEOUT_DEPLOY_OUTCOME,
-                    process.env.OBSERVE_TIMEOUT_DEPLOY_OUTCOME
-                  ),
-                  baselineInstanceId: process.env.TIMEOUT_BASELINE_INSTANCE_ID || null,
-                  instanceId:
-                    process.env.TIMEOUT_INSTANCE_ID ||
-                    process.env.TIMEOUT_BASELINE_INSTANCE_ID ||
-                    null,
-                  commitId:
-                    process.env.TIMEOUT_COMMIT_ID ||
-                    process.env.TIMEOUT_COMMIT ||
-                    null,
-                  deploymentId: process.env.TIMEOUT_DEPLOYMENT_ID || null,
-                  candidateActionLogs: ['candidate-action/012-timeout.log']
-                }
-              ]
-            })
-          )
-          EOF
+        run: node .candidate-source/src/e2e/scripts/write-suite-results.ts
 
       - name: Delete the captured app
         if: always() && steps.candidate-state.outputs.proceed == 'true'
@@ -2279,557 +821,8 @@ jobs:
           DIVERGENT_NO_FORCE_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/010-divergent-no-force.log
           DIVERGENT_FORCE_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/011-divergent-force.log
           TIMEOUT_LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/012-timeout.log
-        run: |
-          node --input-type=module <<'EOF'
-          import { Buffer } from 'node:buffer'
-          import { execFile } from 'node:child_process'
-          import { constants } from 'node:fs'
-          import {
-            access,
-            appendFile,
-            mkdir,
-            readFile,
-            readdir,
-            rm,
-            writeFile
-          } from 'node:fs/promises'
-          import path from 'node:path'
-          import { promisify } from 'node:util'
-
-          const REDACTION = '[REDACTED]'
-          const execFileAsync = promisify(execFile)
-          const githubOutput = process.env.GITHUB_OUTPUT
-          const hasAppIdFile = process.env.HAS_APP_ID_FILE === 'true'
-          const outputDir = process.env.OUTPUT_DIR
-          const resultsPath = process.env.RESULTS_PATH
-          const healthyLogPath = process.env.HEALTHY_LOG_PATH
-          const envLogPath = process.env.ENV_LOG_PATH
-          const sameCommitErrorLogPath = process.env.SAME_COMMIT_ERROR_LOG_PATH
-          const sameCommitIgnoreLogPath = process.env.SAME_COMMIT_IGNORE_LOG_PATH
-          const sameCommitRestartLogPath = process.env.SAME_COMMIT_RESTART_LOG_PATH
-          const sameCommitRebuildLogPath = process.env.SAME_COMMIT_REBUILD_LOG_PATH
-          const buildFailureLogPath = process.env.BUILD_FAILURE_LOG_PATH
-          const startupFailureLogPath = process.env.STARTUP_FAILURE_LOG_PATH
-          const recoveryLogPath = process.env.RECOVERY_LOG_PATH
-          const divergentNoForceLogPath = process.env.DIVERGENT_NO_FORCE_LOG_PATH
-          const divergentForceLogPath = process.env.DIVERGENT_FORCE_LOG_PATH
-          const timeoutLogPath = process.env.TIMEOUT_LOG_PATH
-          const token = process.env.CLEVER_TOKEN
-          const secret = process.env.CLEVER_SECRET
-          const healthValue = process.env.E2E_HEALTH_VALUE
-          let appId = process.env.APP_ID
-          let appName = process.env.APP_NAME
-          const appIdFile = process.env.APP_ID_FILE
-          const cleverCLI = `${process.env.GITHUB_WORKSPACE}/.candidate-source/node_modules/.bin/clever`
-
-          if (
-            !outputDir ||
-            !resultsPath ||
-            !healthyLogPath ||
-            !envLogPath ||
-            !sameCommitErrorLogPath ||
-            !sameCommitIgnoreLogPath ||
-            !sameCommitRestartLogPath ||
-            !sameCommitRebuildLogPath ||
-            !buildFailureLogPath ||
-            !startupFailureLogPath ||
-            !recoveryLogPath ||
-            !divergentNoForceLogPath ||
-            !divergentForceLogPath ||
-            !timeoutLogPath ||
-            !token ||
-            !secret
-          ) {
-            throw new Error('Missing teardown or failure evidence inputs')
-          }
-
-          const APP_ID_REGEX = /^app_[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/
-          const COMMAND_TIMEOUT_MS = 30_000
-          const SETTLE_TIMEOUT_MS = 10 * 60_000
-          const POLL_INTERVAL_MS = 5_000
-          const IN_PROGRESS_STATES = new Set(['WIP', 'PENDING', 'QUEUED', 'RUNNING'])
-          const CANCELLABLE_STATES = new Set(['WIP'])
-
-          function messageFrom(error) {
-            return error instanceof Error ? error.message : String(error)
-          }
-
-          function remainingBeforeDeadline(deadlineAt) {
-            return Math.max(0, deadlineAt - Date.now())
-          }
-
-          async function sleepUntilNextPoll(deadlineAt) {
-            await new Promise(resolve =>
-              setTimeout(resolve, Math.min(POLL_INTERVAL_MS, remainingBeforeDeadline(deadlineAt)))
-            )
-          }
-
-          async function runCleverCommand(args, timeoutMs = COMMAND_TIMEOUT_MS) {
-            try {
-              const { stdout, stderr } = await execFileAsync(cleverCLI, args, {
-                encoding: 'utf8',
-                env: process.env,
-                timeout: timeoutMs,
-                maxBuffer: 1024 * 1024 * 10,
-              })
-              return { stdout, stderr }
-            } catch (error) {
-              throw new Error(error.stderr?.trim() || error.message)
-            }
-          }
-
-          async function listActivity(appId, timeoutMs = COMMAND_TIMEOUT_MS) {
-            const result = await runCleverCommand(
-              ['activity', '--app', appId, '--format', 'json'],
-              timeoutMs
-            )
-
-            return JSON.parse(result.stdout)
-          }
-
-          async function readActiveDeployments(appId, timeoutMs = COMMAND_TIMEOUT_MS) {
-            return (await listActivity(appId, timeoutMs)).filter(
-              deployment =>
-                deployment.action === 'DEPLOY' &&
-                IN_PROGRESS_STATES.has(deployment.state ?? '')
-            )
-          }
-
-          async function listApplications(timeoutMs = COMMAND_TIMEOUT_MS) {
-            const result = await runCleverCommand(
-              ['applications', 'list', '--format', 'json'],
-              timeoutMs
-            )
-
-            return JSON.parse(result.stdout)
-          }
-
-          async function verifyApplicationDeletion(appId) {
-            const organisations = await listApplications()
-            const isStillPresent = organisations.some(organisation =>
-              organisation.applications?.some(application => application.app_id === appId)
-            )
-
-            if (isStillPresent) {
-              throw new Error(`Application ${appId} still exists after deletion`)
-            }
-          }
-
-          async function waitForDeploymentState({
-            appId,
-            deploymentId,
-            expectedState,
-            timeoutMs = SETTLE_TIMEOUT_MS
-          }) {
-            const deadline = Date.now() + timeoutMs
-            let lastObservedState = '(missing)'
-
-            for (;;) {
-              const deployment = (
-                await listActivity(
-                  appId,
-                  Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
-                )
-              ).find(activity => activity.uuid === deploymentId)
-
-              if (deployment?.state) {
-                lastObservedState = deployment.state
-              }
-
-              if (Date.now() >= deadline) {
-                throw new Error(
-                  `Timed out while waiting for deployment ${deploymentId} on ${appId} to reach ${expectedState}. Last state: ${lastObservedState}`
-                )
-              }
-
-              if (deployment?.state === expectedState) {
-                return deployment
-              }
-
-              await sleepUntilNextPoll(deadline)
-            }
-          }
-
-          async function waitForLatestCancellableDeployment({
-            appId,
-            deploymentId,
-            timeoutMs = SETTLE_TIMEOUT_MS,
-            returnSettled = false
-          }) {
-            const deadline = Date.now() + timeoutMs
-            let lastObservedState = '(missing)'
-
-            for (;;) {
-              const activity = await listActivity(
-                appId,
-                Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
-              )
-              const activeDeployments = activity.filter(
-                deployment =>
-                  deployment.action === 'DEPLOY' &&
-                  IN_PROGRESS_STATES.has(deployment.state ?? '')
-              )
-              const latestActiveDeployment = activeDeployments[0]
-              const matchingDeployment = activity.find(
-                deployment => deployment.uuid === deploymentId
-              )
-
-              if (matchingDeployment?.state) {
-                lastObservedState = matchingDeployment.state
-              }
-
-              if (
-                matchingDeployment?.uuid === deploymentId &&
-                matchingDeployment.state &&
-                !IN_PROGRESS_STATES.has(matchingDeployment.state)
-              ) {
-                if (returnSettled) {
-                  return null
-                }
-
-                throw new Error(
-                  `Deployment ${deploymentId} on ${appId} reached ${matchingDeployment.state} before it could be cancelled`
-                )
-              }
-
-              if (Date.now() >= deadline) {
-                throw new Error(
-                  `Timed out while waiting for deployment ${deploymentId} on ${appId} to become the latest WIP deployment. Last state: ${lastObservedState}`
-                )
-              }
-
-              if (
-                latestActiveDeployment?.uuid === deploymentId &&
-                CANCELLABLE_STATES.has(latestActiveDeployment.state ?? '')
-              ) {
-                return latestActiveDeployment
-              }
-
-              await sleepUntilNextPoll(deadline)
-            }
-          }
-
-          async function cancelDeployment({
-            appId,
-            deploymentId,
-            timeoutMs = SETTLE_TIMEOUT_MS
-          }) {
-            const deadline = Date.now() + timeoutMs
-            const cancellableDeployment = await waitForLatestCancellableDeployment({
-              appId,
-              deploymentId,
-              timeoutMs: remainingBeforeDeadline(deadline)
-            })
-
-            if (!cancellableDeployment) {
-              throw new Error(
-                `Deployment ${deploymentId} on ${appId} settled before it could be cancelled`
-              )
-            }
-
-            await runCleverCommand(
-              ['cancel-deploy', '--app', appId],
-              Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
-            )
-
-            return waitForDeploymentState({
-              appId,
-              deploymentId,
-              expectedState: 'CANCELLED',
-              timeoutMs: remainingBeforeDeadline(deadline)
-            })
-          }
-
-          async function deleteApplication({ appId, name }) {
-            try {
-              const deadline = Date.now() + SETTLE_TIMEOUT_MS
-
-              for (;;) {
-                const activeDeployments = await readActiveDeployments(
-                  appId,
-                  Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
-                )
-
-                if (activeDeployments.length === 0) {
-                  break
-                }
-
-                const latestActiveDeployment = activeDeployments[0]
-
-                if (!latestActiveDeployment?.uuid) {
-                  throw new Error(`Missing active deployment ID for ${appId}`)
-                }
-
-                const cancellableDeployment = await waitForLatestCancellableDeployment({
-                  appId,
-                  deploymentId: latestActiveDeployment.uuid,
-                  timeoutMs: remainingBeforeDeadline(deadline),
-                  returnSettled: true
-                })
-
-                if (!cancellableDeployment) {
-                  continue
-                }
-
-                await runCleverCommand(
-                  ['cancel-deploy', '--app', appId],
-                  Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
-                )
-
-                await waitForDeploymentState({
-                  appId,
-                  deploymentId: cancellableDeployment.uuid,
-                  expectedState: 'CANCELLED',
-                  timeoutMs: remainingBeforeDeadline(deadline)
-                })
-              }
-
-              await runCleverCommand(['delete', '--app', appId, '--yes'])
-              await verifyApplicationDeletion(appId)
-            } catch (error) {
-              throw new Error(`Failed to delete ${name} (${appId}): ${messageFrom(error)}`)
-            }
-          }
-
-          function buildSensitivePatterns(credentials) {
-            const combined = `${credentials.token}:${credentials.secret}`
-            const values = [
-              credentials.token,
-              credentials.secret,
-              combined,
-              credentials.healthValue
-            ].filter(Boolean)
-
-            return Array.from(
-              new Set(
-                values.flatMap(value => {
-                  const base64 = Buffer.from(value, 'utf8').toString('base64')
-
-                  return [
-                    value,
-                    encodeURIComponent(value),
-                    base64,
-                    base64.replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '')
-                  ]
-                })
-              )
-            ).sort((left, right) => right.length - left.length)
-          }
-
-          function redactArtifactContent(content, credentials) {
-            let redacted = content
-
-            for (const pattern of buildSensitivePatterns(credentials)) {
-              redacted = redacted.split(pattern).join(REDACTION)
-            }
-
-            return redacted
-          }
-
-          function scanArtifactContent(content, credentials) {
-            for (const pattern of buildSensitivePatterns(credentials)) {
-              if (content.includes(pattern)) {
-                throw new Error('Artifact still contains redaction target content')
-              }
-            }
-          }
-
-          function assertSafeArtifactPath(artifactPath) {
-            if (
-              artifactPath.startsWith('/') ||
-              artifactPath.split('/').some(segment => segment === '..' || segment === '.' || segment === '') ||
-              !/^[A-Za-z0-9._/-]+$/.test(artifactPath)
-            ) {
-              throw new Error(`Unsafe artifact path: ${artifactPath}`)
-            }
-
-            return artifactPath
-          }
-
-          async function listPreparedEvidenceFiles(directory) {
-            const entries = await readdir(directory, {
-              withFileTypes: true
-            })
-
-            const files = await Promise.all(
-              entries.map(async entry => {
-                const entryPath = path.join(directory, entry.name)
-
-                if (entry.isDirectory()) {
-                  return listPreparedEvidenceFiles(entryPath)
-                }
-
-                if (entry.isFile()) {
-                  return [entryPath]
-                }
-
-                return []
-              })
-            )
-
-            return files.flat()
-          }
-
-          async function prepareFailureEvidence({ outputDir, candidates, credentials }) {
-            await rm(outputDir, {
-              force: true,
-              recursive: true
-            })
-
-            for (const candidate of candidates) {
-              const artifactPath = assertSafeArtifactPath(candidate.artifactPath)
-              const redacted = redactArtifactContent(
-                await readFile(candidate.sourcePath, 'utf8'),
-                credentials
-              )
-
-              scanArtifactContent(redacted, credentials)
-
-              const destinationPath = path.join(outputDir, artifactPath)
-              await mkdir(path.dirname(destinationPath), {
-                recursive: true
-              })
-              await writeFile(destinationPath, redacted, 'utf8')
-            }
-          }
-
-          async function verifyPreparedFailureEvidence({ outputDir, credentials }) {
-            for (const filePath of await listPreparedEvidenceFiles(outputDir)) {
-              scanArtifactContent(await readFile(filePath, 'utf8'), credentials)
-            }
-          }
-
-          async function buildEvidenceCandidates() {
-            const candidates = [
-              {
-                sourcePath: resultsPath,
-                artifactPath: 'suite-results.json'
-              }
-            ]
-
-            for (const logCandidate of [
-              {
-                sourcePath: healthyLogPath,
-                artifactPath: 'candidate-action/001-deploy-healthy.log'
-              },
-              {
-                sourcePath: envLogPath,
-                artifactPath: 'candidate-action/002-deploy-env.log'
-              },
-              {
-                sourcePath: sameCommitErrorLogPath,
-                artifactPath: 'candidate-action/003-same-commit-error.log'
-              },
-              {
-                sourcePath: sameCommitIgnoreLogPath,
-                artifactPath: 'candidate-action/004-same-commit-ignore.log'
-              },
-              {
-                sourcePath: sameCommitRestartLogPath,
-                artifactPath: 'candidate-action/005-same-commit-restart.log'
-              },
-              {
-                sourcePath: sameCommitRebuildLogPath,
-                artifactPath: 'candidate-action/006-same-commit-rebuild.log'
-              },
-              {
-                sourcePath: buildFailureLogPath,
-                artifactPath: 'candidate-action/007-build-failure.log'
-              },
-              {
-                sourcePath: startupFailureLogPath,
-                artifactPath: 'candidate-action/008-startup-failure.log'
-              },
-              {
-                sourcePath: recoveryLogPath,
-                artifactPath: 'candidate-action/009-recovery.log'
-              },
-              {
-                sourcePath: divergentNoForceLogPath,
-                artifactPath: 'candidate-action/010-divergent-no-force.log'
-              },
-              {
-                sourcePath: divergentForceLogPath,
-                artifactPath: 'candidate-action/011-divergent-force.log'
-              },
-              {
-                sourcePath: timeoutLogPath,
-                artifactPath: 'candidate-action/012-timeout.log'
-              }
-            ]) {
-              try {
-                await access(logCandidate.sourcePath, constants.F_OK)
-                candidates.push(logCandidate)
-              } catch (error) {
-                if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') {
-                  throw error
-                }
-              }
-            }
-
-            return candidates
-          }
-
-          const credentials = { token, secret, healthValue }
-          const errors = []
-          let evidencePrepared = false
-
-          try {
-            await prepareFailureEvidence({
-              outputDir,
-              candidates: await buildEvidenceCandidates(),
-              credentials
-            })
-            evidencePrepared = true
-          } catch (error) {
-            errors.push(`Failure evidence preparation failed: ${messageFrom(error)}`)
-          }
-
-          if ((!appId || !appName) && hasAppIdFile && appIdFile) {
-            try {
-              const persisted = JSON.parse(await readFile(appIdFile, 'utf8'))
-              appId ??= persisted.appId
-              appName ??= persisted.name
-            } catch (error) {
-              errors.push(`Failed to read captured app identity: ${messageFrom(error)}`)
-            }
-          }
-
-          if (appId && !APP_ID_REGEX.test(appId)) {
-            errors.push(`Invalid captured app ID for teardown: ${appId}`)
-          } else if (appId && appName) {
-            try {
-              await deleteApplication({ appId, name: appName })
-            } catch (error) {
-              errors.push(`App teardown failed: ${messageFrom(error)}`)
-            }
-          }
-
-          if (evidencePrepared) {
-            try {
-              await verifyPreparedFailureEvidence({
-                outputDir,
-                credentials
-              })
-              if (githubOutput) {
-                await appendFile(githubOutput, 'failure_evidence_ready=true\n')
-              }
-            } catch (error) {
-              errors.push(`Failure evidence verification failed: ${messageFrom(error)}`)
-            }
-          }
-
-          if ((!appId || !appName) && (hasAppIdFile || Boolean(process.env.APP_ID) || Boolean(process.env.APP_NAME))) {
-            errors.push('Missing captured app identity for teardown')
-          }
-
-          if (errors.length > 0) {
-            for (const errorMessage of errors) {
-              console.error(`::error::${errorMessage}`)
-            }
-            throw new Error(errors.join('\n'))
-          }
-          EOF
+          TRUSTED_WORKFLOW_DIR: ${{ runner.temp }}/trusted-workflow
+        run: node "$TRUSTED_WORKFLOW_DIR"/src/e2e/scripts/delete-app-and-prepare-evidence.ts
 
       - name: Write GitHub step summary
         if: always() && steps.candidate-state.outputs.proceed == 'true'
@@ -2841,62 +834,7 @@ jobs:
           CALLER: ${{ inputs.caller }}
           TEARDOWN_OUTCOME: ${{ steps.delete-app.outcome }}
           FAILURE_EVIDENCE_READY: ${{ steps.delete-app.outputs.failure_evidence_ready }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile, readFile } from 'node:fs/promises'
-          import { buildSuiteStepSummary } from './.candidate-source/src/e2e/evidence.ts'
-
-          const resultsPath = process.env.RESULTS_PATH
-          const headSha = process.env.HEAD_SHA
-          const candidateDigest = process.env.CANDIDATE_DIGEST
-          const candidateImage = process.env.CANDIDATE_IMAGE
-          const caller = process.env.CALLER
-          const teardownOutcome = process.env.TEARDOWN_OUTCOME
-          const summaryPath = process.env.GITHUB_STEP_SUMMARY
-
-          if (
-            !resultsPath ||
-            !headSha ||
-            !candidateDigest ||
-            !candidateImage ||
-            !caller ||
-            !teardownOutcome ||
-            !summaryPath
-          ) {
-            throw new Error('Missing GitHub step summary inputs')
-          }
-
-          let suiteResults = {
-            candidate: {
-              headSha,
-              imageDigest: candidateDigest,
-              imageReference: candidateImage,
-            },
-            app: {
-              id: null,
-              name: null,
-            },
-            scenarios: [],
-          }
-
-          try {
-            suiteResults = JSON.parse(await readFile(resultsPath, 'utf8'))
-          } catch (error) {
-            if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') {
-              throw error
-            }
-          }
-
-          await appendFile(
-            summaryPath,
-            buildSuiteStepSummary({
-              suiteResults,
-              caller,
-              teardownOutcome,
-              failureEvidenceReady: process.env.FAILURE_EVIDENCE_READY === 'true'
-            })
-          )
-          EOF
+        run: node .candidate-source/src/e2e/scripts/write-suite-summary.ts
 
       - name: Upload failure evidence
         if: failure() && steps.delete-app.outputs.failure_evidence_ready == 'true'

@@ -29,6 +29,7 @@ jobs:
     name: Resolve eligible Release Please candidate
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: read
     outputs:
       proceed: ${{ steps.identity.outputs.proceed }}
@@ -36,56 +37,18 @@ jobs:
       pr_number: ${{ steps.identity.outputs.pr_number }}
       candidate_source_repository: ${{ steps.identity.outputs.candidate_source_repository }}
     steps:
+      - name: Checkout trusted workflow definition
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
       - name: Capture candidate identity
         id: identity
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PR_NUMBER: ${{ github.event.client_payload.pr_number || github.event.pull_request.number }}
-        with:
-          script: |
-            const prNumber = Number(process.env.PR_NUMBER);
-            const thisRepo = `${context.repo.owner}/${context.repo.repo}`;
-            const defaultBranch = context.payload.repository.default_branch;
-
-            if (!Number.isInteger(prNumber) || prNumber <= 0) {
-              core.setFailed('Missing or invalid release candidate pull request number.');
-              return;
-            }
-
-            const { data: pr } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: prNumber,
-            });
-
-            const eligible =
-              pr.state === 'open' &&
-              pr.head.repo.full_name === thisRepo &&
-              pr.base.repo.full_name === thisRepo &&
-              pr.base.ref === defaultBranch &&
-              pr.draft === false &&
-              pr.user.login === 'github-actions[bot]' &&
-              pr.head.ref === 'release-please--branches--master' &&
-              pr.labels.some(label => label.name === 'autorelease: pending');
-
-            core.setOutput('pr_number', String(pr.number));
-            core.setOutput('candidate_source_repository', thisRepo);
-
-            if (!eligible) {
-              core.setOutput('proceed', 'false');
-              await core.summary
-                .addHeading('Superseded')
-                .addRaw('superseded')
-                .addEOL()
-                .addRaw(
-                  `Pull request #${pr.number} no longer matches the approved automatic release candidate policy.`,
-                )
-                .write();
-              return;
-            }
-
-            core.setOutput('proceed', 'true');
-            core.setOutput('head_sha', pr.head.sha);
+          GH_TOKEN: ${{ github.token }}
+        run: node src/e2e/scripts/capture-release-candidate-identity.ts
 
   current-state:
     if: needs.resolve.outputs.proceed == 'true'
@@ -93,54 +56,24 @@ jobs:
     needs: resolve
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: read
     outputs:
       proceed: ${{ steps.current-state.outputs.proceed }}
     steps:
+      - name: Checkout trusted workflow definition
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
       - name: Recheck current pull request state
         id: current-state
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
-        with:
-          script: |
-            const headSha = process.env.HEAD_SHA;
-            const prNumber = Number(process.env.PR_NUMBER);
-            const thisRepo = `${context.repo.owner}/${context.repo.repo}`;
-            const defaultBranch = context.payload.repository.default_branch;
-
-            const { data: pr } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: prNumber,
-            });
-
-            const stillEligible =
-              pr.state === "open" &&
-              pr.head.repo.full_name === thisRepo &&
-              pr.base.repo.full_name === thisRepo &&
-              pr.base.ref === defaultBranch &&
-              pr.head.sha === headSha &&
-              pr.draft === false &&
-              pr.user.login === "github-actions[bot]" &&
-              pr.head.ref === "release-please--branches--master" &&
-              pr.labels.some((label) => label.name === "autorelease: pending");
-
-            if (!stillEligible) {
-              core.setOutput("proceed", "false");
-              await core.summary
-                .addHeading("Superseded")
-                .addRaw("superseded")
-                .addEOL()
-                .addRaw(
-                  `Pull request #${prNumber} no longer matches the approved candidate identity for ${headSha}.`,
-                )
-                .write();
-              return;
-            }
-
-            core.setOutput("proceed", "true");
+          GH_TOKEN: ${{ github.token }}
+        run: node src/e2e/scripts/recheck-release-candidate-freshness.ts
 
   candidate:
     name: Resolve or build candidate image
@@ -154,6 +87,15 @@ jobs:
       digest: ${{ steps.candidate.outputs.digest }}
       image: ${{ steps.candidate.outputs.image }}
     steps:
+      - name: Checkout trusted workflow definition
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Protect trusted verification scripts
+        run: cp -R src/e2e "$RUNNER_TEMP"/trusted-e2e
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
@@ -170,119 +112,8 @@ jobs:
           CANDIDATE_IMAGE: ghcr.io/47ng/actions-clever-cloud:git-${{ needs.resolve.outputs.head_sha }}
           EXPECTED_REVISION: ${{ needs.resolve.outputs.head_sha }}
           EXPECTED_SOURCE_REPOSITORY: ${{ needs.resolve.outputs.candidate_source_repository }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile } from 'node:fs/promises'
-          import { execFile } from 'node:child_process'
-          import { promisify } from 'node:util'
-
-          const execFileAsync = promisify(execFile)
-          const image = process.env.CANDIDATE_IMAGE
-          const expectedRevision = process.env.EXPECTED_REVISION
-          const expectedSourceRepository = process.env.EXPECTED_SOURCE_REPOSITORY
-          const githubOutput = process.env.GITHUB_OUTPUT
-
-          if (!image || !expectedRevision || !expectedSourceRepository || !githubOutput) {
-            throw new Error('Missing candidate resolution environment variables')
-          }
-
-          const isMissingImage = stderr => /not found|manifest unknown|name unknown/i.test(stderr)
-          const inspectFailure = stderr =>
-            new Error(
-              `Failed to inspect ${image}: ${stderr || 'unknown registry inspection error'}`
-            )
-          const digestRegex = /^sha256:[0-9a-f]{64}$/
-
-          const inspect = async (format, reference = image) => {
-            try {
-              const { stdout, stderr } = await execFileAsync(
-                'docker',
-                ['buildx', 'imagetools', 'inspect', '--format', format, reference],
-                { encoding: 'utf8', timeout: 60_000 }
-              )
-              return { exitCode: 0, stdout, stderr }
-            } catch (error) {
-              return {
-                exitCode: error.code ?? 1,
-                stdout: error.stdout ?? '',
-                stderr: error.stderr ?? error.message
-              }
-            }
-          }
-
-          const digestResult = await inspect('{{println .Manifest.Digest}}')
-          if (digestResult.exitCode !== 0) {
-            if (isMissingImage(digestResult.stderr)) {
-              const registryDetail = digestResult.stderr.trim().replaceAll('\n', ' ')
-              console.log(`::warning::Candidate image ${image} not found, building it. Registry said: ${registryDetail}`)
-              await appendFile(githubOutput, 'missing=true\n')
-              process.exit(0)
-            }
-            throw inspectFailure(digestResult.stderr)
-          }
-
-          const digest = digestResult.stdout.trim()
-          if (!digestRegex.test(digest)) {
-            throw new Error(`Invalid candidate image digest: ${digest}`)
-          }
-
-          const pinnedImage = image.replace(/:[^:@]+$/, `@${digest}`)
-          const imageResult = await inspect('{{json .Image}}', pinnedImage)
-          if (imageResult.exitCode !== 0) {
-            throw inspectFailure(imageResult.stderr)
-          }
-
-          let inspectedImage
-          try {
-            inspectedImage = JSON.parse(imageResult.stdout)
-          } catch {
-            throw new Error(`Invalid candidate image labels for ${image}`)
-          }
-          if (typeof inspectedImage !== 'object' || inspectedImage === null) {
-            throw new Error(`Invalid candidate image labels for ${image}`)
-          }
-
-          let platformLabelSets
-          if ('config' in inspectedImage) {
-            platformLabelSets = [inspectedImage.config?.Labels ?? {}]
-          } else {
-            const platforms = Object.entries(inspectedImage).filter(
-              ([platform]) => !platform.startsWith('unknown/')
-            )
-            if (
-              platforms.length === 0 ||
-              platforms.some(([, platformImage]) => typeof platformImage?.config !== 'object')
-            ) {
-              throw new Error(`Invalid candidate image labels for ${image}`)
-            }
-            platformLabelSets = platforms.map(
-              ([, platformImage]) => platformImage?.config?.Labels ?? {}
-            )
-          }
-
-          const expectedSource = `https://github.com/${expectedSourceRepository}/tree/${expectedRevision}`
-          for (const labels of platformLabelSets) {
-            const actualRevision = labels['org.opencontainers.image.revision']
-            if (actualRevision !== expectedRevision) {
-              throw new Error(
-                `Candidate image revision mismatch: expected ${expectedRevision}, got ${actualRevision ?? '(missing)'}`
-              )
-            }
-            const actualSource = labels['org.opencontainers.image.source']
-            if (actualSource !== expectedSource) {
-              throw new Error(
-                `Candidate image source mismatch: expected ${expectedSource}, got ${actualSource ?? '(missing)'}`
-              )
-            }
-          }
-
-          await appendFile(
-            githubOutput,
-            `missing=false\n` +
-              `digest=${digest}\n` +
-              `image=${pinnedImage}\n`
-          )
-          EOF
+          TRUSTED_E2E_DIR: ${{ runner.temp }}/trusted-e2e
+        run: node "$TRUSTED_E2E_DIR"/scripts/probe-existing-image.ts
 
       - name: Checkout candidate source
         if: steps.existing.outputs.missing == 'true'
@@ -357,111 +188,8 @@ jobs:
           CANDIDATE_IMAGE: ghcr.io/47ng/actions-clever-cloud:git-${{ needs.resolve.outputs.head_sha }}
           EXPECTED_REVISION: ${{ needs.resolve.outputs.head_sha }}
           EXPECTED_SOURCE_REPOSITORY: ${{ needs.resolve.outputs.candidate_source_repository }}
-        run: |
-          node --input-type=module <<'EOF'
-          import { appendFile } from 'node:fs/promises'
-          import { execFile } from 'node:child_process'
-          import { promisify } from 'node:util'
-
-          const execFileAsync = promisify(execFile)
-          const image = process.env.CANDIDATE_IMAGE
-          const expectedRevision = process.env.EXPECTED_REVISION
-          const expectedSourceRepository = process.env.EXPECTED_SOURCE_REPOSITORY
-          const githubOutput = process.env.GITHUB_OUTPUT
-
-          if (!image || !expectedRevision || !expectedSourceRepository || !githubOutput) {
-            throw new Error('Missing candidate verification environment variables')
-          }
-
-          const inspectFailure = stderr =>
-            new Error(
-              `Failed to inspect ${image}: ${stderr || 'unknown registry inspection error'}`
-            )
-          const digestRegex = /^sha256:[0-9a-f]{64}$/
-
-          const inspect = async (format, reference = image) => {
-            try {
-              const { stdout, stderr } = await execFileAsync(
-                'docker',
-                ['buildx', 'imagetools', 'inspect', '--format', format, reference],
-                { encoding: 'utf8', timeout: 60_000 }
-              )
-              return { exitCode: 0, stdout, stderr }
-            } catch (error) {
-              return {
-                exitCode: error.code ?? 1,
-                stdout: error.stdout ?? '',
-                stderr: error.stderr ?? error.message
-              }
-            }
-          }
-
-          const digestResult = await inspect('{{println .Manifest.Digest}}')
-          if (digestResult.exitCode !== 0) {
-            throw inspectFailure(digestResult.stderr)
-          }
-
-          const digest = digestResult.stdout.trim()
-          if (!digestRegex.test(digest)) {
-            throw new Error(`Invalid candidate image digest: ${digest}`)
-          }
-
-          const pinnedImage = image.replace(/:[^:@]+$/, `@${digest}`)
-          const imageResult = await inspect('{{json .Image}}', pinnedImage)
-          if (imageResult.exitCode !== 0) {
-            throw inspectFailure(imageResult.stderr)
-          }
-
-          let inspectedImage
-          try {
-            inspectedImage = JSON.parse(imageResult.stdout)
-          } catch {
-            throw new Error(`Invalid candidate image labels for ${image}`)
-          }
-          if (typeof inspectedImage !== 'object' || inspectedImage === null) {
-            throw new Error(`Invalid candidate image labels for ${image}`)
-          }
-
-          let platformLabelSets
-          if ('config' in inspectedImage) {
-            platformLabelSets = [inspectedImage.config?.Labels ?? {}]
-          } else {
-            const platforms = Object.entries(inspectedImage).filter(
-              ([platform]) => !platform.startsWith('unknown/')
-            )
-            if (
-              platforms.length === 0 ||
-              platforms.some(([, platformImage]) => typeof platformImage?.config !== 'object')
-            ) {
-              throw new Error(`Invalid candidate image labels for ${image}`)
-            }
-            platformLabelSets = platforms.map(
-              ([, platformImage]) => platformImage?.config?.Labels ?? {}
-            )
-          }
-
-          const expectedSource = `https://github.com/${expectedSourceRepository}/tree/${expectedRevision}`
-          for (const labels of platformLabelSets) {
-            const actualRevision = labels['org.opencontainers.image.revision']
-            if (actualRevision !== expectedRevision) {
-              throw new Error(
-                `Candidate image revision mismatch: expected ${expectedRevision}, got ${actualRevision ?? '(missing)'}`
-              )
-            }
-            const actualSource = labels['org.opencontainers.image.source']
-            if (actualSource !== expectedSource) {
-              throw new Error(
-                `Candidate image source mismatch: expected ${expectedSource}, got ${actualSource ?? '(missing)'}`
-              )
-            }
-          }
-
-          await appendFile(
-            githubOutput,
-            `digest=${digest}\n` +
-              `image=${pinnedImage}\n`
-          )
-          EOF
+          TRUSTED_E2E_DIR: ${{ runner.temp }}/trusted-e2e
+        run: node "$TRUSTED_E2E_DIR"/scripts/verify-image.ts
 
   create-and-delete:
     name: Create and delete app

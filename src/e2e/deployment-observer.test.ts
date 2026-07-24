@@ -7,7 +7,7 @@ import {
   waitForNewFailedDeploymentActivity,
   waitForNewHealthyDeployment,
   waitForNewSuccessfulDeploymentActivity
-} from './deployment-observer'
+} from './deployment-observer.ts'
 
 test('accepts clever-tools OK deploy activity JSON before checking public health', async () => {
   let activityCalls = 0

@@ -3,7 +3,7 @@ import {
   createFetchHealth,
   createRunCommand,
   resolveCleverCLI
-} from './workflow-adapters'
+} from './workflow-adapters.ts'
 
 afterEach(() => {
   vi.unstubAllEnvs()

@@ -4,7 +4,7 @@ import {
   createApplicationWithRecovery,
   createCleverController,
   RecoverableCreateApplicationError
-} from './clever-client'
+} from './clever-client.ts'
 
 describe('buildE2EApplicationName', () => {
   test('uses the fixed e2e prefix plus run ID and attempt number', () => {
