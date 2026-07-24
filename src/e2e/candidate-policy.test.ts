@@ -22,7 +22,8 @@ function eligiblePullRequest(): CandidatePullRequest {
     user: { login: 'github-actions[bot]' },
     head: {
       sha: headSha,
-      ref: 'release-please--branches--master',
+      // Release Please v5 appends the component suffix to the branch name.
+      ref: 'release-please--branches--master--components--actions-clever-cloud',
       repo: { full_name: thisRepo }
     },
     base: { ref: defaultBranch, repo: { full_name: thisRepo } },
@@ -41,6 +42,14 @@ describe('isEligibleAutomaticCandidate', () => {
     ).toBe(true)
   })
 
+  test('accepts the bare pre-v5 release please branch name', () => {
+    const pr = eligiblePullRequest()
+    pr.head.ref = 'release-please--branches--master'
+    expect(isEligibleAutomaticCandidate({ pr, thisRepo, defaultBranch })).toBe(
+      true
+    )
+  })
+
   test.each<[string, (pr: CandidatePullRequest) => void]>([
     ['a closed pull request', pr => (pr.state = 'closed')],
     ['a fork head', pr => (pr.head.repo.full_name = 'evil/fork')],
@@ -49,6 +58,10 @@ describe('isEligibleAutomaticCandidate', () => {
     ['a draft', pr => (pr.draft = true)],
     ['a human author', pr => (pr.user.login = 'franky47')],
     ['another head branch', pr => (pr.head.ref = 'feature/thing')],
+    [
+      'a lookalike head branch without the separator',
+      pr => (pr.head.ref = 'release-please--branches--masterful')
+    ],
     ['a missing autorelease label', pr => (pr.labels = [])]
   ])('rejects %s', (_description, mutate) => {
     const pr = eligiblePullRequest()
@@ -137,6 +150,10 @@ describe('violatesAutomaticCandidatePolicy', () => {
     ['a draft', pr => (pr.draft = true)],
     ['a human author', pr => (pr.user.login = 'franky47')],
     ['another head branch', pr => (pr.head.ref = 'feature/thing')],
+    [
+      'a lookalike head branch without the separator',
+      pr => (pr.head.ref = 'release-please--branches--masterful')
+    ],
     [
       'a missing autorelease label',
       pr => (pr.labels = [{ name: 'autorelease: tagged' }])

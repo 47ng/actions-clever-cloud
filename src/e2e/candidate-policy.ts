@@ -20,6 +20,16 @@ type CandidateIdentityContext = CandidateRepositoryContext & {
   headSha: string
 }
 
+const releasePleaseBranch = 'release-please--branches--master'
+
+function isReleasePleaseCandidateBranch(ref: string): boolean {
+  // Release Please v5 appends `--components--<package>` to the branch name;
+  // earlier versions used the bare form.
+  return (
+    ref === releasePleaseBranch || ref.startsWith(releasePleaseBranch + '--')
+  )
+}
+
 export function isEligibleAutomaticCandidate({
   pr,
   thisRepo,
@@ -32,7 +42,7 @@ export function isEligibleAutomaticCandidate({
     pr.base.ref === defaultBranch &&
     pr.draft === false &&
     pr.user.login === 'github-actions[bot]' &&
-    pr.head.ref === 'release-please--branches--master' &&
+    isReleasePleaseCandidateBranch(pr.head.ref) &&
     pr.labels.some(label => label.name === 'autorelease: pending')
   )
 }
@@ -70,7 +80,7 @@ export function violatesAutomaticCandidatePolicy(
   return (
     pr.draft ||
     pr.user.login !== 'github-actions[bot]' ||
-    pr.head.ref !== 'release-please--branches--master' ||
+    !isReleasePleaseCandidateBranch(pr.head.ref) ||
     !pr.labels.some(label => label.name === 'autorelease: pending')
   )
 }

@@ -134,9 +134,15 @@ jobs:
           script: |
             const prs = JSON.parse(process.env.PRS || '[]');
 
+            // Release Please v5 appends `--components--<package>` to the
+            // branch name; earlier versions used the bare form. Keep in sync
+            // with isReleasePleaseCandidateBranch in src/e2e/candidate-policy.ts.
+            const branch = 'release-please--branches--master';
+
             for (const pr of prs) {
               if (
-                pr.headBranchName !== 'release-please--branches--master' ||
+                (pr.headBranchName !== branch &&
+                  !pr.headBranchName.startsWith(branch + '--')) ||
                 !pr.labels?.includes('autorelease: pending')
               ) {
                 continue;
