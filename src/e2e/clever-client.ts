@@ -195,17 +195,16 @@ export function createCleverController({
     appId: string
     deploymentId: string
     timeoutMs?: number
-  }): Promise<DeploymentActivity> {
+  }): Promise<DeploymentActivity | null> {
     const deadline = Date.now() + timeoutMs
     let lastObservedState = '(missing)'
 
     for (;;) {
-      const deployment = (
-        await listActivity(
-          appId,
-          Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
-        )
-      ).find(activity => activity.uuid === deploymentId)
+      const activity = await listActivity(
+        appId,
+        Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
+      )
+      const deployment = activity.find(entry => entry.uuid === deploymentId)
 
       if (deployment?.state) {
         lastObservedState = deployment.state
@@ -213,6 +212,12 @@ export function createCleverController({
 
       if (isSettled(deployment)) {
         return deployment
+      }
+
+      // Clever removes the DEPLOY row of a cancelled deployment and replaces
+      // it with a CANCEL activity entry under a new uuid.
+      if (!deployment && hasSettledCancelActivity(activity)) {
+        return null
       }
 
       if (Date.now() >= deadline) {
@@ -331,11 +336,13 @@ export function createCleverController({
       timeoutMs: Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
     })
 
-    return waitForSettledDeploymentState({
+    const settled = await waitForSettledDeploymentState({
       appId,
       deploymentId,
       timeoutMs: remainingBeforeDeadline(deadline)
     })
+
+    return settled ?? { ...deployment, state: 'CANCELLED' }
   }
 
   return {
@@ -522,6 +529,10 @@ function isSettled(
   deployment: DeploymentActivity | undefined
 ): deployment is DeploymentActivity & { state: string } {
   return Boolean(deployment?.state && !IN_PROGRESS_STATES.has(deployment.state))
+}
+
+function hasSettledCancelActivity(activity: DeploymentActivity[]): boolean {
+  return activity.some(entry => entry.action === 'CANCEL' && isSettled(entry))
 }
 
 function remainingBeforeDeadline(deadlineAt: number): number {
