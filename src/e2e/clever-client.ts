@@ -114,8 +114,15 @@ export async function createApplicationWithRecovery(
 
     try {
       return await controller.findApplicationByName(options.name)
-    } catch {
-      throw error
+    } catch (recoveryError) {
+      const recoveryMessage =
+        recoveryError instanceof Error
+          ? recoveryError.message
+          : String(recoveryError)
+      throw new Error(
+        `${error.message}; recovery by name also failed: ${recoveryMessage}`,
+        { cause: error }
+      )
     }
   }
 }

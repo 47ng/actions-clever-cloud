@@ -36,12 +36,10 @@ type ExecFileFailure = Error & {
 
 type CreateRunCommandOptions = {
   execFileAsync?: ExecFileAsync
-  preserveProcessExitDetails?: boolean
 }
 
 export function createRunCommand({
-  execFileAsync = promisify(execFile),
-  preserveProcessExitDetails = false
+  execFileAsync = promisify(execFile)
 }: CreateRunCommandOptions = {}): RunCommand {
   return async (cli, args, { timeoutMs }) => {
     try {
@@ -54,15 +52,16 @@ export function createRunCommand({
       return { stdout, stderr }
     } catch (error) {
       const failure = error as ExecFileFailure
-      const commandError = new Error(failure.stderr?.trim() || failure.message)
-      if (preserveProcessExitDetails) {
-        Object.assign(commandError, {
+      throw Object.assign(
+        new Error(failure.stderr?.trim() || failure.message, {
+          cause: failure
+        }),
+        {
           code: failure.code,
           signal: failure.signal,
           killed: failure.killed
-        })
-      }
-      throw commandError
+        }
+      )
     }
   }
 }

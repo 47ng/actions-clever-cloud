@@ -198,7 +198,7 @@ jobs:
               const { stdout, stderr } = await execFileAsync(
                 'docker',
                 ['buildx', 'imagetools', 'inspect', '--format', format, reference],
-                { encoding: 'utf8' }
+                { encoding: 'utf8', timeout: 60_000 }
               )
               return { exitCode: 0, stdout, stderr }
             } catch (error) {
@@ -213,6 +213,8 @@ jobs:
           const digestResult = await inspect('{{println .Manifest.Digest}}')
           if (digestResult.exitCode !== 0) {
             if (isMissingImage(digestResult.stderr)) {
+              const registryDetail = digestResult.stderr.trim().replaceAll('\n', ' ')
+              console.log(`::warning::Candidate image ${image} not found, building it. Registry said: ${registryDetail}`)
               await appendFile(githubOutput, 'missing=true\n')
               process.exit(0)
             }
@@ -283,18 +285,18 @@ jobs:
           EOF
 
       - name: Checkout candidate source
-        if: steps.existing.outputs.image == ''
+        if: steps.existing.outputs.missing == 'true'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ needs.resolve.outputs.head_sha }}
           persist-credentials: false
 
       - name: Set up QEMU
-        if: steps.existing.outputs.image == ''
+        if: steps.existing.outputs.missing == 'true'
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
 
       - name: Get package version
-        if: steps.existing.outputs.image == ''
+        if: steps.existing.outputs.missing == 'true'
         id: package
         run: |
           if ! VERSION=$(jq -r '
@@ -311,7 +313,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Collect Docker labels & tags
-        if: steps.existing.outputs.image == ''
+        if: steps.existing.outputs.missing == 'true'
         id: docker-labels-tags
         env:
           HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
@@ -338,7 +340,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Build and push missing SHA image
-        if: steps.existing.outputs.image == ''
+        if: steps.existing.outputs.missing == 'true'
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: .
@@ -382,7 +384,7 @@ jobs:
               const { stdout, stderr } = await execFileAsync(
                 'docker',
                 ['buildx', 'imagetools', 'inspect', '--format', format, reference],
-                { encoding: 'utf8' }
+                { encoding: 'utf8', timeout: 60_000 }
               )
               return { exitCode: 0, stdout, stderr }
             } catch (error) {

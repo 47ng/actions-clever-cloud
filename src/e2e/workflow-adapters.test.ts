@@ -45,15 +45,16 @@ describe('createRunCommand', () => {
     ])
   })
 
-  test('rethrows failures with trimmed stderr and no process exit details', async () => {
+  test('rethrows failures with trimmed stderr, exit details and the cause', async () => {
+    const spawnFailure = Object.assign(new Error('spawn failed'), {
+      stderr: '  boom  \n',
+      code: 'ETIMEDOUT',
+      signal: 'SIGTERM',
+      killed: true
+    })
     const runCommand = createRunCommand({
       execFileAsync: async () => {
-        throw Object.assign(new Error('spawn failed'), {
-          stderr: '  boom  \n',
-          code: 'ETIMEDOUT',
-          signal: 'SIGTERM',
-          killed: true
-        })
+        throw spawnFailure
       }
     })
 
@@ -63,9 +64,32 @@ describe('createRunCommand', () => {
 
     expect(error).toBeInstanceOf(Error)
     expect(error.message).toBe('boom')
-    expect('code' in error).toBe(false)
-    expect('signal' in error).toBe(false)
-    expect('killed' in error).toBe(false)
+    expect(error.code).toBe('ETIMEDOUT')
+    expect(error.signal).toBe('SIGTERM')
+    expect(error.killed).toBe(true)
+    expect(error.cause).toBe(spawnFailure)
+  })
+
+  test('preserves a plain exit failure shape for recoverability checks', async () => {
+    const runCommand = createRunCommand({
+      execFileAsync: async () => {
+        throw Object.assign(new Error('Command failed'), {
+          stderr: 'App name already used',
+          code: 1,
+          signal: null,
+          killed: false
+        })
+      }
+    })
+
+    const error = await runCommand('clever', [], { timeoutMs: 1 }).catch(
+      thrown => thrown
+    )
+
+    expect(error.message).toBe('App name already used')
+    expect(error.code).toBe(1)
+    expect(error.signal).toBeNull()
+    expect(error.killed).toBe(false)
   })
 
   test('falls back to the failure message when stderr is empty', async () => {
@@ -78,30 +102,6 @@ describe('createRunCommand', () => {
     await expect(runCommand('clever', [], { timeoutMs: 1 })).rejects.toThrow(
       'spawn failed'
     )
-  })
-
-  test('copies code, signal and killed when preserving process exit details', async () => {
-    const runCommand = createRunCommand({
-      execFileAsync: async () => {
-        throw Object.assign(new Error('spawn failed'), {
-          stderr: 'boom',
-          code: 'ETIMEDOUT',
-          signal: 'SIGTERM',
-          killed: true
-        })
-      },
-      preserveProcessExitDetails: true
-    })
-
-    const error = await runCommand('clever', [], { timeoutMs: 1 }).catch(
-      thrown => thrown
-    )
-
-    expect(error).toBeInstanceOf(Error)
-    expect(error.message).toBe('boom')
-    expect(error.code).toBe('ETIMEDOUT')
-    expect(error.signal).toBe('SIGTERM')
-    expect(error.killed).toBe(true)
   })
 })
 

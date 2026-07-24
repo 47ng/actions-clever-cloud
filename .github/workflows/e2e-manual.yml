@@ -125,7 +125,7 @@ jobs:
               const { stdout, stderr } = await execFileAsync(
                 'docker',
                 ['buildx', 'imagetools', 'inspect', '--format', format, reference],
-                { encoding: 'utf8' }
+                { encoding: 'utf8', timeout: 60_000 }
               )
               return { exitCode: 0, stdout, stderr }
             } catch (error) {

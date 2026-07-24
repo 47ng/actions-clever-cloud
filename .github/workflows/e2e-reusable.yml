@@ -323,7 +323,7 @@ jobs:
 
           const controller = createCleverController({
             cleverCLI,
-            runCommand: createRunCommand({ preserveProcessExitDetails: true })
+            runCommand: createRunCommand()
           })
 
           const application = await createApplicationWithRecovery(controller, {
@@ -338,10 +338,21 @@ jobs:
               `app_id=${application.appId}\n` + `app_name=${application.name}\n`,
             )
           } catch (error) {
-            await controller.deleteApplication({
-              appId: application.appId,
-              name: application.name,
-            })
+            try {
+              await controller.deleteApplication({
+                appId: application.appId,
+                name: application.name,
+              })
+            } catch (rollbackError) {
+              const rollbackMessage =
+                rollbackError instanceof Error
+                  ? rollbackError.message
+                  : String(rollbackError)
+              throw new Error(
+                `${error.message}; rollback deletion of ${application.appId} (${application.name}) also failed: ${rollbackMessage}`,
+                { cause: error }
+              )
+            }
             throw error
           }
           EOF

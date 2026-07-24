@@ -126,6 +126,32 @@ describe('createCleverController', () => {
     expect(findApplicationByName).not.toHaveBeenCalled()
   })
 
+  test('treats a preserved plain exit failure as non-recoverable', async () => {
+    const createError = Object.assign(new Error('App name already used'), {
+      code: 1,
+      signal: null,
+      killed: false
+    })
+    const findApplicationByName = vi.fn()
+
+    await expect(
+      createApplicationWithRecovery(
+        {
+          createApplication: async () => {
+            throw createError
+          },
+          findApplicationByName
+        },
+        {
+          name: 'actions-clever-cloud-e2e-123-4',
+          region: 'par'
+        }
+      )
+    ).rejects.toBe(createError)
+
+    expect(findApplicationByName).not.toHaveBeenCalled()
+  })
+
   test('recovers the app by name after an ambiguous create capture failure', async () => {
     const recoveredApplication = {
       appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
@@ -199,29 +225,33 @@ describe('createCleverController', () => {
     })
   })
 
-  test('rethrows the original ambiguous create error when name recovery finds no app', async () => {
+  test('chains both errors when name recovery also fails', async () => {
     const createError = new RecoverableCreateApplicationError(
       'Clever create did not return a valid app ID'
     )
 
-    await expect(
-      createApplicationWithRecovery(
-        {
-          createApplication: async () => {
-            throw createError
-          },
-          findApplicationByName: async () => {
-            throw new Error(
-              'Timed out while waiting for application actions-clever-cloud-e2e-123-4'
-            )
-          }
+    const outcome = createApplicationWithRecovery(
+      {
+        createApplication: async () => {
+          throw createError
         },
-        {
-          name: 'actions-clever-cloud-e2e-123-4',
-          region: 'par'
+        findApplicationByName: async () => {
+          throw new Error(
+            'Timed out while waiting for application actions-clever-cloud-e2e-123-4'
+          )
         }
-      )
-    ).rejects.toBe(createError)
+      },
+      {
+        name: 'actions-clever-cloud-e2e-123-4',
+        region: 'par'
+      }
+    )
+
+    await expect(outcome).rejects.toThrow(
+      'Clever create did not return a valid app ID; recovery by name also failed: ' +
+        'Timed out while waiting for application actions-clever-cloud-e2e-123-4'
+    )
+    await expect(outcome).rejects.toMatchObject({ cause: createError })
   })
 
   test('finds an app by its exact run-based name', async () => {
