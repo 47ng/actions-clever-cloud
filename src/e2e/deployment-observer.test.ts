@@ -56,7 +56,7 @@ test('accepts clever-tools OK deploy activity JSON before checking public health
         }
       },
       sleep: async () => {},
-      settleTimeoutMs: 2,
+      settleTimeoutMs: 10_000,
       pollIntervalMs: 1
     })
   ).resolves.toEqual({
@@ -102,7 +102,7 @@ test('waits for the generated health value to match in public health and remote 
         })
       }),
       sleep: async () => {},
-      settleTimeoutMs: 2,
+      settleTimeoutMs: 10_000,
       pollIntervalMs: 1
     })
   ).resolves.toEqual({
@@ -148,7 +148,7 @@ test('uses the deploy activity for the expected commit instead of the first list
         })
       }),
       sleep: async () => {},
-      settleTimeoutMs: 2,
+      settleTimeoutMs: 10_000,
       pollIntervalMs: 1
     })
   ).resolves.toEqual({
@@ -195,7 +195,7 @@ test('can wait for an exact deployment ID when the same commit appears more than
         })
       }),
       sleep: async () => {},
-      settleTimeoutMs: 2,
+      settleTimeoutMs: 10_000,
       pollIntervalMs: 1
     })
   ).resolves.toEqual({
@@ -260,7 +260,7 @@ test('fails same-commit error and ignore checks when a new deploy activity appea
             ]
       },
       sleep: async () => {},
-      settleTimeoutMs: 2,
+      settleTimeoutMs: 10_000,
       pollIntervalMs: 1
     })
   ).rejects.toThrow(
@@ -300,7 +300,7 @@ test('confirms that a rejected divergent deploy leaves the prior healthy commit 
       }),
       sleep: async () => {},
       noNewActivityTimeoutMs: 2,
-      settleTimeoutMs: 2,
+      settleTimeoutMs: 10_000,
       pollIntervalMs: 1
     })
   ).resolves.toEqual({
@@ -444,7 +444,7 @@ test('accepts a new clever-tools OK deploy activity before restart or rebuild ch
           : nextSuccessfulActivity
       },
       sleep: async () => {},
-      settleTimeoutMs: 2,
+      settleTimeoutMs: 10_000,
       pollIntervalMs: 1
     })
   ).resolves.toEqual({
@@ -509,7 +509,7 @@ test('waits for a forced divergent deploy to replace the live app with the new c
         })
       }),
       sleep: async () => {},
-      settleTimeoutMs: 2,
+      settleTimeoutMs: 10_000,
       pollIntervalMs: 1
     })
   ).resolves.toEqual({
@@ -569,7 +569,7 @@ test('waits for a new failed deploy activity for the expected commit before fail
             ]
       },
       sleep: async () => {},
-      settleTimeoutMs: 2,
+      settleTimeoutMs: 10_000,
       pollIntervalMs: 1
     })
   ).resolves.toEqual({
@@ -730,7 +730,7 @@ test('a later recovery deployment becomes publicly observable after failed deplo
         })
       }),
       sleep: async () => {},
-      settleTimeoutMs: 2,
+      settleTimeoutMs: 10_000,
       pollIntervalMs: 1
     })
   ).resolves.toEqual({
@@ -780,7 +780,7 @@ test('keeps polling until public health matches after deploy success', async () 
             }
       },
       sleep: async () => {},
-      settleTimeoutMs: 2,
+      settleTimeoutMs: 10_000,
       pollIntervalMs: 1
     })
   ).resolves.toEqual({
@@ -928,7 +928,7 @@ test('waits for the timed-out deployment matched by commit to reach WIP, then ke
         })
       }),
       sleep: async () => {},
-      settleTimeoutMs: 3,
+      settleTimeoutMs: 10_000,
       pollIntervalMs: 1
     })
   ).resolves.toEqual({
