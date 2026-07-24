@@ -4,7 +4,7 @@ import { finished } from 'node:stream/promises'
 import { StringDecoder } from 'node:string_decoder'
 import type { Host } from './github.ts'
 
-export const TIMESTAMP_PREFIX_REGEX =
+export const TIMESTAMP_PREFIX_REGEX: RegExp =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z):? /
 
 export type DeployLog = {
