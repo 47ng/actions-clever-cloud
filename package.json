@@ -34,7 +34,6 @@
   "packageManager": "pnpm@11.10.0",
   "dependencies": {
     "@actions/core": "^3.0.1",
-    "@actions/exec": "^3.0.0",
     "clever-tools": "^4.11.0"
   },
   "devDependencies": {

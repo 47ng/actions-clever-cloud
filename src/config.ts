@@ -8,18 +8,16 @@ type ExtraEnv = {
   [key: string]: string
 }
 
-export type Arguments = {
-  token: string
-  secret: string
+export type Config = {
   alias?: string
   appID?: string
-  force?: boolean
+  force: boolean
   timeout?: number
   cleverCLI: string
-  extraEnv?: ExtraEnv
+  extraEnv: ExtraEnv
   deployPath?: string
   logFile?: string
-  quiet?: boolean
+  quiet: boolean
   sameCommitPolicy?: string
 }
 
@@ -93,9 +91,7 @@ function listExtraEnv(): ExtraEnv {
         }
         const key = match[1]!
         if (key === '__proto__') {
-          core.warning(
-            `Ignoring setEnv line with key: ${redactValue(line)}`
-          )
+          core.warning(`Ignoring setEnv line with key: ${redactValue(line)}`)
           return env
         }
         const value = parseEnvValue(match[2]!)
@@ -120,18 +116,18 @@ function listExtraEnv(): ExtraEnv {
   return extraEnv
 }
 
-export function processArguments(): Arguments {
-  const token = process.env.CLEVER_TOKEN
-  const secret = process.env.CLEVER_SECRET
-  if (!token) {
+export function parseConfig(): Config {
+  // The values are only read by the Clever CLI (its virtual `$env` profile),
+  // but fail fast with a helpful error when they are missing.
+  if (!process.env.CLEVER_TOKEN) {
     throwMissingEnvVar('CLEVER_TOKEN')
   }
-  if (!secret) {
+  if (!process.env.CLEVER_SECRET) {
     throwMissingEnvVar('CLEVER_SECRET')
   }
 
-  const appID = core.getInput('appID')
-  const alias = core.getInput('alias')
+  const appID = core.getInput('appID') || undefined
+  const alias = core.getInput('alias') || undefined
   const force = core.getBooleanInput('force', { required: false })
   const timeoutInput = core.getInput('timeout')
   let timeout: number | undefined = undefined
@@ -155,8 +151,6 @@ export function processArguments(): Arguments {
   const sameCommitPolicy = core.getInput('sameCommitPolicy') || undefined
 
   return {
-    token,
-    secret,
     alias,
     force,
     appID,

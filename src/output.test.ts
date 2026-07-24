@@ -3,28 +3,38 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Writable } from 'node:stream'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { getOutputStream } from './action.ts'
+import {
+  createDeployLog,
+  TIMESTAMP_PREFIX_REGEX,
+  type DeployLog
+} from './output.ts'
 
-// getOutputStream tees its non-quiet output into the shared process.stdout.
+// createDeployLog tees its non-quiet output into the shared process.stdout.
 // This suite pipes into it repeatedly, which trips Node's 10-listener leak
-// warning without lifting the cap (see the same note in action.test.ts).
+// warning without lifting the cap (see the same note in clever.test.ts).
 process.stdout.setMaxListeners(0)
 
 // --
 
-// A timestamp prefix matching the shape the current implementation assumes:
-// 'xxxx-xx-xxTxx:xx:xx+xx:xx '.length === 26. Asserted below so this fixture
-// can't silently drift out of sync with the code it's meant to exercise.
+// A timestamp prefix in the shape the Clever CLI emits, asserted against the
+// pipeline's own regex so this fixture can't drift out of sync with the code
+// it exercises.
 const TS = '2026-07-20T12:00:00+00:00 '
 
-test('fixture sanity: TS is exactly 26 characters (the hardcoded timestamp-prefix length)', () => {
-  expect(TS.length).toBe(26)
+test('fixture sanity: TS matches the timestamp prefix the pipeline strips', () => {
+  expect(TS).toMatch(TIMESTAMP_PREFIX_REGEX)
 })
 
 let stdoutSpy: ReturnType<typeof vi.spyOn>
+const warning = vi.fn()
+
+function deployLog(quiet: boolean, logFile?: string): Promise<DeployLog> {
+  return createDeployLog({ quiet, logFile }, { warning })
+}
 
 beforeEach(() => {
   stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+  warning.mockClear()
 })
 
 afterEach(() => {
@@ -38,14 +48,14 @@ function capturedStdout(): string {
 function tempLogFilePath(name: string): string {
   return path.join(
     tmpdir(),
-    `output-stream-test-${name}-${Date.now()}-${Math.random().toString(36).slice(2)}.log`
+    `output-test-${name}-${Date.now()}-${Math.random().toString(36).slice(2)}.log`
   )
 }
 
 // --
 
 test('non-quiet: a plain line passes through to stdout', async () => {
-  const { stream, done } = await getOutputStream(false)
+  const { stream, done } = await deployLog(false)
   stream.write(TS + 'hello\n')
   stream.end()
   await done()
@@ -55,7 +65,7 @@ test('non-quiet: a plain line passes through to stdout', async () => {
 test.each(['notice', 'error', 'warning'])(
   'non-quiet: ::%s lines are re-emitted without their timestamp',
   async kind => {
-    const { stream, done } = await getOutputStream(false)
+    const { stream, done } = await deployLog(false)
     stream.write(`${TS}::${kind} ::Deployed!\n`)
     stream.end()
     await done()
@@ -70,7 +80,7 @@ test.each(['notice', 'error', 'warning'])(
 test.each(['notice', 'error', 'warning'])(
   'non-quiet: no-property ::%s commands are re-emitted without their timestamp',
   async kind => {
-    const { stream, done } = await getOutputStream(false)
+    const { stream, done } = await deployLog(false)
     stream.write(`${TS}::${kind}::Deployed!\n`)
     stream.end()
     await done()
@@ -81,7 +91,7 @@ test.each(['notice', 'error', 'warning'])(
 )
 
 test('non-quiet: command names are matched case-insensitively', async () => {
-  const { stream, done } = await getOutputStream(false)
+  const { stream, done } = await deployLog(false)
   stream.write(`${TS}::ERROR::Deployed!\n`)
   stream.end()
   await done()
@@ -90,7 +100,7 @@ test('non-quiet: command names are matched case-insensitively', async () => {
 })
 
 test('non-quiet: leading command whitespace is tolerated', async () => {
-  const { stream, done } = await getOutputStream(false)
+  const { stream, done } = await deployLog(false)
   stream.write(`${TS} ::error::Deployed!\n`)
   stream.end()
   await done()
@@ -99,7 +109,7 @@ test('non-quiet: leading command whitespace is tolerated', async () => {
 })
 
 test('non-quiet: a property command without a closing delimiter is not re-emitted', async () => {
-  const { stream, done } = await getOutputStream(false)
+  const { stream, done } = await deployLog(false)
   stream.write(`${TS}::error title=Deploy failed\n`)
   stream.end()
   await done()
@@ -108,7 +118,7 @@ test('non-quiet: a property command without a closing delimiter is not re-emitte
 })
 
 test('non-quiet: non-annotation lines are not re-emitted', async () => {
-  const { stream, done } = await getOutputStream(false)
+  const { stream, done } = await deployLog(false)
   stream.write(TS + 'plain\n')
   stream.end()
   await done()
@@ -117,7 +127,7 @@ test('non-quiet: non-annotation lines are not re-emitted', async () => {
 })
 
 test('quiet: true suppresses stdout entirely', async () => {
-  const { stream, done } = await getOutputStream(true)
+  const { stream, done } = await deployLog(true)
   stream.write(TS + 'hello\n')
   stream.end()
   await done()
@@ -126,7 +136,7 @@ test('quiet: true suppresses stdout entirely', async () => {
 
 test('logFile + non-quiet: the file gets the raw stream AND stdout gets the processed stream', async () => {
   const logFile = tempLogFilePath('raw')
-  const { stream, done } = await getOutputStream(false, logFile)
+  const { stream, done } = await deployLog(false, logFile)
   stream.write(TS + '::notice ::Deployed!\n')
   stream.end()
   await done()
@@ -143,7 +153,7 @@ test('logFile + non-quiet: the file gets the raw stream AND stdout gets the proc
 
 test('quiet + logFile: file gets content, stdout gets nothing', async () => {
   const logFile = tempLogFilePath('quiet')
-  const { stream, done } = await getOutputStream(true, logFile)
+  const { stream, done } = await deployLog(true, logFile)
   stream.write(TS + 'hello\n')
   stream.end()
   await done()
@@ -151,6 +161,25 @@ test('quiet + logFile: file gets content, stdout gets nothing', async () => {
   expect(content).toBe(TS + 'hello\n')
   expect(stdoutSpy).not.toHaveBeenCalled()
   await fs.unlink(logFile)
+})
+
+test('log file open failure degrades with a warning and keeps draining', async () => {
+  const openSpy = vi
+    .spyOn(fs, 'open')
+    .mockRejectedValue(new Error('ENOENT: missing directory'))
+  try {
+    const { stream, done } = await deployLog(true, '/missing/deploy.log')
+    for (let index = 0; index < 256; index += 1) {
+      stream.write(Buffer.alloc(1024))
+    }
+    stream.end()
+    await expect(done()).resolves.toBeUndefined()
+    expect(warning).toHaveBeenCalledWith(
+      'deploy log output degraded: ENOENT: missing directory'
+    )
+  } finally {
+    openSpy.mockRestore()
+  }
 })
 
 test('log sink failure is handled early and later output keeps draining', async () => {
@@ -163,7 +192,7 @@ test('log sink failure is handled early and later output keeps draining', async 
     createWriteStream: () => sink
   } as never)
   try {
-    const { stream, done } = await getOutputStream(true, 'deploy.log')
+    const { stream, done } = await deployLog(true, 'deploy.log')
     stream.write('first output')
     await new Promise(resolve => setImmediate(resolve))
 
@@ -175,13 +204,16 @@ test('log sink failure is handled early and later output keeps draining', async 
 
     stream.end()
     await expect(done()).resolves.toBeUndefined()
+    expect(warning).toHaveBeenCalledWith(
+      'deploy log output degraded: disk full'
+    )
   } finally {
     openSpy.mockRestore()
   }
 })
 
 test('non-quiet: adopts \\r\\n as the line separator once seen', async () => {
-  const { stream, done } = await getOutputStream(false)
+  const { stream, done } = await deployLog(false)
   stream.write(TS + 'a\r\n')
   stream.write(TS + '::notice ::x\r\n')
   stream.end()
@@ -191,7 +223,7 @@ test('non-quiet: adopts \\r\\n as the line separator once seen', async () => {
 })
 
 test('non-quiet: annotation split across a chunk boundary IS detected', async () => {
-  const { stream, done } = await getOutputStream(false)
+  const { stream, done } = await deployLog(false)
   stream.write(TS + '::err')
   stream.write('or ::boom\n')
   stream.end()
@@ -201,20 +233,20 @@ test('non-quiet: annotation split across a chunk boundary IS detected', async ()
 })
 
 test('non-quiet: a multi-byte character split across chunks is decoded intact', async () => {
-  const { stream, done } = await getOutputStream(false)
-  const line = Buffer.from(TS + '::error ::d\u00e9ploy\n')
-  const splitAt = line.indexOf(Buffer.from('\u00e9')) + 1
+  const { stream, done } = await deployLog(false)
+  const line = Buffer.from(TS + '::error ::déploy\n')
+  const splitAt = line.indexOf(Buffer.from('é')) + 1
   stream.write(line.subarray(0, splitAt))
   stream.write(line.subarray(splitAt))
   stream.end()
   await done()
   const out = capturedStdout()
-  expect(out.split('::error ::d\u00e9ploy').length - 1).toBe(2)
-  expect(out).not.toContain('\ufffd')
+  expect(out.split('::error ::déploy').length - 1).toBe(2)
+  expect(out).not.toContain('�')
 })
 
 test('non-quiet: a line without a timestamp prefix is not duplicated', async () => {
-  const { stream, done } = await getOutputStream(false)
+  const { stream, done } = await deployLog(false)
   stream.write('::error ::no-timestamp\n')
   stream.end()
   await done()
@@ -226,7 +258,7 @@ test('non-quiet: a line without a timestamp prefix is not duplicated', async () 
 })
 
 test('non-quiet: a no-property command without a timestamp is not duplicated', async () => {
-  const { stream, done } = await getOutputStream(false)
+  const { stream, done } = await deployLog(false)
   stream.write('::error::no-timestamp\n')
   stream.end()
   await done()
@@ -235,7 +267,7 @@ test('non-quiet: a no-property command without a timestamp is not duplicated', a
 })
 
 test('non-quiet: a Clever CLI timestamp is stripped before annotation detection', async () => {
-  const { stream, done } = await getOutputStream(false)
+  const { stream, done } = await deployLog(false)
   stream.write('2026-07-20T12:00:00.000Z: ::error ::zulu\n')
   stream.end()
   await done()
@@ -244,15 +276,15 @@ test('non-quiet: a Clever CLI timestamp is stripped before annotation detection'
 })
 
 test('non-quiet: a chunk ending exactly on \\n produces no phantom empty line', async () => {
-  const { stream, done } = await getOutputStream(false)
+  const { stream, done } = await deployLog(false)
   stream.write(TS + 'a\n')
   stream.end()
   await done()
   expect(capturedStdout()).toBe(TS + 'a\n')
 })
 
-test('non-quiet: an unterminated final line is still emitted after end() — reflects production, where run() always ends the stream', async () => {
-  const { stream, done } = await getOutputStream(false)
+test('non-quiet: an unterminated final line is still emitted after end() — reflects production, where main always ends the stream', async () => {
+  const { stream, done } = await deployLog(false)
   stream.write(TS + 'no-trailing-newline')
   stream.end()
   await done()
