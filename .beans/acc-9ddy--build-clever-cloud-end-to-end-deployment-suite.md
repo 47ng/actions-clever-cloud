@@ -1,7 +1,7 @@
 ---
 # acc-9ddy
 title: Build Clever Cloud end-to-end deployment suite
-status: todo
+status: completed
 type: epic
 priority: high
 created_at: 2026-07-23T11:00:31Z
