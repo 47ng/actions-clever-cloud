@@ -187,15 +187,13 @@ export function createCleverController({
     )
   }
 
-  async function waitForDeploymentState({
+  async function waitForSettledDeploymentState({
     appId,
     deploymentId,
-    expectedState,
     timeoutMs = settleTimeoutMs
   }: {
     appId: string
     deploymentId: string
-    expectedState: string
     timeoutMs?: number
   }): Promise<DeploymentActivity> {
     const deadline = Date.now() + timeoutMs
@@ -213,14 +211,14 @@ export function createCleverController({
         lastObservedState = deployment.state
       }
 
-      if (Date.now() >= deadline) {
-        throw new Error(
-          `Timed out while waiting for deployment ${deploymentId} on ${appId} to reach ${expectedState}. Last state: ${lastObservedState}`
-        )
+      if (isSettled(deployment)) {
+        return deployment
       }
 
-      if (deployment?.state === expectedState) {
-        return deployment
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Timed out while waiting for deployment ${deploymentId} on ${appId} to settle. Last state: ${lastObservedState}`
+        )
       }
 
       await sleepUntilNextPoll({
@@ -234,14 +232,12 @@ export function createCleverController({
   async function waitForLatestCancellableDeployment({
     appId,
     deploymentId,
-    timeoutMs = settleTimeoutMs,
-    returnSettled = false
+    timeoutMs = settleTimeoutMs
   }: {
     appId: string
     deploymentId: string
     timeoutMs?: number
-    returnSettled?: boolean
-  }): Promise<(DeploymentActivity & { uuid: string }) | null> {
+  }): Promise<DeploymentActivity & { uuid: string }> {
     const deadline = Date.now() + timeoutMs
     let lastObservedState = '(missing)'
 
@@ -264,18 +260,8 @@ export function createCleverController({
         lastObservedState = matchingDeployment.state
       }
 
-      if (
-        matchingDeployment?.uuid === deploymentId &&
-        matchingDeployment.state &&
-        !IN_PROGRESS_STATES.has(matchingDeployment.state)
-      ) {
-        if (returnSettled) {
-          return null
-        }
-
-        throw new Error(
-          `Deployment ${deploymentId} on ${appId} reached ${matchingDeployment.state} before it could be cancelled`
-        )
+      if (matchingDeployment?.uuid && isSettled(matchingDeployment)) {
+        return matchingDeployment as DeploymentActivity & { uuid: string }
       }
 
       if (Date.now() >= deadline) {
@@ -331,26 +317,23 @@ export function createCleverController({
   }): Promise<DeploymentActivity> {
     const deadline = Date.now() + timeoutMs
 
-    const cancellableDeployment = await waitForLatestCancellableDeployment({
+    const deployment = await waitForLatestCancellableDeployment({
       appId,
       deploymentId,
       timeoutMs: remainingBeforeDeadline(deadline)
     })
 
-    if (!cancellableDeployment) {
-      throw new Error(
-        `Deployment ${deploymentId} on ${appId} settled before it could be cancelled`
-      )
+    if (isSettled(deployment)) {
+      return deployment
     }
 
     await runCommand(cleverCLI, ['cancel-deploy', '--app', appId], {
       timeoutMs: Math.min(COMMAND_TIMEOUT_MS, Math.max(1, remainingBeforeDeadline(deadline)))
     })
 
-    return waitForDeploymentState({
+    return waitForSettledDeploymentState({
       appId,
       deploymentId,
-      expectedState: 'CANCELLED',
       timeoutMs: remainingBeforeDeadline(deadline)
     })
   }
@@ -501,11 +484,10 @@ export function createCleverController({
           const cancellableDeployment = await waitForLatestCancellableDeployment({
             appId,
             deploymentId: latestActiveDeployment.uuid,
-            timeoutMs: remainingBeforeDeadline(deadline),
-            returnSettled: true
+            timeoutMs: remainingBeforeDeadline(deadline)
           })
 
-          if (!cancellableDeployment) {
+          if (isSettled(cancellableDeployment)) {
             continue
           }
 
@@ -516,10 +498,9 @@ export function createCleverController({
             )
           })
 
-          await waitForDeploymentState({
+          await waitForSettledDeploymentState({
             appId,
             deploymentId: cancellableDeployment.uuid,
-            expectedState: 'CANCELLED',
             timeoutMs: remainingBeforeDeadline(deadline)
           })
         }
@@ -535,6 +516,12 @@ export function createCleverController({
       }
     }
   }
+}
+
+function isSettled(
+  deployment: DeploymentActivity | undefined
+): deployment is DeploymentActivity & { state: string } {
+  return Boolean(deployment?.state && !IN_PROGRESS_STATES.has(deployment.state))
 }
 
 function remainingBeforeDeadline(deadlineAt: number): number {
