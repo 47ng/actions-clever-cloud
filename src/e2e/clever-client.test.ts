@@ -655,7 +655,98 @@ describe('createCleverController', () => {
     }
   })
 
-  test('fails with a useful deadline error when a timed-out deployment never reaches CANCELLED', async () => {
+  test('resolves with the settled state when the deployment completes despite the cancel request', async () => {
+    let activityCalls = 0
+    let now = 0
+    const dateNowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now)
+
+    try {
+      const controller = createCleverController({
+        cleverCLI: '/tmp/node_modules/.bin/clever',
+        runCommand: async (_cli, args) => {
+          if (args[0] === 'cancel-deploy') {
+            return { stdout: '', stderr: '' }
+          }
+
+          activityCalls += 1
+          return {
+            stdout: JSON.stringify([
+              {
+                uuid: 'deployment-timeout',
+                action: 'DEPLOY',
+                state: activityCalls === 1 ? 'WIP' : 'OK',
+                commit: 'commit-timeout'
+              }
+            ]),
+            stderr: ''
+          }
+        },
+        sleep: async timeoutMs => {
+          now += timeoutMs
+        },
+        settleTimeoutMs: 20,
+        pollIntervalMs: 1
+      })
+
+      await expect(
+        controller.cancelDeployment({
+          appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+          deploymentId: 'deployment-timeout'
+        })
+      ).resolves.toEqual({
+        uuid: 'deployment-timeout',
+        action: 'DEPLOY',
+        state: 'OK',
+        commit: 'commit-timeout'
+      })
+    } finally {
+      dateNowSpy.mockRestore()
+    }
+  })
+
+  test('resolves with the settled state without cancelling when the deployment settles first', async () => {
+    let cancelCalls = 0
+
+    const controller = createCleverController({
+      cleverCLI: '/tmp/node_modules/.bin/clever',
+      runCommand: async (_cli, args) => {
+        if (args[0] === 'cancel-deploy') {
+          cancelCalls += 1
+          return { stdout: '', stderr: '' }
+        }
+
+        return {
+          stdout: JSON.stringify([
+            {
+              uuid: 'deployment-timeout',
+              action: 'DEPLOY',
+              state: 'OK',
+              commit: 'commit-timeout'
+            }
+          ]),
+          stderr: ''
+        }
+      },
+      sleep: async () => {},
+      settleTimeoutMs: 20,
+      pollIntervalMs: 1
+    })
+
+    await expect(
+      controller.cancelDeployment({
+        appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+        deploymentId: 'deployment-timeout'
+      })
+    ).resolves.toEqual({
+      uuid: 'deployment-timeout',
+      action: 'DEPLOY',
+      state: 'OK',
+      commit: 'commit-timeout'
+    })
+    expect(cancelCalls).toBe(0)
+  })
+
+  test('fails with a useful deadline error when a timed-out deployment never settles', async () => {
     let activityCalls = 0
     let now = 0
     const dateNowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now)
@@ -694,7 +785,7 @@ describe('createCleverController', () => {
           deploymentId: 'deployment-timeout'
         })
       ).rejects.toThrow(
-        'Timed out while waiting for deployment deployment-timeout on app_facade42-cafe-babe-cafe-deadf00dbaad to reach CANCELLED. Last state: QUEUED'
+        'Timed out while waiting for deployment deployment-timeout on app_facade42-cafe-babe-cafe-deadf00dbaad to settle. Last state: QUEUED'
       )
     } finally {
       dateNowSpy.mockRestore()
@@ -737,7 +828,7 @@ describe('createCleverController', () => {
     )
   })
 
-  test('fails when the latest deployment never reaches CANCELLED during teardown', async () => {
+  test('fails when the latest deployment never settles during teardown', async () => {
     let now = 0
     const dateNowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now)
 
@@ -769,7 +860,7 @@ describe('createCleverController', () => {
           name: 'actions-clever-cloud-e2e-123-4'
         })
       ).rejects.toThrow(
-        'Failed to delete actions-clever-cloud-e2e-123-4 (app_facade42-cafe-babe-cafe-deadf00dbaad): Timed out while waiting for deployment dep_123 on app_facade42-cafe-babe-cafe-deadf00dbaad to reach CANCELLED. Last state: WIP'
+        'Failed to delete actions-clever-cloud-e2e-123-4 (app_facade42-cafe-babe-cafe-deadf00dbaad): Timed out while waiting for deployment dep_123 on app_facade42-cafe-babe-cafe-deadf00dbaad to settle. Last state: WIP'
       )
     } finally {
       dateNowSpy.mockRestore()
