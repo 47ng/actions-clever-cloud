@@ -378,15 +378,28 @@ describe('pr-preview-manual', () => {
     }
   })
 
-  test('publishes fork builds only as sha-bound tags labelled with the fork source', () => {
+  test('publishes fork builds only under preview-prefixed sha-bound tags labelled with the fork source', () => {
     const meta = onlyStep(stepsOf(manualPreview), step => step.id === 'meta')
     const run = meta.run ?? ''
-    expect(run).toContain('"${IMAGE}:pr-${PR_NUMBER}"')
-    expect(run).toContain('"${IMAGE}:git-${HEAD_SHA}"')
+    const tagLines = (run.match(/tags<<__TAGS_EOF__([\s\S]*?)__TAGS_EOF__/)?.[1] ?? '')
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.startsWith('echo ') && line !== 'echo "')
+    expect(tagLines.length).toBeGreaterThan(0)
+    for (const line of tagLines) {
+      expect(line).toMatch(/^echo "\$\{IMAGE\}:preview-/)
+    }
+    expect(run).toContain('"${IMAGE}:preview-pr-${PR_NUMBER}"')
+    expect(run).toContain('"${IMAGE}:preview-git-${HEAD_SHA}"')
     expect(run).not.toContain(':latest')
     expect(run).toContain(
       'org.opencontainers.image.source=https://github.com/${FORK}/tree/${HEAD_SHA}'
     )
+    const buildPush = onlyStep(
+      stepsOf(manualPreview),
+      step => step.uses?.startsWith('docker/build-push-action@') ?? false
+    )
+    expect(buildPush.with?.['tags']).toBe('${{ steps.meta.outputs.tags }}')
     expect(JSON.stringify(manualPreview)).not.toContain(
       'actions-clever-cloud-preview'
     )

@@ -12,10 +12,11 @@ name: PR Preview (manual)
 #     so a force-push after dispatch cannot swap in different code (no TOCTOU).
 #   - The untrusted build runs in an isolated job with ONLY `contents: read` +
 #     `packages: write` — no deploy secrets, no `id-token`, no `pull-requests:write`.
-#   - Images only ever get `pr-<n>` / `git-<sha>` tags (never `:latest` / `:x.y.z`),
-#     and their `org.opencontainers.image.source` label names the FORK repository,
-#     so every trusted consumer (candidate verification, e2e) rejects them by label
-#     even when they share the release package.
+#   - Images only ever get `preview-pr-<n>` / `preview-git-<sha>` tags. No trusted
+#     path reads `preview-*` tags, so fork builds cannot collide with the `git-<sha>`
+#     tags that candidate verification and release promotion consume, and their
+#     `org.opencontainers.image.source` label names the FORK repository as a second
+#     layer of rejection.
 #   - No PR-controlled string (title / body / branch) is ever interpolated.
 
 on:
@@ -157,7 +158,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read # checkout the fork at the vetted SHA
-      packages: write # push pr-<n> / git-<sha> preview tags
+      packages: write # push preview-pr-<n> / preview-git-<sha> tags
     outputs:
       digest: ${{ steps.docker-build-push.outputs.digest }}
       tags: ${{ steps.meta.outputs.tags }}
@@ -181,8 +182,8 @@ jobs:
           IMAGE="ghcr.io/47ng/actions-clever-cloud"
           {
             echo "tags<<__TAGS_EOF__"
-            echo "${IMAGE}:pr-${PR_NUMBER}"
-            echo "${IMAGE}:git-${HEAD_SHA}"
+            echo "${IMAGE}:preview-pr-${PR_NUMBER}"
+            echo "${IMAGE}:preview-git-${HEAD_SHA}"
             echo "__TAGS_EOF__"
             echo "labels<<__LABELS_EOF__"
             echo "org.opencontainers.image.title=${REPO} (PR preview, unreviewed)"
@@ -282,10 +283,10 @@ jobs:
               "",
               "```yaml",
               "# Follows this PR (re-dispatch the preview to update)",
-              `- uses: docker://${image}:pr-${prNumber}`,
+              `- uses: docker://${image}:preview-pr-${prNumber}`,
               "",
               "# Pin to this exact reviewed commit",
-              `- uses: docker://${image}:git-${headSha}`,
+              `- uses: docker://${image}:preview-git-${headSha}`,
               "```",
               "",
               "<details>",
