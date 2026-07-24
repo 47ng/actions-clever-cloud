@@ -35,7 +35,6 @@ const DEFAULT_HEALTH_CHECK_TIMEOUT_MS = 10_000
 const SUCCESS_STATES = new Set(['OK', 'SUCCESS', 'SUCCEEDED', 'DONE'])
 const FAILED_STATES = new Set(['FAIL', 'FAILED', 'ERROR', 'FAILURE'])
 const IN_PROGRESS_STATES = new Set(['WIP', 'PENDING', 'QUEUED', 'RUNNING'])
-const CANCELLABLE_STATES = new Set(['WIP'])
 
 export async function confirmNoNewDeploymentActivity({
   appId,
@@ -165,42 +164,67 @@ export async function cancelTimedOutDeploymentPreservesLiveApp({
   pollIntervalMs?: number
   healthCheckTimeoutMs?: number
 }): Promise<{
-  cancelledDeployment: DeploymentActivity
+  outcome: 'cancelled' | 'completed' | 'failed'
+  deployment: DeploymentActivity
   health: FixtureHealth
 }> {
   const deadlineAt = buildDeadline(settleTimeoutMs)
-  const deployment = await waitForCancellableDeployment({
+  const found = await waitForDeploymentByCommit({
     appId,
     expectedCommitID: expectedCancelledCommitID,
     listActivity,
     sleep,
-    settleTimeoutMs,
     pollIntervalMs,
     deadlineAt
   })
 
-  const cancelledDeployment = await cancelDeployment(
-    appId,
-    deployment.uuid,
-    remainingBeforeDeadline(deadlineAt)
-  )
-
-  return {
-    cancelledDeployment,
-    health: await waitForHealthyDeployment({
-      appId,
-      healthURL,
-      expectedScenario,
-      expectedCommitID: previousCommitID,
-      expectedDeploymentID: previousDeploymentID,
-      listActivity,
-      fetchHealth,
-      sleep,
-      settleTimeoutMs: remainingBeforeDeadline(deadlineAt),
-      pollIntervalMs,
-      healthCheckTimeoutMs
-    })
+  let deployment: DeploymentActivity = found
+  if (isInProgressState(found.state)) {
+    // The action timed out but the remote build races on: cancellation can
+    // lose to completion, and a lost cancel must classify the settled state
+    // instead of failing the scenario.
+    try {
+      deployment = await cancelDeployment(
+        appId,
+        found.uuid,
+        remainingBeforeDeadline(deadlineAt)
+      )
+    } catch {
+      deployment = await waitForSettledDeployment({
+        appId,
+        deploymentId: found.uuid,
+        listActivity,
+        sleep,
+        pollIntervalMs,
+        deadlineAt
+      })
+    }
   }
+
+  const state = deployment.state ?? ''
+  const outcome = SUCCESS_STATES.has(state)
+    ? 'completed'
+    : state === 'CANCELLED'
+      ? 'cancelled'
+      : 'failed'
+
+  const health = await waitForHealthyDeployment({
+    appId,
+    healthURL,
+    expectedScenario,
+    expectedCommitID:
+      outcome === 'completed' ? expectedCancelledCommitID : previousCommitID,
+    expectedDeploymentID:
+      outcome === 'completed' ? deployment.uuid : previousDeploymentID,
+    listActivity,
+    fetchHealth,
+    sleep,
+    settleTimeoutMs: remainingBeforeDeadline(deadlineAt),
+    pollIntervalMs,
+    healthCheckTimeoutMs
+  })
+
+  return { outcome, deployment, health }
 }
 
 export async function waitForNewSuccessfulDeploymentActivity({
@@ -475,14 +499,13 @@ export async function waitForHealthyDeployment({
   }
 }
 
-async function waitForCancellableDeployment({
+async function waitForDeploymentByCommit({
   appId,
   expectedCommitID,
   listActivity,
   sleep = defaultSleep,
-  settleTimeoutMs = DEFAULT_SETTLE_TIMEOUT_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
-  deadlineAt = buildDeadline(settleTimeoutMs)
+  deadlineAt
 }: {
   appId: string
   expectedCommitID: string
@@ -491,14 +514,13 @@ async function waitForCancellableDeployment({
     timeoutMs?: number
   ) => Promise<DeploymentActivity[]>
   sleep?: Sleep
-  settleTimeoutMs?: number
   pollIntervalMs?: number
-  deadlineAt?: number
+  deadlineAt: number
 }): Promise<DeploymentActivity & { uuid: string }> {
   const throwIfDeadlineReached = () => {
     if (hasReachedDeadline(deadlineAt)) {
       throw new Error(
-        `Timed out while waiting for a cancellable deployment for ${expectedCommitID} on ${appId}`
+        `Timed out while waiting for a deployment of ${expectedCommitID} on ${appId}`
       )
     }
   }
@@ -518,7 +540,6 @@ async function waitForCancellableDeployment({
       entry =>
         entry.action === 'DEPLOY' &&
         entry.commit === expectedCommitID &&
-        CANCELLABLE_STATES.has(entry.state ?? '') &&
         typeof entry.uuid === 'string' &&
         entry.uuid.length > 0
     )
@@ -537,6 +558,63 @@ async function waitForCancellableDeployment({
       deadlineAt
     })
   }
+}
+
+async function waitForSettledDeployment({
+  appId,
+  deploymentId,
+  listActivity,
+  sleep = defaultSleep,
+  pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
+  deadlineAt
+}: {
+  appId: string
+  deploymentId: string
+  listActivity: (
+    appId: string,
+    timeoutMs?: number
+  ) => Promise<DeploymentActivity[]>
+  sleep?: Sleep
+  pollIntervalMs?: number
+  deadlineAt: number
+}): Promise<DeploymentActivity> {
+  const throwIfDeadlineReached = () => {
+    if (hasReachedDeadline(deadlineAt)) {
+      throw new Error(
+        `Timed out while waiting for deployment ${deploymentId} on ${appId} to settle`
+      )
+    }
+  }
+
+  for (;;) {
+    throwIfDeadlineReached()
+
+    const deployment = (
+      await listActivity(
+        appId,
+        Math.min(
+          DEFAULT_HEALTH_CHECK_TIMEOUT_MS,
+          Math.max(1, remainingBeforeDeadline(deadlineAt))
+        )
+      )
+    ).find(entry => entry.uuid === deploymentId)
+
+    throwIfDeadlineReached()
+
+    if (deployment && !isInProgressState(deployment.state)) {
+      return deployment
+    }
+
+    await sleepUntilNextPoll({
+      sleep,
+      pollIntervalMs,
+      deadlineAt
+    })
+  }
+}
+
+function isInProgressState(state: string | undefined): boolean {
+  return IN_PROGRESS_STATES.has(state ?? '')
 }
 
 function parseFixtureHealth(value: unknown): FixtureHealth {
