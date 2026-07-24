@@ -93,20 +93,43 @@ export async function createDeployLog(
         }
       }
     }
+    const waitForDrain = async (): Promise<void> => {
+      // once() rejects if 'error' fires while waiting, and racing 'close'
+      // covers a console stream destroyed without one — either way the chain
+      // fails instead of stalling on a 'drain' that never comes.
+      const abort = new AbortController()
+      try {
+        await Promise.race([
+          once(consoleStream, 'drain', { signal: abort.signal }),
+          once(consoleStream, 'close', { signal: abort.signal }).then(() => {
+            throw (
+              consoleStream.errored ??
+              new Error('console stream closed while awaiting drain')
+            )
+          })
+        ])
+      } finally {
+        abort.abort()
+      }
+    }
+    const throwIfConsoleErrored = (): void => {
+      if (consoleStream.errored) {
+        throw consoleStream.errored
+      }
+    }
     const writeLinesToConsole = async (
       lines: AsyncIterable<string>
     ): Promise<void> => {
       for await (const line of lines) {
-        if (consoleStream.errored) {
-          throw consoleStream.errored
-        }
+        throwIfConsoleErrored()
         if (!consoleStream.write(line)) {
-          // once() rejects if 'error' fires while waiting, so a console
-          // stream dying under backpressure (e.g. EPIPE) fails the chain
-          // instead of stalling it.
-          await once(consoleStream, 'drain')
+          await waitForDrain()
         }
       }
+      // The no-op 'error' listener absorbs failures between writes; a console
+      // stream that died while idle must still fail the chain, or the error
+      // would vanish once the deploy ends without another line.
+      throwIfConsoleErrored()
     }
     // The console stream stays out of pipeline()'s custody: it is shared for
     // the whole action process lifetime and must survive this chain ending or
@@ -119,7 +142,8 @@ export async function createDeployLog(
     const onConsoleError = (): void => {}
     consoleStream.on('error', onConsoleError)
     // pipeline() (unlike bare .pipe()) fails the whole chain when any stage
-    // fails, so this one completion sees every console failure mode.
+    // fails, so this one completion sees every console failure that occurs
+    // while the chain is live.
     const consoleDone = pipeline(
       chainInput,
       splitNewlines,
@@ -129,6 +153,9 @@ export async function createDeployLog(
       consoleStream.off('error', onConsoleError)
     })
     monitor('console', consoleDone, () => tee.unpipe(chainInput))
+    // A destroyed tee reaches no monitor on its own: chainInput would never
+    // end and done() would pend forever.
+    finished(tee).catch((error: Error) => chainInput.destroy(error))
   }
   if (logFile) {
     try {
@@ -137,6 +164,9 @@ export async function createDeployLog(
       monitor('log file', finished(logFileStream), () =>
         tee.unpipe(logFileStream)
       )
+      // Same tee-death guard as the console chain: without it a destroyed
+      // tee leaves the file stream unfinished and done() pending.
+      finished(tee).catch((error: Error) => logFileStream.destroy(error))
     } catch (error) {
       degrade('log file', error)
     }

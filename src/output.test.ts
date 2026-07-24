@@ -10,11 +10,6 @@ import {
   type DeployLog
 } from './output.ts'
 
-// createDeployLog tees its non-quiet output into the shared process.stdout.
-// This suite pipes into it repeatedly, which trips Node's 10-listener leak
-// warning without lifting the cap (see the same note in clever.test.ts).
-process.stdout.setMaxListeners(0)
-
 // --
 
 // A timestamp prefix in the shape the Clever CLI emits, asserted against the
@@ -146,8 +141,7 @@ test('logFile + non-quiet: the file gets the raw stream AND stdout gets the proc
   // injection: exactly the one line that was written, timestamp intact.
   expect(content).toBe(TS + '::notice ::Deployed!\n')
   // stdout receives the processed stream: the original line plus the
-  // injected (timestamp-stripped) annotation — two occurrences pin that
-  // both sinks actually fed off the same tee, not just one or the other.
+  // injected (timestamp-stripped) annotation.
   expect(capturedStdout().split('::notice ::Deployed!').length - 1).toBe(2)
   await fs.unlink(logFile)
 })
@@ -312,6 +306,66 @@ test('non-quiet without a log file: a dead console chain still drains the tee', 
     )
   } finally {
     decoderSpy.mockRestore()
+  }
+})
+
+test('a console stream dying while idle still degrades with a warning', async () => {
+  const consoleStream = new Writable({
+    write(_chunk, _encoding, callback) {
+      callback()
+    }
+  })
+  const { stream, done } = await createDeployLog(
+    { quiet: false, consoleStream },
+    { warning }
+  )
+  stream.write(TS + 'first\n')
+  await new Promise(resolve => setImmediate(resolve))
+  consoleStream.destroy(new Error('EPIPE while idle'))
+  await new Promise(resolve => setImmediate(resolve))
+  stream.end()
+  await expect(done()).resolves.toBeUndefined()
+  expect(warning).toHaveBeenCalledWith(
+    'deploy log output degraded (console): EPIPE while idle'
+  )
+})
+
+test('a console stream closed without error while backpressured fails the chain instead of hanging', async () => {
+  const consoleStream = new Writable({
+    highWaterMark: 1,
+    write(_chunk, _encoding, _callback) {
+      // Never completes: permanent backpressure.
+    }
+  })
+  const { stream, done } = await createDeployLog(
+    { quiet: false, consoleStream },
+    { warning }
+  )
+  stream.write(TS + 'first\n')
+  await new Promise(resolve => setImmediate(resolve))
+  consoleStream.destroy()
+  stream.end()
+  await expect(done()).resolves.toBeUndefined()
+  expect(warning).toHaveBeenCalledWith(
+    'deploy log output degraded (console): console stream closed while awaiting drain'
+  )
+})
+
+test('destroying the deploy log stream settles done() instead of hanging', async () => {
+  const logFile = tempLogFilePath('destroyed-tee')
+  try {
+    const { stream, done } = await deployLog(false, logFile)
+    stream.write(TS + 'first\n')
+    stream.destroy()
+    await expect(done()).resolves.toBeUndefined()
+    expect(warning).toHaveBeenCalledWith(
+      'deploy log output degraded (console): Premature close'
+    )
+    expect(warning).toHaveBeenCalledWith(
+      'deploy log output degraded (log file): Premature close'
+    )
+  } finally {
+    await fs.unlink(logFile)
   }
 })
 
