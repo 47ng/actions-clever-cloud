@@ -2,6 +2,10 @@ import { appendFile, readFile } from 'node:fs/promises'
 import { createCleverController } from '../clever-client.ts'
 import { waitForNewHealthyDeployment } from '../deployment-observer.ts'
 import {
+  assertForcedDeploymentReplacedProduction,
+  parseBaselineState
+} from '../scenario-assertions.ts'
+import {
   createFetchHealth,
   createRunCommand,
   resolveCleverCLI
@@ -28,7 +32,9 @@ if (actionOutcome !== 'success') {
   throw new Error('Expected divergent deployment with force to succeed')
 }
 
-const previousState = JSON.parse(await readFile(statePath, 'utf8'))
+const previousState = parseBaselineState(
+  JSON.parse(await readFile(statePath, 'utf8'))
+)
 const controller = createCleverController({
   cleverCLI,
   runCommand: createRunCommand()
@@ -43,21 +49,17 @@ const result = await waitForNewHealthyDeployment({
   healthURL,
   expectedScenario: 'healthy',
   expectedCommitID,
-  previousActivity: previousState.activity,
+  previousActivity: previousState.activity as Awaited<
+    ReturnType<typeof controller.listActivity>
+  >,
   listActivity: controller.listActivity,
   fetchHealth: createFetchHealth()
 })
 
-if (result.health.CC_COMMIT_ID === previousState.commitId) {
-  throw new Error(
-    'Expected forced divergent deployment to change the live commit ID'
-  )
-}
-if (result.health.CC_DEPLOYMENT_ID === previousState.deploymentId) {
-  throw new Error(
-    'Expected forced divergent deployment to change the live deployment ID'
-  )
-}
+assertForcedDeploymentReplacedProduction({
+  health: result.health,
+  baseline: previousState
+})
 
 await appendFile(
   githubOutput,

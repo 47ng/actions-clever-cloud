@@ -4,7 +4,10 @@ import {
   waitForHealthyDeployment,
   waitForNewSuccessfulDeploymentActivity
 } from '../deployment-observer.ts'
-import { FIXTURE_BUILD_MARKER } from '../fixture-app.ts'
+import {
+  assertSameCommitRestartChangedProduction,
+  parseBaselineState
+} from '../scenario-assertions.ts'
 import {
   createFetchHealth,
   createRunCommand,
@@ -26,7 +29,9 @@ if (actionOutcome !== 'success') {
   throw new Error('Expected sameCommitPolicy: restart to succeed')
 }
 
-const previousState = JSON.parse(await readFile(statePath, 'utf8'))
+const previousState = parseBaselineState(
+  JSON.parse(await readFile(statePath, 'utf8'))
+)
 const controller = createCleverController({
   cleverCLI,
   runCommand: createRunCommand()
@@ -35,7 +40,9 @@ const controller = createCleverController({
 const deployment = await waitForNewSuccessfulDeploymentActivity({
   appId,
   expectedCommitID: previousState.commitId,
-  previousActivity: previousState.activity,
+  previousActivity: previousState.activity as Awaited<
+    ReturnType<typeof controller.listActivity>
+  >,
   listActivity: controller.listActivity
 })
 
@@ -53,33 +60,12 @@ const health = await waitForHealthyDeployment({
   fetchHealth: createFetchHealth()
 })
 
-if (!health.INSTANCE_ID) {
-  throw new Error(
-    'Expected sameCommitPolicy: restart to report a new instance ID'
-  )
-}
-if (health.INSTANCE_ID === previousState.instanceId) {
-  throw new Error(
-    'Expected sameCommitPolicy: restart to change the instance ID'
-  )
-}
-if (health.CC_DEPLOYMENT_ID === previousState.deploymentId) {
-  throw new Error(
-    'Expected sameCommitPolicy: restart to change the deployment ID'
-  )
-}
-if (health.CC_COMMIT_ID !== previousState.commitId) {
-  throw new Error(
-    'Expected sameCommitPolicy: restart to keep the same commit ID'
-  )
-}
-
 const logContent = await readFile(logPath, 'utf8')
-if (logContent.includes(FIXTURE_BUILD_MARKER)) {
-  throw new Error(
-    'Expected restart to reuse cache without a new install marker'
-  )
-}
+assertSameCommitRestartChangedProduction({
+  health,
+  baseline: previousState,
+  logContent
+})
 
 const activity = await controller.listActivity(appId)
 await writeFile(

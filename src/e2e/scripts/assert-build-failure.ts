@@ -4,7 +4,10 @@ import {
   waitForHealthyDeployment,
   waitForNewFailedDeploymentActivity
 } from '../deployment-observer.ts'
-import { FIXTURE_BUILD_FAILURE_MARKER } from '../fixture-app.ts'
+import {
+  assertBuildFailurePreservedProduction,
+  parseBaselineState
+} from '../scenario-assertions.ts'
 import {
   createFetchHealth,
   createRunCommand,
@@ -34,7 +37,9 @@ if (actionOutcome !== 'failure') {
   throw new Error('Expected build-failure deployment to fail')
 }
 
-const previousState = JSON.parse(await readFile(statePath, 'utf8'))
+const previousState = parseBaselineState(
+  JSON.parse(await readFile(statePath, 'utf8'))
+)
 const controller = createCleverController({
   cleverCLI,
   runCommand: createRunCommand()
@@ -43,7 +48,9 @@ const controller = createCleverController({
 const failedDeployment = await waitForNewFailedDeploymentActivity({
   appId,
   expectedCommitID,
-  previousActivity: previousState.activity,
+  previousActivity: previousState.activity as Awaited<
+    ReturnType<typeof controller.listActivity>
+  >,
   listActivity: controller.listActivity
 })
 
@@ -61,18 +68,12 @@ const health = await waitForHealthyDeployment({
   fetchHealth: createFetchHealth()
 })
 
-if (health.INSTANCE_ID !== previousState.instanceId) {
-  throw new Error(
-    'Expected build-failure deployment to preserve the prior healthy instance ID'
-  )
-}
-
 const logContent = await readFile(logPath, 'utf8')
-if (!logContent.includes(FIXTURE_BUILD_FAILURE_MARKER)) {
-  throw new Error(
-    'Expected build-failure log to contain the deterministic fixture marker'
-  )
-}
+assertBuildFailurePreservedProduction({
+  health,
+  baseline: previousState,
+  logContent
+})
 
 await appendFile(
   githubOutput,

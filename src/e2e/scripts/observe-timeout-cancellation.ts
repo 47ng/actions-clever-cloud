@@ -1,6 +1,7 @@
 import { appendFile } from 'node:fs/promises'
 import { createCleverController } from '../clever-client.ts'
 import { cancelTimedOutDeploymentPreservesLiveApp } from '../deployment-observer.ts'
+import { assertTimeoutOutcome } from '../scenario-assertions.ts'
 import {
   createFetchHealth,
   createRunCommand,
@@ -49,21 +50,18 @@ const result = await cancelTimedOutDeploymentPreservesLiveApp({
   pollIntervalMs: 5_000
 })
 
+assertTimeoutOutcome({
+  outcome: result.outcome,
+  health: result.health,
+  expectedCancelledCommitID,
+  previousInstanceId
+})
+
 if (result.outcome === 'completed') {
-  if (result.health.CC_COMMIT_ID !== expectedCancelledCommitID) {
-    throw new Error(
-      'Expected the completed timed-out deployment to serve the timeout commit'
-    )
-  }
   console.log(
     'Timed-out deployment completed before cancellation; it is live and healthy'
   )
 } else {
-  if (result.health.INSTANCE_ID !== previousInstanceId) {
-    throw new Error(
-      `Expected the ${result.outcome} timed-out deployment to preserve the prior healthy forced instance ID`
-    )
-  }
   console.log(`Timed-out deployment settled as ${result.outcome}`)
 }
 
