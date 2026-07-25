@@ -38,15 +38,15 @@ test('contains a value that spans lines without forging a second output', () => 
 })
 
 test('rejects a value that contains the delimiter', () => {
-  expect(() =>
-    formatStepOutputs({ a: 'xDELIMx' }, () => 'DELIM')
-  ).toThrow('collides with its own delimiter')
+  expect(() => formatStepOutputs({ a: 'xDELIMx' }, () => 'DELIM')).toThrow(
+    'collides with its own delimiter'
+  )
 })
 
 test('rejects an unsafe output name', () => {
-  expect(() =>
-    formatStepOutputs({ 'a=b': 'x' }, () => 'DELIM')
-  ).toThrow('Unsafe step output name')
+  expect(() => formatStepOutputs({ 'a=b': 'x' }, () => 'DELIM')).toThrow(
+    'Unsafe step output name'
+  )
 })
 
 test('the default delimiter differs between calls', () => {
