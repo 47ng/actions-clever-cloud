@@ -52,7 +52,9 @@ export async function confirmNoNewDeploymentActivity({
   pollIntervalMs?: number
 }): Promise<DeploymentActivity[]> {
   const deadlineAt = buildDeadline(settleTimeoutMs)
-  const previousSnapshot = previousActivity.map(serializeActivity)
+  const previousSnapshot = sortedSnapshot(
+    previousActivity.map(serializeActivity)
+  )
 
   for (;;) {
     const activity = await listActivity(appId)
@@ -689,12 +691,18 @@ function hasMatchingActivitySnapshot(
   previousSnapshot: string[],
   activity: DeploymentActivity[]
 ): boolean {
-  const currentSnapshot = activity.map(serializeActivity)
+  // Clever reorders activity rows and replaces them under new uuids, so row
+  // order is not a signal; only the multiset of rows is.
+  const currentSnapshot = sortedSnapshot(activity.map(serializeActivity))
 
   return (
     previousSnapshot.length === currentSnapshot.length &&
     previousSnapshot.every((entry, index) => entry === currentSnapshot[index])
   )
+}
+
+function sortedSnapshot(snapshot: string[]): string[] {
+  return [...snapshot].sort()
 }
 
 function isSuccessfulDeploymentState(state: string | undefined): boolean {

@@ -268,6 +268,101 @@ test('fails same-commit error and ignore checks when a new deploy activity appea
   )
 })
 
+test('confirms that reordered but otherwise unchanged activity is not a change', async () => {
+  const deploymentOne = {
+    action: 'DEPLOY',
+    state: 'OK',
+    uuid: 'deployment-1',
+    commit: 'commit-1'
+  }
+  const deploymentTwo = {
+    action: 'DEPLOY',
+    state: 'OK',
+    uuid: 'deployment-2',
+    commit: 'commit-2'
+  }
+  const previousActivity = [deploymentOne, deploymentTwo]
+  const reorderedActivity = [deploymentTwo, deploymentOne]
+
+  await expect(
+    confirmNoNewDeploymentActivity({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      previousActivity,
+      listActivity: async () => reorderedActivity,
+      sleep: async () => {},
+      settleTimeoutMs: 2,
+      pollIntervalMs: 1
+    })
+  ).resolves.toEqual(reorderedActivity)
+})
+
+test('fails same-commit error and ignore checks when an additional deploy activity row appears among reordered rows', async () => {
+  const deploymentOne = {
+    action: 'DEPLOY',
+    state: 'OK',
+    uuid: 'deployment-1',
+    commit: 'commit-1'
+  }
+  const deploymentTwo = {
+    action: 'DEPLOY',
+    state: 'OK',
+    uuid: 'deployment-2',
+    commit: 'commit-2'
+  }
+  const previousActivity = [deploymentOne, deploymentTwo]
+  const activityWithExtraRow = [
+    {
+      action: 'DEPLOY',
+      state: 'WIP',
+      uuid: 'deployment-3',
+      commit: 'commit-3'
+    },
+    deploymentTwo,
+    deploymentOne
+  ]
+
+  await expect(
+    confirmNoNewDeploymentActivity({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      previousActivity,
+      listActivity: async () => activityWithExtraRow,
+      sleep: async () => {},
+      settleTimeoutMs: 10_000,
+      pollIntervalMs: 1
+    })
+  ).rejects.toThrow('Observed unexpected deployment activity change')
+})
+
+test('fails same-commit error and ignore checks when an existing row changes state', async () => {
+  const previousActivity = [
+    {
+      action: 'DEPLOY',
+      state: 'WIP',
+      uuid: 'deployment-1',
+      commit: 'commit-1'
+    }
+  ]
+  const activityWithChangedState = [
+    {
+      action: 'DEPLOY',
+      state: 'OK',
+      uuid: 'deployment-1',
+      commit: 'commit-1'
+    }
+  ]
+
+  await expect(
+    confirmNoNewDeploymentActivity({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      previousActivity,
+      listActivity: async () => activityWithChangedState,
+      sleep: async () => {},
+      settleTimeoutMs: 10_000,
+      pollIntervalMs: 1
+    })
+  ).rejects.toThrow('Observed unexpected deployment activity change')
+})
+
 test('confirms that a rejected divergent deploy leaves the prior healthy commit publicly visible', async () => {
   const baselineActivity = [
     {
