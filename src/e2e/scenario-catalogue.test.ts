@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test } from 'vitest'
 import { parse } from 'yaml'
-import { SCENARIO_CATALOGUE, scenarioByName } from './scenario-catalogue.ts'
+import {
+  SCENARIO_CATALOGUE,
+  scenarioByName,
+  type ScenarioName
+} from './scenario-catalogue.ts'
 
 type Step = {
   id?: string
@@ -53,7 +57,7 @@ test('every catalogue entry has a matching action step in the workflow', () => {
 
 test('every candidate action step in the workflow has a catalogue entry', () => {
   expect(candidateActionSteps.length).toBe(SCENARIO_CATALOGUE.length)
-  const workflowStepIds = new Set(
+  const workflowStepIds: Set<string> = new Set(
     SCENARIO_CATALOGUE.map(scenario => scenario.workflowStepId)
   )
   for (const step of candidateActionSteps) {
@@ -102,7 +106,10 @@ test('names, log files, env names and step ids are each unique', () => {
 })
 
 test('scenarioByName throws on an unknown name', () => {
-  expect(() => scenarioByName('nope')).toThrow('Unknown E2E scenario: nope')
+  // Cast past the narrowed parameter type to exercise the runtime guard.
+  expect(() => scenarioByName('nope' as ScenarioName)).toThrow(
+    'Unknown E2E scenario: nope'
+  )
 })
 
 test('the timeout scenario is last', () => {
