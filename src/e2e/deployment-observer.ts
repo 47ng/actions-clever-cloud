@@ -356,6 +356,18 @@ async function waitForNewDeploymentActivity({
         !previousSnapshot.has(serializeActivity(entry))
     )
 
+    if (stateLabel === 'successful') {
+      const failedDeployment = findTerminallyFailedDeployment(
+        activity,
+        expectedCommitID
+      )
+      if (failedDeployment) {
+        throw new Error(
+          `Deployment ${failedDeployment.uuid ?? '(unknown)'} of ${expectedCommitID} on ${appId} reached a failed state: ${failedDeployment.state ?? '(missing)'}`
+        )
+      }
+    }
+
     if (deployment?.uuid) {
       return deployment
     }
@@ -440,6 +452,16 @@ export async function waitForHealthyDeployment({
         entry.commit === expectedCommitID &&
         (!expectedDeploymentID || entry.uuid === expectedDeploymentID)
     )
+
+    const failedDeployment = findTerminallyFailedDeployment(
+      activity,
+      expectedCommitID
+    )
+    if (failedDeployment) {
+      throw new Error(
+        `Deployment ${failedDeployment.uuid ?? '(unknown)'} of ${expectedCommitID} on ${appId} reached a failed state: ${failedDeployment.state ?? '(missing)'}`
+      )
+    }
 
     if (deployment && isSuccessfulDeploymentState(deployment.state)) {
       try {
@@ -705,6 +727,31 @@ function isFailedDeploymentState(state: string | undefined): boolean {
   return Boolean(
     state && FAILED_STATES.has(state) && !IN_PROGRESS_STATES.has(state)
   )
+}
+
+function findTerminallyFailedDeployment(
+  activity: DeploymentActivity[],
+  expectedCommitID: string
+): DeploymentActivity | undefined {
+  const deployments = activity.filter(
+    entry => entry.action === 'DEPLOY' && entry.commit === expectedCommitID
+  )
+
+  if (deployments.length === 0) {
+    return undefined
+  }
+
+  if (
+    deployments.some(
+      entry =>
+        isSuccessfulDeploymentState(entry.state) ||
+        isInProgressState(entry.state)
+    )
+  ) {
+    return undefined
+  }
+
+  return deployments.find(entry => isFailedDeploymentState(entry.state))
 }
 
 function serializeActivity(activity: DeploymentActivity): string {
