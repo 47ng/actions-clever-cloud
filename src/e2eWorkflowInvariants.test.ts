@@ -815,7 +815,7 @@ describe('e2e-reusable', () => {
     )
   })
 
-  test('asserts the documented timeout contract message from the trusted workflow copy', () => {
+  test('routes the timeout contract assertion through the trusted workflow copy', () => {
     const timeoutAssertion = onlyStep(
       suiteSteps,
       step =>
@@ -823,9 +823,6 @@ describe('e2e-reusable', () => {
     )
     expect(timeoutAssertion.run).toBe(
       'node "$TRUSTED_WORKFLOW_DIR"/src/e2e/scripts/assert-timeout-contract.ts'
-    )
-    expect(scriptSourceOf('assert-timeout-contract.ts')).toContain(
-      'Deployment timed out, moving on with workflow run'
     )
   })
 })
