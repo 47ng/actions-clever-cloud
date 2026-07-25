@@ -26,6 +26,7 @@ type Job = {
   environment?: string | { name?: string }
   steps?: Step[]
   with?: Record<string, unknown>
+  'timeout-minutes'?: number
 }
 
 type Trigger = {
@@ -292,6 +293,24 @@ describe('shared workflow policies', () => {
           step => step.uses?.startsWith('actions/cache@') ?? false
         )
       ).toEqual([])
+    }
+  )
+
+  test.each(e2eWorkflows)(
+    '%s bounds every runner job with a timeout',
+    (file, workflow) => {
+      for (const [jobId, job] of Object.entries(workflow.jobs)) {
+        if (job.uses !== undefined) {
+          // GitHub rejects timeout-minutes on a reusable workflow call; the
+          // called workflow's own job carries the budget.
+          expect(job['timeout-minutes']).toBeUndefined()
+          continue
+        }
+        expect(job['timeout-minutes'], `${file} ${jobId}`).toBeGreaterThan(0)
+        expect(job['timeout-minutes'], `${file} ${jobId}`).toBeLessThanOrEqual(
+          240
+        )
+      }
     }
   )
 })
