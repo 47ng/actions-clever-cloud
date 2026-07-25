@@ -1,8 +1,8 @@
-import { appendFile } from 'node:fs/promises'
 import {
   createImagetoolsInspect,
   probeCandidateImage
 } from '../image-inspection.ts'
+import { writeStepOutputs } from '../step-output.ts'
 
 const image = process.env.CANDIDATE_IMAGE
 const expectedRevision = process.env.EXPECTED_REVISION
@@ -25,11 +25,12 @@ if (result.missing) {
   console.log(
     `::warning::Candidate image ${image} not found, building it. Registry said: ${registryDetail}`
   )
-  await appendFile(githubOutput, 'missing=true\n')
+  await writeStepOutputs(githubOutput, { missing: 'true' })
   process.exit(0)
 }
 
-await appendFile(
-  githubOutput,
-  `missing=false\n` + `digest=${result.digest}\n` + `image=${result.image}\n`
-)
+await writeStepOutputs(githubOutput, {
+  missing: 'false',
+  digest: result.digest,
+  image: result.image
+})

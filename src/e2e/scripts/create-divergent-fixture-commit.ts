@@ -1,5 +1,5 @@
-import { appendFile } from 'node:fs/promises'
 import { createDivergentFixtureCommit } from '../git-fixture.ts'
+import { writeStepOutputs } from '../step-output.ts'
 
 const workspaceDir = process.env.WORKSPACE_DIR
 const ancestorCommit = process.env.ANCESTOR_COMMIT
@@ -15,4 +15,4 @@ const commit = await createDivergentFixtureCommit({
   label: 'healthy-force'
 })
 
-await appendFile(githubOutput, `commit=${commit}\n`)
+await writeStepOutputs(githubOutput, { commit })

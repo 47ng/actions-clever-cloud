@@ -1,5 +1,5 @@
-import { appendFile } from 'node:fs/promises'
 import { generateHealthValue, HEALTH_VALUE_ENV_NAME } from '../health-value.ts'
+import { writeStepOutputs } from '../step-output.ts'
 
 const githubOutput = process.env.GITHUB_OUTPUT
 
@@ -12,7 +12,7 @@ if (!value.endsWith('==')) {
   throw new Error('Generated health value must use 16-byte base64 padding')
 }
 
-await appendFile(
-  githubOutput,
-  `name=${HEALTH_VALUE_ENV_NAME}\nvalue=${value}\n`
-)
+await writeStepOutputs(githubOutput, {
+  name: HEALTH_VALUE_ENV_NAME,
+  value
+})

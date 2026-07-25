@@ -1,5 +1,5 @@
-import { appendFile } from 'node:fs/promises'
 import { createHealthyFixtureCommit } from '../git-fixture.ts'
+import { writeStepOutputs } from '../step-output.ts'
 
 const workspaceDir = process.env.WORKSPACE_DIR
 const commitLabel = process.env.COMMIT_LABEL
@@ -15,4 +15,4 @@ const commit = await createHealthyFixtureCommit({
   label: commitLabel
 })
 
-await appendFile(githubOutput, `commit=${commit}\n`)
+await writeStepOutputs(githubOutput, { commit })

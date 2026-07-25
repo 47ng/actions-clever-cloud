@@ -1,10 +1,11 @@
-import { appendFile, readFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { createCleverController } from '../clever-client.ts'
 import {
   waitForHealthyDeployment,
   waitForNewFailedDeploymentActivity
 } from '../deployment-observer.ts'
 import { FIXTURE_BUILD_FAILURE_MARKER } from '../fixture-app.ts'
+import { writeStepOutputs } from '../step-output.ts'
 import {
   createFetchHealth,
   createRunCommand,
@@ -74,9 +75,8 @@ if (!logContent.includes(FIXTURE_BUILD_FAILURE_MARKER)) {
   )
 }
 
-await appendFile(
-  githubOutput,
-  `instance_id=${health.INSTANCE_ID ?? ''}\n` +
-    `deployment_id=${failedDeployment.uuid ?? ''}\n` +
-    `commit_id=${failedDeployment.commit ?? expectedCommitID}\n`
-)
+await writeStepOutputs(githubOutput, {
+  instance_id: health.INSTANCE_ID,
+  deployment_id: failedDeployment.uuid,
+  commit_id: failedDeployment.commit ?? expectedCommitID
+})
