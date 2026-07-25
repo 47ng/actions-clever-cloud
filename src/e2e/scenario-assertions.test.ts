@@ -1,5 +1,10 @@
 import { expect, test } from 'vitest'
-import type { FixtureHealth } from './fixture-app.ts'
+import {
+  FIXTURE_BUILD_FAILURE_MARKER,
+  FIXTURE_BUILD_MARKER,
+  FIXTURE_STARTUP_FAILURE_MARKER,
+  type FixtureHealth
+} from './fixture-app.ts'
 import {
   assertBuildFailurePreservedProduction,
   assertDivergentRejectionPreservedProduction,
@@ -136,7 +141,7 @@ test('same-commit restart rejects a build marker in the log, proving the cache w
         CC_DEPLOYMENT_ID: 'deployment-2'
       }),
       baseline: baseline(),
-      logContent: 'fixture-build ran during install'
+      logContent: `${FIXTURE_BUILD_MARKER} ran during install`
     })
   ).toThrow('Expected restart to reuse cache without a new install marker')
 })
@@ -149,7 +154,7 @@ test('same-commit rebuild accepts changed production identifiers with cache and 
         CC_DEPLOYMENT_ID: 'deployment-2'
       }),
       baseline: baseline(),
-      logContent: 'without using cache, ran fixture-build'
+      logContent: `without using cache, ran ${FIXTURE_BUILD_MARKER}`
     })
   ).not.toThrow()
 })
@@ -206,7 +211,7 @@ test('same-commit rebuild rejects a log missing the without-using-cache message'
         CC_DEPLOYMENT_ID: 'deployment-2'
       }),
       baseline: baseline(),
-      logContent: 'fixture-build ran during install'
+      logContent: `${FIXTURE_BUILD_MARKER} ran during install`
     })
   ).toThrow('Expected sameCommitPolicy: rebuild to report without using cache')
 })
@@ -229,7 +234,7 @@ test('build-failure accepts a preserved instance ID with the build-failure marke
     assertBuildFailurePreservedProduction({
       health: health(),
       baseline: baseline(),
-      logContent: 'fixture-build-failure logged'
+      logContent: `${FIXTURE_BUILD_FAILURE_MARKER} logged`
     })
   ).not.toThrow()
 })
@@ -239,7 +244,7 @@ test('build-failure rejects a changed instance ID', () => {
     assertBuildFailurePreservedProduction({
       health: health({ INSTANCE_ID: 'instance-2' }),
       baseline: baseline(),
-      logContent: 'fixture-build-failure logged'
+      logContent: `${FIXTURE_BUILD_FAILURE_MARKER} logged`
     })
   ).toThrow(
     'Expected build-failure deployment to preserve the prior healthy instance ID'
@@ -263,7 +268,7 @@ test('startup-failure accepts a preserved instance ID with the startup-failure m
     assertStartupFailurePreservedProduction({
       health: health(),
       baseline: baseline(),
-      logContent: 'fixture-startup-failure logged'
+      logContent: `${FIXTURE_STARTUP_FAILURE_MARKER} logged`
     })
   ).not.toThrow()
 })
@@ -273,7 +278,7 @@ test('startup-failure rejects a changed instance ID', () => {
     assertStartupFailurePreservedProduction({
       health: health({ INSTANCE_ID: 'instance-2' }),
       baseline: baseline(),
-      logContent: 'fixture-startup-failure logged'
+      logContent: `${FIXTURE_STARTUP_FAILURE_MARKER} logged`
     })
   ).toThrow(
     'Expected startup-failure deployment to preserve the prior healthy instance ID'
@@ -384,9 +389,7 @@ test('forced deployment rejects an unchanged commit ID', () => {
       health: health({ CC_DEPLOYMENT_ID: 'deployment-2' }),
       baseline: baseline()
     })
-  ).toThrow(
-    'Expected forced divergent deployment to change the live commit ID'
-  )
+  ).toThrow('Expected forced divergent deployment to change the live commit ID')
 })
 
 test('forced deployment rejects an unchanged deployment ID', () => {
