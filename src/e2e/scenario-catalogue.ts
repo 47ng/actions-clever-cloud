@@ -1,11 +1,4 @@
-export type ScenarioDefinition = {
-  name: string
-  logFile: string
-  logPathEnvName: string
-  workflowStepId: string
-}
-
-const scenarios = [
+export const SCENARIO_CATALOGUE = [
   {
     name: 'deploy-healthy-fixture-commit',
     logFile: 'candidate-action/001-deploy-healthy.log',
@@ -80,14 +73,8 @@ const scenarios = [
   }
 ] as const
 
-// isolatedDeclarations requires an explicit type annotation on the exported
-// binding, which would widen `name` back to `string` if applied directly to
-// the array above. Re-exporting it through this annotated binding keeps the
-// narrowed literal types available for `ScenarioName` below, while this
-// assignment still checks `scenarios` against `ScenarioDefinition`.
-export const SCENARIO_CATALOGUE: readonly ScenarioDefinition[] = scenarios
-
-export type ScenarioName = (typeof scenarios)[number]['name']
+export type ScenarioDefinition = (typeof SCENARIO_CATALOGUE)[number]
+export type ScenarioName = ScenarioDefinition['name']
 
 export function scenarioByName(name: ScenarioName): ScenarioDefinition {
   const scenario = SCENARIO_CATALOGUE.find(entry => entry.name === name)
