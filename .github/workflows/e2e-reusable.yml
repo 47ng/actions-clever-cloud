@@ -35,7 +35,7 @@ jobs:
   create-and-delete:
     name: Create and delete app
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 40
     permissions:
       contents: read
       pull-requests: read

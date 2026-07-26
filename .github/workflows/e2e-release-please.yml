@@ -28,7 +28,7 @@ jobs:
   resolve:
     name: Resolve eligible Release Please candidate
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
@@ -56,7 +56,7 @@ jobs:
     name: Reject stale automatic candidates before image work
     needs: resolve
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
@@ -82,7 +82,7 @@ jobs:
     if: needs.current-state.outputs.proceed == 'true'
     needs: [resolve, current-state]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write

@@ -313,7 +313,7 @@ describe('shared workflow policies', () => {
         }
         expect(job['timeout-minutes'], `${file} ${jobId}`).toBeGreaterThan(0)
         expect(job['timeout-minutes'], `${file} ${jobId}`).toBeLessThanOrEqual(
-          240
+          40
         )
       }
     }

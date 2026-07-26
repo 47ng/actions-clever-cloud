@@ -14,7 +14,7 @@ jobs:
   resolve:
     name: Resolve internal pull request
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
@@ -41,7 +41,7 @@ jobs:
     name: Resolve verified candidate image
     needs: resolve
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: read
