@@ -1394,3 +1394,154 @@ test('times out when a healthy deploy never reaches a completed activity', async
     })
   ).rejects.toThrow('Timed out while waiting for a healthy deployment')
 })
+
+test('waitForHealthyDeployment fails fast on a terminal failed state', async () => {
+  await expect(
+    waitForHealthyDeployment({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      healthURL: 'https://fixture.example.com/health',
+      expectedScenario: 'healthy',
+      expectedCommitID: 'commit-123',
+      listActivity: async () => [
+        {
+          action: 'DEPLOY',
+          state: 'FAIL',
+          uuid: 'deployment-123',
+          commit: 'commit-123'
+        }
+      ],
+      fetchHealth: async () => {
+        throw new Error('health should not be fetched for a failed deploy')
+      },
+      sleep: async () => {},
+      settleTimeoutMs: 600_000,
+      pollIntervalMs: 1
+    })
+  ).rejects.toThrow('reached a failed state: FAIL')
+})
+
+test('waitForHealthyDeployment keeps waiting when the same commit also has a successful row', async () => {
+  const health = await waitForHealthyDeployment({
+    appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+    healthURL: 'https://fixture.example.com/health',
+    expectedScenario: 'healthy',
+    expectedCommitID: 'commit-123',
+    expectedDeploymentID: 'deployment-new',
+    listActivity: async () => [
+      {
+        action: 'DEPLOY',
+        state: 'FAIL',
+        uuid: 'deployment-old',
+        commit: 'commit-123'
+      },
+      {
+        action: 'DEPLOY',
+        state: 'SUCCESS',
+        uuid: 'deployment-new',
+        commit: 'commit-123'
+      }
+    ],
+    fetchHealth: async () => ({
+      status: 200,
+      json: async () => ({
+        scenario: 'healthy',
+        healthValue: null,
+        INSTANCE_ID: 'instance-1',
+        INSTANCE_TYPE: 'production',
+        CC_DEPLOYMENT_ID: 'deployment-new',
+        CC_COMMIT_ID: 'commit-123'
+      })
+    }),
+    sleep: async () => {},
+    settleTimeoutMs: 600_000,
+    pollIntervalMs: 1
+  })
+
+  expect(health.CC_DEPLOYMENT_ID).toBe('deployment-new')
+})
+
+test('keeps waiting when a failed row is accompanied by an in-progress retry for the same commit', async () => {
+  let activityCalls = 0
+  const health = await waitForHealthyDeployment({
+    appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+    healthURL: 'https://fixture.example.com/health',
+    expectedScenario: 'healthy',
+    expectedCommitID: 'commit-123',
+    expectedDeploymentID: 'deployment-new',
+    listActivity: async () => {
+      activityCalls += 1
+      return [
+        {
+          action: 'DEPLOY',
+          state: 'FAIL',
+          uuid: 'deployment-old',
+          commit: 'commit-123'
+        },
+        {
+          action: 'DEPLOY',
+          state: activityCalls === 1 ? 'WIP' : 'SUCCESS',
+          uuid: 'deployment-new',
+          commit: 'commit-123'
+        }
+      ]
+    },
+    fetchHealth: async () => ({
+      status: 200,
+      json: async () => ({
+        scenario: 'healthy',
+        healthValue: null,
+        INSTANCE_ID: 'instance-1',
+        INSTANCE_TYPE: 'production',
+        CC_DEPLOYMENT_ID: 'deployment-new',
+        CC_COMMIT_ID: 'commit-123'
+      })
+    }),
+    sleep: async () => {},
+    settleTimeoutMs: 10_000,
+    pollIntervalMs: 1
+  })
+
+  expect(health.CC_DEPLOYMENT_ID).toBe('deployment-new')
+})
+
+test('waitForNewSuccessfulDeploymentActivity fails fast on a terminal failed state', async () => {
+  await expect(
+    waitForNewSuccessfulDeploymentActivity({
+      appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+      expectedCommitID: 'commit-123',
+      previousActivity: [],
+      listActivity: async () => [
+        {
+          action: 'DEPLOY',
+          state: 'FAILED',
+          uuid: 'deployment-123',
+          commit: 'commit-123'
+        }
+      ],
+      sleep: async () => {},
+      settleTimeoutMs: 600_000,
+      pollIntervalMs: 1
+    })
+  ).rejects.toThrow('reached a failed state: FAILED')
+})
+
+test('waitForNewFailedDeploymentActivity is unaffected by the fail-fast check', async () => {
+  const deployment = await waitForNewFailedDeploymentActivity({
+    appId: 'app_facade42-cafe-babe-cafe-deadf00dbaad',
+    expectedCommitID: 'commit-123',
+    previousActivity: [],
+    listActivity: async () => [
+      {
+        action: 'DEPLOY',
+        state: 'FAILED',
+        uuid: 'deployment-123',
+        commit: 'commit-123'
+      }
+    ],
+    sleep: async () => {},
+    settleTimeoutMs: 600_000,
+    pollIntervalMs: 1
+  })
+
+  expect(deployment.uuid).toBe('deployment-123')
+})
