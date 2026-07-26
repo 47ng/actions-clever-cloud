@@ -146,9 +146,9 @@ to let the new deployment use them.
 Multi-line environment variable values (eg: SSH keys, X.509 certificates) are
 currently not supported (due to splitting on newline), but contributions are welcome.
 
-A `setEnv` line that is not valid `KEY=value` (bad characters in the key, broken
-quoting, or a key of `__proto__`) is skipped. The action logs a warning and
-continues without that variable.
+A `setEnv` line that is not valid `KEY=value` (bad characters in the key or
+broken quoting) is skipped. The action logs a warning and continues without
+that variable.
 
 If the deployment fails, the environment variables will still have been
 updated. This could be a problem if your app restarts or scales up, as
@@ -184,8 +184,9 @@ deployment on Clever Cloud keeps running. Nothing tells Clever Cloud to
 cancel it.
 
 `timeout` must be a non-negative integer number of seconds, up to 86400
-(24 hours). Set it to `0` to disable the timeout. Any other value fails
-the step.
+(24 hours). No timeout is already the default; `0` is only useful when the
+value comes from an expression that may evaluate to zero. Any other value
+fails the step.
 
 ## Force deployement
 
@@ -247,8 +248,8 @@ When the local and remote commits are identical, you can control what happens us
 
 - `error` (default): Fail the deployment
 - `ignore`: Skip the deployment silently
-- `restart`: Restart the application without redeploying
-- `rebuild`: Rebuild and redeploy the application
+- `restart`: Redeploy the same commit, reusing the build cache
+- `rebuild`: Redeploy the same commit without the build cache
 
 <!-- x-release-please-start-version -->
 ```yml
