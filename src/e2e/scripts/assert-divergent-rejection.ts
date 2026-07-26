@@ -3,6 +3,10 @@ import { createCleverController } from '../clever-client.ts'
 import { confirmRejectedDeploymentPreservesLiveApp } from '../deployment-observer.ts'
 import { writeStepOutputs } from '../step-output.ts'
 import {
+  assertDivergentRejectionPreservedProduction,
+  parseBaselineState
+} from '../scenario-assertions.ts'
+import {
   createFetchHealth,
   createRunCommand,
   resolveCleverCLI
@@ -23,7 +27,9 @@ if (actionOutcome !== 'failure') {
   throw new Error('Expected divergent deployment without force to fail')
 }
 
-const previousState = JSON.parse(await readFile(statePath, 'utf8'))
+const previousState = parseBaselineState(
+  JSON.parse(await readFile(statePath, 'utf8'))
+)
 const controller = createCleverController({
   cleverCLI,
   runCommand: createRunCommand()
@@ -37,7 +43,9 @@ const health = await confirmRejectedDeploymentPreservesLiveApp({
   appId,
   healthURL,
   expectedScenario: 'healthy',
-  previousActivity: previousState.activity,
+  previousActivity: previousState.activity as Awaited<
+    ReturnType<typeof controller.listActivity>
+  >,
   previousCommitID: previousState.commitId,
   previousDeploymentID: previousState.deploymentId,
   listActivity: controller.listActivity,
@@ -47,35 +55,12 @@ const health = await confirmRejectedDeploymentPreservesLiveApp({
   pollIntervalMs: 5_000
 })
 
-if (health.INSTANCE_ID !== previousState.instanceId) {
-  throw new Error(
-    'Expected divergent rejection to preserve the prior healthy instance ID'
-  )
-}
-if (health.CC_DEPLOYMENT_ID !== previousState.deploymentId) {
-  throw new Error(
-    'Expected divergent rejection to preserve the prior healthy deployment ID'
-  )
-}
-if (health.CC_COMMIT_ID !== previousState.commitId) {
-  throw new Error(
-    'Expected divergent rejection to preserve the prior healthy commit ID'
-  )
-}
-
 const logContent = await readFile(logPath, 'utf8')
-const nonFastForwardMarkers = [
-  'not a simple fast-forward',
-  'non-fast-forward',
-  '[rejected]',
-  'fetch first',
-  'Updates were rejected'
-]
-if (!nonFastForwardMarkers.some(marker => logContent.includes(marker))) {
-  throw new Error(
-    'Expected divergent deployment without force log to mention a non-fast-forward rejection'
-  )
-}
+assertDivergentRejectionPreservedProduction({
+  health,
+  baseline: previousState,
+  logContent
+})
 
 await writeStepOutputs(githubOutput, {
   instance_id: health.INSTANCE_ID,
