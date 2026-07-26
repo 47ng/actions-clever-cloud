@@ -28,7 +28,7 @@ After approval, it checks the pull request head again before app creation.
 
 The reusable job checks out the candidate source with persisted credentials disabled.
 It installs dependencies with `pnpm install --frozen-lockfile --ignore-scripts`.
-Host control uses the candidate's locked Clever Tools binary at `node_modules/.bin/clever`.
+Host control uses the candidate's locked Clever Tools binary at `.candidate-source/node_modules/.bin/clever`.
 No step calls `clever login`.
 
 After the first healthy deploy, the suite generates one random 16-byte base64 value,
@@ -51,7 +51,7 @@ The workflow reports success only after it captures a valid `app_...` ID from Cl
 
 ## Failure evidence
 
-A failed reusable run prepares redacted failure evidence before teardown, then uploads one short-lived artifact named `clever-cloud-e2e-failure-<run-id>-<attempt>`.
+A failed reusable run prepares redacted failure evidence before teardown, then uploads one artifact named `clever-cloud-e2e-failure-<run-id>-<attempt>`, kept for 3 days.
 Download that artifact from the workflow run page if you need to inspect a live failure after the app has been deleted.
 It contains:
 
