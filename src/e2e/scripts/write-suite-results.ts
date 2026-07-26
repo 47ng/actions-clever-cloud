@@ -5,6 +5,7 @@ import {
   buildSuiteResults,
   writeSuiteResults
 } from '../evidence.ts'
+import { scenarioByName } from '../scenario-catalogue.ts'
 
 const appIdFile = process.env.APP_ID_FILE
 const resultsPath = process.env.RESULTS_PATH
@@ -69,7 +70,9 @@ await writeSuiteResults(
           process.env.HEALTHY_COMMIT ||
           null,
         deploymentId: process.env.HEALTHY_OBSERVED_DEPLOYMENT_ID || null,
-        candidateActionLogs: ['candidate-action/001-deploy-healthy.log']
+        candidateActionLogs: [
+          scenarioByName('deploy-healthy-fixture-commit').logFile
+        ]
       },
       {
         name: 'deploy-healthy-fixture-env-check',
@@ -83,7 +86,9 @@ await writeSuiteResults(
         commitId:
           process.env.ENV_OBSERVED_COMMIT_ID || process.env.ENV_COMMIT || null,
         deploymentId: process.env.ENV_OBSERVED_DEPLOYMENT_ID || null,
-        candidateActionLogs: ['candidate-action/002-deploy-env.log']
+        candidateActionLogs: [
+          scenarioByName('deploy-healthy-fixture-env-check').logFile
+        ]
       },
       {
         name: 'same-commit-error',
@@ -96,7 +101,7 @@ await writeSuiteResults(
         instanceId: process.env.SAME_COMMIT_BASELINE_INSTANCE_ID || null,
         commitId: process.env.SAME_COMMIT_BASELINE_COMMIT_ID || null,
         deploymentId: null,
-        candidateActionLogs: ['candidate-action/003-same-commit-error.log']
+        candidateActionLogs: [scenarioByName('same-commit-error').logFile]
       },
       {
         name: 'same-commit-ignore',
@@ -118,7 +123,7 @@ await writeSuiteResults(
           process.env.SAME_COMMIT_IGNORE_DEPLOYMENT_ID ||
           process.env.SAME_COMMIT_BASELINE_DEPLOYMENT_ID ||
           null,
-        candidateActionLogs: ['candidate-action/004-same-commit-ignore.log']
+        candidateActionLogs: [scenarioByName('same-commit-ignore').logFile]
       },
       {
         name: 'same-commit-restart',
@@ -131,7 +136,7 @@ await writeSuiteResults(
         instanceId: process.env.SAME_COMMIT_RESTART_INSTANCE_ID || null,
         commitId: process.env.SAME_COMMIT_RESTART_COMMIT_ID || null,
         deploymentId: process.env.SAME_COMMIT_RESTART_DEPLOYMENT_ID || null,
-        candidateActionLogs: ['candidate-action/005-same-commit-restart.log']
+        candidateActionLogs: [scenarioByName('same-commit-restart').logFile]
       },
       {
         name: 'same-commit-rebuild',
@@ -144,7 +149,7 @@ await writeSuiteResults(
         instanceId: process.env.SAME_COMMIT_REBUILD_INSTANCE_ID || null,
         commitId: process.env.SAME_COMMIT_REBUILD_COMMIT_ID || null,
         deploymentId: process.env.SAME_COMMIT_REBUILD_DEPLOYMENT_ID || null,
-        candidateActionLogs: ['candidate-action/006-same-commit-rebuild.log']
+        candidateActionLogs: [scenarioByName('same-commit-rebuild').logFile]
       },
       {
         name: 'build-failure',
@@ -157,7 +162,7 @@ await writeSuiteResults(
         instanceId: process.env.BUILD_FAILURE_INSTANCE_ID || null,
         commitId: process.env.BUILD_FAILURE_COMMIT || null,
         deploymentId: process.env.BUILD_FAILURE_DEPLOYMENT_ID || null,
-        candidateActionLogs: ['candidate-action/007-build-failure.log']
+        candidateActionLogs: [scenarioByName('build-failure').logFile]
       },
       {
         name: 'startup-failure',
@@ -170,7 +175,7 @@ await writeSuiteResults(
         instanceId: process.env.STARTUP_FAILURE_INSTANCE_ID || null,
         commitId: process.env.STARTUP_FAILURE_COMMIT || null,
         deploymentId: process.env.STARTUP_FAILURE_DEPLOYMENT_ID || null,
-        candidateActionLogs: ['candidate-action/008-startup-failure.log']
+        candidateActionLogs: [scenarioByName('startup-failure').logFile]
       },
       {
         name: 'recovery',
@@ -184,7 +189,7 @@ await writeSuiteResults(
         commitId:
           process.env.RECOVERY_COMMIT_ID || process.env.RECOVERY_COMMIT || null,
         deploymentId: process.env.RECOVERY_DEPLOYMENT_ID || null,
-        candidateActionLogs: ['candidate-action/009-recovery.log']
+        candidateActionLogs: [scenarioByName('recovery').logFile]
       },
       {
         name: 'divergent-no-force',
@@ -199,7 +204,7 @@ await writeSuiteResults(
           null,
         commitId: process.env.DIVERGENT_NO_FORCE_COMMIT_ID || null,
         deploymentId: process.env.DIVERGENT_NO_FORCE_DEPLOYMENT_ID || null,
-        candidateActionLogs: ['candidate-action/010-divergent-no-force.log']
+        candidateActionLogs: [scenarioByName('divergent-no-force').logFile]
       },
       {
         name: 'divergent-force',
@@ -214,7 +219,7 @@ await writeSuiteResults(
           process.env.DIVERGENT_FORCE_COMMIT ||
           null,
         deploymentId: process.env.DIVERGENT_FORCE_DEPLOYMENT_ID || null,
-        candidateActionLogs: ['candidate-action/011-divergent-force.log']
+        candidateActionLogs: [scenarioByName('divergent-force').logFile]
       },
       {
         name: 'timeout-cancelled',
@@ -231,7 +236,7 @@ await writeSuiteResults(
         commitId:
           process.env.TIMEOUT_COMMIT_ID || process.env.TIMEOUT_COMMIT || null,
         deploymentId: process.env.TIMEOUT_DEPLOYMENT_ID || null,
-        candidateActionLogs: ['candidate-action/012-timeout.log']
+        candidateActionLogs: [scenarioByName('timeout-cancelled').logFile]
       }
     ]
   })

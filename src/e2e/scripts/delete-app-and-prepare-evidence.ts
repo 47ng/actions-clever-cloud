@@ -5,24 +5,13 @@ import {
   prepareFailureEvidence,
   verifyPreparedFailureEvidence
 } from '../evidence.ts'
+import { SCENARIO_CATALOGUE } from '../scenario-catalogue.ts'
 import { createRunCommand, resolveCleverCLI } from '../workflow-adapters.ts'
 
 const githubOutput = process.env.GITHUB_OUTPUT
 const hasAppIdFile = process.env.HAS_APP_ID_FILE === 'true'
 const outputDir = process.env.OUTPUT_DIR
 const resultsPath = process.env.RESULTS_PATH
-const healthyLogPath = process.env.HEALTHY_LOG_PATH
-const envLogPath = process.env.ENV_LOG_PATH
-const sameCommitErrorLogPath = process.env.SAME_COMMIT_ERROR_LOG_PATH
-const sameCommitIgnoreLogPath = process.env.SAME_COMMIT_IGNORE_LOG_PATH
-const sameCommitRestartLogPath = process.env.SAME_COMMIT_RESTART_LOG_PATH
-const sameCommitRebuildLogPath = process.env.SAME_COMMIT_REBUILD_LOG_PATH
-const buildFailureLogPath = process.env.BUILD_FAILURE_LOG_PATH
-const startupFailureLogPath = process.env.STARTUP_FAILURE_LOG_PATH
-const recoveryLogPath = process.env.RECOVERY_LOG_PATH
-const divergentNoForceLogPath = process.env.DIVERGENT_NO_FORCE_LOG_PATH
-const divergentForceLogPath = process.env.DIVERGENT_FORCE_LOG_PATH
-const timeoutLogPath = process.env.TIMEOUT_LOG_PATH
 const token = process.env.CLEVER_TOKEN
 const secret = process.env.CLEVER_SECRET
 const healthValue = process.env.E2E_HEALTH_VALUE
@@ -31,26 +20,21 @@ let appName = process.env.APP_NAME
 const appIdFile = process.env.APP_ID_FILE
 const cleverCLI = resolveCleverCLI()
 
-if (
-  !outputDir ||
-  !resultsPath ||
-  !healthyLogPath ||
-  !envLogPath ||
-  !sameCommitErrorLogPath ||
-  !sameCommitIgnoreLogPath ||
-  !sameCommitRestartLogPath ||
-  !sameCommitRebuildLogPath ||
-  !buildFailureLogPath ||
-  !startupFailureLogPath ||
-  !recoveryLogPath ||
-  !divergentNoForceLogPath ||
-  !divergentForceLogPath ||
-  !timeoutLogPath ||
-  !token ||
-  !secret
-) {
+if (!outputDir || !resultsPath || !token || !secret) {
   throw new Error('Missing teardown or failure evidence inputs')
 }
+
+const scenarioLogPaths = SCENARIO_CATALOGUE.map(scenario => {
+  const sourcePath = process.env[scenario.logPathEnvName]
+
+  if (!sourcePath) {
+    throw new Error(
+      `Missing ${scenario.logPathEnvName} for scenario ${scenario.name}`
+    )
+  }
+
+  return { sourcePath, artifactPath: scenario.logFile }
+})
 
 function messageFrom(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -66,56 +50,7 @@ const buildEvidenceCandidates = async (): Promise<
     }
   ]
 
-  for (const logCandidate of [
-    {
-      sourcePath: healthyLogPath,
-      artifactPath: 'candidate-action/001-deploy-healthy.log'
-    },
-    {
-      sourcePath: envLogPath,
-      artifactPath: 'candidate-action/002-deploy-env.log'
-    },
-    {
-      sourcePath: sameCommitErrorLogPath,
-      artifactPath: 'candidate-action/003-same-commit-error.log'
-    },
-    {
-      sourcePath: sameCommitIgnoreLogPath,
-      artifactPath: 'candidate-action/004-same-commit-ignore.log'
-    },
-    {
-      sourcePath: sameCommitRestartLogPath,
-      artifactPath: 'candidate-action/005-same-commit-restart.log'
-    },
-    {
-      sourcePath: sameCommitRebuildLogPath,
-      artifactPath: 'candidate-action/006-same-commit-rebuild.log'
-    },
-    {
-      sourcePath: buildFailureLogPath,
-      artifactPath: 'candidate-action/007-build-failure.log'
-    },
-    {
-      sourcePath: startupFailureLogPath,
-      artifactPath: 'candidate-action/008-startup-failure.log'
-    },
-    {
-      sourcePath: recoveryLogPath,
-      artifactPath: 'candidate-action/009-recovery.log'
-    },
-    {
-      sourcePath: divergentNoForceLogPath,
-      artifactPath: 'candidate-action/010-divergent-no-force.log'
-    },
-    {
-      sourcePath: divergentForceLogPath,
-      artifactPath: 'candidate-action/011-divergent-force.log'
-    },
-    {
-      sourcePath: timeoutLogPath,
-      artifactPath: 'candidate-action/012-timeout.log'
-    }
-  ]) {
+  for (const logCandidate of scenarioLogPaths) {
     try {
       await access(logCandidate.sourcePath, constants.F_OK)
       candidates.push(logCandidate)
