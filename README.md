@@ -22,7 +22,7 @@ If you try deploying it with this Github action, you will get the
 following message in your logs: `[ERROR] HTTP Error: 401 Authorization
 Required`.
 
-Currently (early 2023), the only workaround is to create a new
+The only workaround is to create a new
 application on Clever Cloud, that deploys "_from a local repository_",
 then remove the Clever Cloud webhook that has been created on your
 Github repository.
@@ -36,7 +36,7 @@ In your workflow file:
 steps:
   # This action requires an unshallow working copy,
   # so the following prerequisites are necessary:
-  - uses: actions/checkout@v3
+  - uses: actions/checkout@v7
     with:
       fetch-depth: 0
 
@@ -85,6 +85,8 @@ deploy to another application, you can pass its ID:
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 ```
 <!-- x-release-please-end -->
+
+If you set both `alias` and `appID`, `appID` takes precedence and `alias` is ignored.
 
 Application IDs can be found in the [Clever Cloud console](https://console.clever-cloud.com/),
 at the top-right corner of any page for a given app, or in the Information tab.
@@ -144,9 +146,13 @@ to let the new deployment use them.
 Multi-line environment variable values (eg: SSH keys, X.509 certificates) are
 currently not supported (due to splitting on newline), but contributions are welcome.
 
-If the deployment fails, the environment variables will still have been
-updated. This could be a problem if your app restarts or scales up, as
-the new instance would use the new variable.
+A `setEnv` line that is not valid `KEY=value` (bad characters in the key or
+broken quoting) is skipped. The action logs a warning and continues without
+that variable.
+
+If the deployment fails, or setting the variables fails partway through, the
+ones already applied will still be live. This could be a problem if your app
+restarts or scales up, as the new instance would use the new variable.
 
 In the future, we might include a way to rollback environment variables
 set by this action if deployment fails.
@@ -173,11 +179,20 @@ regardless of the deployment status:
 ```
 <!-- x-release-please-end -->
 
+When the timeout is reached, the action stops waiting and moves on, but the
+deployment on Clever Cloud keeps running. Nothing tells Clever Cloud to
+cancel it.
+
+`timeout` must be a non-negative integer number of seconds, up to 86400
+(24 hours). No timeout is already the default; `0` is only useful when the
+value comes from an expression that may evaluate to zero. Any other value
+fails the step.
+
 ## Force deployement
 
 > Support: introduced in v1.2.0
 
-Clever Cloud uses a Git remote to perform deploys. By default, if the commit you want to deploy is not a fast-forward from the commit currently deployed, the deploy will be rejected. You can pass `force: true` to force the deploy anyway:
+Clever Cloud uses a Git remote to perform deploys. By default, if the commit you want to deploy is not a fast-forward from the last commit pushed to that remote, the deploy will be rejected. You can pass `force: true` to force the deploy anyway:
 
 <!-- x-release-please-start-version -->
 ```yml
@@ -232,9 +247,9 @@ monorepo, the whole repository is still sent.
 When the local and remote commits are identical, you can control what happens using the `sameCommitPolicy` option. Possible values are:
 
 - `error` (default): Fail the deployment
-- `ignore`: Skip the deployment silently
-- `restart`: Restart the application without redeploying
-- `rebuild`: Rebuild and redeploy the application
+- `ignore`: Skip the deployment without failing
+- `restart`: Redeploy the same commit, reusing the build cache
+- `rebuild`: Redeploy the same commit without the build cache
 
 <!-- x-release-please-start-version -->
 ```yml
@@ -249,7 +264,7 @@ When the local and remote commits are identical, you can control what happens us
 
 ## Logs
 
-> Support: introduced in v1.3.1
+> Support: introduced in v1.3.0
 
 You can write the deployment logs to a file for archiving:
 
@@ -262,7 +277,7 @@ You can write the deployment logs to a file for archiving:
     CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
     CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
 # Optional: save the file as an artifact
-- uses: actions/upload-artifact@v2
+- uses: actions/upload-artifact@v4
   name: Upload deployment logs
   with:
     name: clever-cloud-deploy.log
@@ -285,6 +300,9 @@ disable it from printing onto the console, using the `quiet` option:
 ```
 <!-- x-release-please-end -->
 
+`quiet` only silences the console. If you also set `logFile`, the file
+still gets the full deployment output.
+
 ### Annotations
 
 The action will detect the [workflow commands](https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#setting-a-notice-message)
@@ -301,13 +319,13 @@ To specify the version of the action to use:
 
 - `uses: 47ng/actions-clever-cloud@v2.1.5`: latest stable version <!-- x-release-please-version -->
 - `uses: 47ng/actions-clever-cloud@f496297399b2351f4459d10f556e1c4eff2566b7`: pinned to a specific Git SHA-1 (check out the [releases](https://github.com/47ng/actions-clever-cloud/releases))
-- `uses: docker://ghcr.io/47ng/actions-clever-cloud:latest`: latest code from master (not recommended, as it may break: hic sunt dracones.)
+- `uses: docker://ghcr.io/47ng/actions-clever-cloud:latest`: tracks the newest released version (moved there right after each release, not from an ordinary push to master)
 
 > **Note**: `uses: 47ng/actions-clever-cloud@master` will not use the latest code on the `master` branch,
 > because the action manifest is pinned on the latest relase for performance reasons (it saves
 > rebuilding the Docker image when consuming the action).
 >
-> If you wish to test unreleased features, go through Docker directly.
+> To test unreleased features, pin a `git-<sha>` preview image built for a pull request.
 
 > **Note**: as of 2023-03-24, Docker images have been copied from Docker Hub
 > (`47ng/actions-clever-cloud`) to GitHub Container Registry (`ghcr.io/47ng/actions-clever-cloud`),
