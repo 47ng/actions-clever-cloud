@@ -208,8 +208,9 @@ Give the action step an ID to check whether it timed out:
 ```
 <!-- x-release-please-end -->
 
-The `timedOut` output is `true` when the action reaches the timeout. It is
-`false` when the deployment finishes before the timeout.
+The `timedOut` output is `true` when the action reaches the timeout. It stays
+`false` when the action does not reach the timeout. This includes deployment
+failures.
 
 `timeout` must be a non-negative integer number of seconds, up to 86400
 (24 hours). No timeout is already the default; `0` is only useful when the

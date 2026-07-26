@@ -528,6 +528,7 @@ jobs:
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
           APP_ID: ${{ steps.create.outputs.app_id }}
           ACTION_OUTCOME: ${{ steps.startup-failure.outcome }}
+          ACTION_TIMED_OUT: ${{ steps.startup-failure.outputs.timedOut }}
           EXPECTED_COMMIT_ID: ${{ steps.startup-failure-commit.outputs.commit }}
           STATE_PATH: ${{ github.workspace }}/.e2e-state/failed-deploy-state.json
           LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/008-startup-failure.log

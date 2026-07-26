@@ -17,6 +17,7 @@ import {
 
 const appId = process.env.APP_ID
 const actionOutcome = process.env.ACTION_OUTCOME
+const actionTimedOut = process.env.ACTION_TIMED_OUT
 const expectedCommitID = process.env.EXPECTED_COMMIT_ID
 const statePath = process.env.STATE_PATH
 const logPath = process.env.LOG_PATH
@@ -26,6 +27,7 @@ const cleverCLI = resolveCleverCLI()
 if (
   !appId ||
   !actionOutcome ||
+  !actionTimedOut ||
   !expectedCommitID ||
   !statePath ||
   !logPath ||
@@ -36,6 +38,10 @@ if (
 
 if (actionOutcome !== 'failure') {
   throw new Error('Expected startup-failure deployment to fail')
+}
+
+if (actionTimedOut !== 'false') {
+  throw new Error('Expected failed deployment action to set timedOut=false')
 }
 
 const previousState = parseBaselineState(

@@ -257,7 +257,6 @@ test('a completed deployment does not log the timeout message', async () => {
   const deps = makeDeps()
   await deploy(config(), deps)
   expect(deps.host.info).not.toHaveBeenCalledWith(DEPLOYMENT_TIMEOUT_MESSAGE)
-  expect(deps.host.setOutput).toHaveBeenCalledWith('timedOut', false)
 })
 
 test('a quiet timed-out deployment writes the timeout message to the deploy log', async () => {

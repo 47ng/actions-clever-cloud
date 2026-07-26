@@ -851,7 +851,7 @@ describe('e2e-reusable', () => {
     )
   })
 
-  test('checks that a completed deployment reports timedOut=false', () => {
+  test('checks that non-timeout deployments report timedOut=false', () => {
     const recoveryObserver = onlyStep(
       suiteSteps,
       step =>
@@ -864,6 +864,17 @@ describe('e2e-reusable', () => {
     const recoveryScript = scriptSourceOf('observe-recovery-deployment.ts')
     expect(recoveryScript).toContain('process.env.ACTION_TIMED_OUT')
     expect(recoveryScript).toContain("actionTimedOut !== 'false'")
+
+    const startupFailureAssertion = onlyStep(
+      suiteSteps,
+      step => step.id === 'assert-startup-failure'
+    )
+    expect(startupFailureAssertion.env?.['ACTION_TIMED_OUT']).toBe(
+      '${{ steps.startup-failure.outputs.timedOut }}'
+    )
+    const startupFailureScript = scriptSourceOf('assert-startup-failure.ts')
+    expect(startupFailureScript).toContain('process.env.ACTION_TIMED_OUT')
+    expect(startupFailureScript).toContain("actionTimedOut !== 'false'")
   })
 
   test('checks the timeout contract from the trusted workflow copy, against the shared message', () => {

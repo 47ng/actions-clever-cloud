@@ -8,6 +8,7 @@ import { createDeployLog, type DeployLog } from './output.ts'
 
 export async function main(): Promise<void> {
   const host = gitHubHost()
+  host.setOutput('timedOut', false)
   let log: DeployLog | undefined
   try {
     await fixGitDubiousOwnership()
