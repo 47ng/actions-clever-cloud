@@ -26,6 +26,7 @@ type Job = {
   environment?: string | { name?: string }
   steps?: Step[]
   with?: Record<string, unknown>
+  'timeout-minutes'?: number
 }
 
 type Trigger = {
@@ -70,6 +71,11 @@ const e2eAutomatic = workflowOf('e2e-release-please.yml')
 const e2eReusable = workflowOf('e2e-reusable.yml')
 
 const e2eWorkflows = allWorkflows.filter(([name]) => name.startsWith('e2e-'))
+
+test('the workflow collections are non-empty', () => {
+  expect(allWorkflows.length).toBeGreaterThan(0)
+  expect(e2eWorkflows.length).toBe(3)
+})
 
 const extractedWorkflows: Array<[string, Workflow]> = [
   ['e2e-manual.yml', e2eManual],
@@ -292,6 +298,24 @@ describe('shared workflow policies', () => {
           step => step.uses?.startsWith('actions/cache@') ?? false
         )
       ).toEqual([])
+    }
+  )
+
+  test.each(e2eWorkflows)(
+    '%s bounds every runner job with a timeout',
+    (file, workflow) => {
+      for (const [jobId, job] of Object.entries(workflow.jobs)) {
+        if (job.uses !== undefined) {
+          // GitHub rejects timeout-minutes on a reusable workflow call; the
+          // called workflow's own job carries the budget.
+          expect(job['timeout-minutes']).toBeUndefined()
+          continue
+        }
+        expect(job['timeout-minutes'], `${file} ${jobId}`).toBeGreaterThan(0)
+        expect(job['timeout-minutes'], `${file} ${jobId}`).toBeLessThanOrEqual(
+          40
+        )
+      }
     }
   )
 })
