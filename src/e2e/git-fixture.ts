@@ -12,6 +12,8 @@ import {
 
 const execFileAsync = promisify(execFile)
 
+const GIT_COMMAND_TIMEOUT_MS = 60_000
+
 const FIXTURE_GITIGNORE_LINES = [
   '.candidate-source/',
   '.candidate-action/',
@@ -204,7 +206,9 @@ async function writeFixtureVersion(workspaceDir: string, label: string): Promise
 async function runGit(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', args, {
     cwd,
-    encoding: 'utf8'
+    encoding: 'utf8',
+    timeout: GIT_COMMAND_TIMEOUT_MS,
+    maxBuffer: 1024 * 1024 * 10
   })
   return stdout.trim()
 }

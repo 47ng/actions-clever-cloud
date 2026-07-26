@@ -1,6 +1,14 @@
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest'
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+  vi
+} from 'vitest'
 import { createGitHubClient } from './github-api.ts'
 
 type RecordedRequest = {
@@ -159,5 +167,23 @@ describe('createGitHubClient', () => {
     await expect(client.getPullRequest(404)).rejects.toThrow(
       'GitHub API GET /repos/47ng/actions-clever-cloud/pulls/404 failed with status 404'
     )
+  })
+
+  test('aborts a request that hangs past the request timeout', async () => {
+    vi.useFakeTimers()
+    try {
+      server.use(
+        http.get(
+          'https://api.github.com/repos/47ng/actions-clever-cloud',
+          () => new Promise(() => {})
+        )
+      )
+
+      const pending = expect(client.getRepository()).rejects.toThrow(/aborted/i)
+      await vi.advanceTimersByTimeAsync(120_000)
+      await pending
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

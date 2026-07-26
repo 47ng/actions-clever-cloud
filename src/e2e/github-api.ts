@@ -25,6 +25,8 @@ type GitHubClientOptions = {
   repository: string
 }
 
+const REQUEST_TIMEOUT_MS = 30_000
+
 export function createGitHubClient({
   token,
   repository
@@ -34,17 +36,29 @@ export function createGitHubClient({
     path: string,
     body?: unknown
   ): Promise<unknown> {
-    const response = await fetch(`https://api.github.com${path}`, {
-      method,
-      headers: {
-        authorization: `Bearer ${token}`,
-        accept: 'application/vnd.github+json',
-        'x-github-api-version': '2022-11-28',
-        'user-agent': 'actions-clever-cloud-e2e',
-        ...(body === undefined ? {} : { 'content-type': 'application/json' })
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) })
-    })
+    const requestController = new AbortController()
+    const timeoutId = setTimeout(
+      () => requestController.abort(),
+      REQUEST_TIMEOUT_MS
+    )
+
+    let response: Response
+    try {
+      response = await fetch(`https://api.github.com${path}`, {
+        method,
+        signal: requestController.signal,
+        headers: {
+          authorization: `Bearer ${token}`,
+          accept: 'application/vnd.github+json',
+          'x-github-api-version': '2022-11-28',
+          'user-agent': 'actions-clever-cloud-e2e',
+          ...(body === undefined ? {} : { 'content-type': 'application/json' })
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) })
+      })
+    } finally {
+      clearTimeout(timeoutId)
+    }
 
     if (!response.ok) {
       throw new Error(
