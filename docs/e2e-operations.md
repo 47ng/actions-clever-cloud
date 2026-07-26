@@ -66,6 +66,12 @@ Teardown always targets the captured app ID.
 It loops until no deployment is still active, waiting for each latest deployment to reach `WIP`, cancelling it, then deleting the app by exact ID and checking that the app no longer appears in Clever Cloud.
 If cleanup fails, the workflow reports the exact app name and ID so you can remove it by hand.
 
+The suite job is capped at 30 minutes, and its long-running steps carry their own caps, so a hung step fails on its own and teardown still runs on a normal budget rather than a cancellation grace window.
+That is the point of the step caps, protecting cleanup.
+Teardown's own step cap is 15 minutes, and the cancel-and-settle loop inside `deleteApplication` has its own 10-minute budget (`DEFAULT_SETTLE_TIMEOUT_MS` in `src/e2e/clever-client.ts`), after which it gives up and reports.
+A hang arriving late in the run can still push the job into its 30-minute cap during teardown, so a run that shows as cancelled by timeout rather than failed may never have written the app name and ID report.
+Skip straight to the manual cleanup commands below in that case.
+
 For manual recovery, first download the failure evidence artifact if one exists.
 If `clever cancel-deploy` reports that the latest deployment is not in `WIP`, wait for that deployment to reach `WIP` and retry.
 Then use the reported app ID with Clever Tools from a trusted shell:

@@ -35,7 +35,7 @@ jobs:
   create-and-delete:
     name: Create and delete app
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: read
@@ -96,11 +96,13 @@ jobs:
 
       - name: Install workflow pinning dependencies
         if: steps.candidate-state.outputs.proceed == 'true'
+        timeout-minutes: 5
         working-directory: .workflow-source
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Install candidate dependencies
         if: steps.candidate-state.outputs.proceed == 'true'
+        timeout-minutes: 5
         working-directory: .candidate-source
         run: pnpm install --frozen-lockfile --ignore-scripts
 
@@ -172,6 +174,7 @@ jobs:
       - name: Deploy healthy fixture commit
         if: steps.candidate-state.outputs.proceed == 'true'
         id: deploy-healthy
+        timeout-minutes: 10
         uses: ./.candidate-action
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
@@ -186,6 +189,7 @@ jobs:
       - name: Observe healthy fixture deployment
         if: steps.candidate-state.outputs.proceed == 'true'
         id: observe-healthy
+        timeout-minutes: 12
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
@@ -219,6 +223,7 @@ jobs:
       - name: Deploy healthy fixture commit with quiet env checks
         if: steps.candidate-state.outputs.proceed == 'true'
         id: deploy-env
+        timeout-minutes: 10
         uses: ./.candidate-action
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
@@ -236,6 +241,7 @@ jobs:
       - name: Observe healthy fixture env deployment
         if: steps.candidate-state.outputs.proceed == 'true'
         id: observe-env
+        timeout-minutes: 12
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
@@ -278,6 +284,7 @@ jobs:
         if: steps.candidate-state.outputs.proceed == 'true'
         id: same-commit-error
         continue-on-error: true
+        timeout-minutes: 10
         uses: ./.candidate-action
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
@@ -291,6 +298,7 @@ jobs:
       - name: Assert same-commit error outcome and activity
         if: steps.candidate-state.outputs.proceed == 'true'
         id: assert-same-commit-error
+        timeout-minutes: 12
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
@@ -312,6 +320,7 @@ jobs:
       - name: Deploy same commit with ignore policy
         if: steps.candidate-state.outputs.proceed == 'true'
         id: same-commit-ignore
+        timeout-minutes: 10
         uses: ./.candidate-action
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
@@ -326,6 +335,7 @@ jobs:
       - name: Observe same-commit ignore state
         if: steps.candidate-state.outputs.proceed == 'true'
         id: observe-same-commit-ignore
+        timeout-minutes: 12
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
@@ -346,6 +356,7 @@ jobs:
       - name: Deploy same commit with restart policy
         if: steps.candidate-state.outputs.proceed == 'true'
         id: same-commit-restart
+        timeout-minutes: 10
         uses: ./.candidate-action
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
@@ -360,6 +371,7 @@ jobs:
       - name: Observe same-commit restart state
         if: steps.candidate-state.outputs.proceed == 'true'
         id: observe-same-commit-restart
+        timeout-minutes: 12
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
@@ -381,6 +393,7 @@ jobs:
       - name: Deploy same commit with rebuild policy
         if: steps.candidate-state.outputs.proceed == 'true'
         id: same-commit-rebuild
+        timeout-minutes: 10
         uses: ./.candidate-action
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
@@ -395,6 +408,7 @@ jobs:
       - name: Observe same-commit rebuild state
         if: steps.candidate-state.outputs.proceed == 'true'
         id: observe-same-commit-rebuild
+        timeout-minutes: 12
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
@@ -440,6 +454,7 @@ jobs:
         if: steps.candidate-state.outputs.proceed == 'true'
         id: build-failure
         continue-on-error: true
+        timeout-minutes: 10
         uses: ./.candidate-action
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
@@ -457,6 +472,7 @@ jobs:
       - name: Assert build-failure outcome and preserved production
         if: steps.candidate-state.outputs.proceed == 'true'
         id: assert-build-failure
+        timeout-minutes: 12
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
@@ -489,6 +505,7 @@ jobs:
         if: steps.candidate-state.outputs.proceed == 'true'
         id: startup-failure
         continue-on-error: true
+        timeout-minutes: 10
         uses: ./.candidate-action
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
@@ -505,6 +522,7 @@ jobs:
       - name: Assert startup-failure outcome and preserved production
         if: steps.candidate-state.outputs.proceed == 'true'
         id: assert-startup-failure
+        timeout-minutes: 12
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
@@ -536,6 +554,7 @@ jobs:
       - name: Deploy recovery fixture commit
         if: steps.candidate-state.outputs.proceed == 'true'
         id: recovery
+        timeout-minutes: 10
         uses: ./.candidate-action
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
@@ -552,6 +571,7 @@ jobs:
       - name: Observe recovery fixture deployment
         if: steps.candidate-state.outputs.proceed == 'true'
         id: observe-recovery
+        timeout-minutes: 12
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
@@ -594,6 +614,7 @@ jobs:
         if: steps.candidate-state.outputs.proceed == 'true'
         id: divergent-no-force
         continue-on-error: true
+        timeout-minutes: 10
         uses: ./.candidate-action
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
@@ -610,6 +631,7 @@ jobs:
       - name: Assert divergent rejection outcome and preserved production
         if: steps.candidate-state.outputs.proceed == 'true'
         id: assert-divergent-no-force
+        timeout-minutes: 12
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
@@ -631,6 +653,7 @@ jobs:
       - name: Deploy divergent fixture commit with force
         if: steps.candidate-state.outputs.proceed == 'true'
         id: divergent-force
+        timeout-minutes: 10
         uses: ./.candidate-action
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
@@ -648,6 +671,7 @@ jobs:
       - name: Observe forced divergent deployment
         if: steps.candidate-state.outputs.proceed == 'true'
         id: observe-divergent-force
+        timeout-minutes: 12
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
@@ -678,6 +702,7 @@ jobs:
       - name: Deploy slow-build fixture commit with timeout
         if: steps.candidate-state.outputs.proceed == 'true'
         id: timeout-deploy
+        timeout-minutes: 5
         uses: ./.candidate-action
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
@@ -705,6 +730,7 @@ jobs:
       - name: Cancel timed-out deployment and confirm forced commit stays live
         if: always() && steps.candidate-state.outputs.proceed == 'true' && steps.timeout-deploy.outcome != 'skipped'
         id: observe-timeout-deploy
+        timeout-minutes: 12
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
@@ -800,6 +826,7 @@ jobs:
       - name: Delete the captured app
         if: always() && steps.candidate-state.outputs.proceed == 'true' && steps.create.outcome == 'success'
         id: delete-app
+        timeout-minutes: 15
         env:
           CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}

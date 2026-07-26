@@ -12,6 +12,7 @@ type Step = {
   run?: string
   env?: Record<string, string>
   with?: Record<string, unknown>
+  'timeout-minutes'?: number
 }
 
 type Concurrency = {
@@ -313,7 +314,7 @@ describe('shared workflow policies', () => {
         }
         expect(job['timeout-minutes'], `${file} ${jobId}`).toBeGreaterThan(0)
         expect(job['timeout-minutes'], `${file} ${jobId}`).toBeLessThanOrEqual(
-          40
+          30
         )
       }
     }
@@ -866,5 +867,26 @@ describe('e2e-reusable', () => {
       "import { DEPLOYMENT_TIMEOUT_MESSAGE } from '../../deployment.ts'"
     )
     expect(timeoutScript).toContain('DEPLOYMENT_TIMEOUT_MESSAGE')
+  })
+
+  test('bounds every candidate action invocation well under the job timeout', () => {
+    const candidateActionSteps = suiteSteps.filter(
+      step => step.uses === './.candidate-action'
+    )
+    expect(candidateActionSteps.length).toBeGreaterThan(0)
+    for (const step of candidateActionSteps) {
+      const limit = step.id === 'timeout-deploy' ? 5 : 10
+      expect(step['timeout-minutes'], step.id).toBeGreaterThan(0)
+      expect(step['timeout-minutes'], step.id).toBeLessThanOrEqual(limit)
+    }
+  })
+
+  test('lets the timeout-deploy action exit on its own before the step cap does', () => {
+    const timeoutDeploy = onlyStep(
+      suiteSteps,
+      step => step.id === 'timeout-deploy'
+    )
+    expect(timeoutDeploy.with?.['timeout']).toBe(60)
+    expect(timeoutDeploy['timeout-minutes']).toBe(5)
   })
 })
