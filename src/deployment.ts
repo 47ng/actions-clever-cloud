@@ -2,6 +2,9 @@ import type { Clever } from './clever.ts'
 import type { Config } from './config.ts'
 import type { Host } from './github.ts'
 
+export const DEPLOYMENT_TIMEOUT_MESSAGE =
+  'Deployment timed out, moving on with workflow run'
+
 export type DeploymentDeps = {
   clever: Clever
   git: { checkForShallowCopy(): Promise<void> }
@@ -33,9 +36,9 @@ export async function deploy(
     // When quiet suppresses the console pipeline, the log file is the only
     // place the timeout can be observed; the live e2e suite asserts it there.
     if (config.quiet && config.logFile) {
-      deployLog?.write('Deployment timed out, moving on with workflow run\n')
+      deployLog?.write(`${DEPLOYMENT_TIMEOUT_MESSAGE}\n`)
     }
-    host.info('Deployment timed out, moving on with workflow run')
+    host.info(DEPLOYMENT_TIMEOUT_MESSAGE)
   }
 }
 
