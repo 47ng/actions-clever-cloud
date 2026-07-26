@@ -47,8 +47,8 @@ inputs:
     required: false
     default: 'false'
     description: |
-      Don't print deployment output to the console. Use this in case your deployment
-      may reveal secrets or PII.
+      Don't print deployment output to the console. This does not affect
+      logFile, which still receives the raw output, secrets and PII included.
   sameCommitPolicy:
     required: false
     description: |
