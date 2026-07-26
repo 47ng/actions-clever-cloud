@@ -19,9 +19,9 @@ It does not pass an organisation owner.
 
 ## Manual dispatch
 
-Run `.github/workflows/e2e-manual.yml` from the branch whose current head matches the pull request head.
+Run `.github/workflows/e2e-manual.yml` from `master`. The workflow rejects a dispatch from any other ref.
 Pass the full 40-character internal pull request head SHA as `head_sha`.
-The workflow rejects closed pull requests, fork pull requests, stale SHAs, and branch selections whose workflow run SHA does not match the input SHA.
+The workflow resolves that SHA to exactly one open pull request in this repository, and rejects closed pull requests, fork pull requests, and SHAs that are no longer the head of an open pull request.
 After approval, it checks the pull request head again before app creation.
 
 ## Candidate setup
