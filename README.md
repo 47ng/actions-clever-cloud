@@ -92,6 +92,9 @@ Application IDs can be found in the [Clever Cloud console](https://console.cleve
 at the top-right corner of any page for a given app, or in the Information tab.
 They look like `app_{uuidv4}`.
 
+The first deploy with a given `appID` links it via `clever link`, which writes
+a `.clever.json` file into the working tree (or `deployPath`, if you set one).
+
 ## Authentication
 
 You will need to pass a token and a secret for authentication, via the
@@ -182,6 +185,9 @@ regardless of the deployment status:
 When the timeout is reached, the action stops waiting and moves on, but the
 deployment on Clever Cloud keeps running. Nothing tells Clever Cloud to
 cancel it.
+
+If the timeout fires during the push itself, the process is killed, the
+step still succeeds, and nothing was ever deployed.
 
 `timeout` must be a non-negative integer number of seconds, up to 86400
 (24 hours). No timeout is already the default; `0` is only useful when the
@@ -302,6 +308,10 @@ disable it from printing onto the console, using the `quiet` option:
 
 `quiet` only silences the console. If you also set `logFile`, the file
 still gets the full deployment output.
+
+The timeout message is an exception: it only reaches `logFile` when `quiet`
+is set too. Without `quiet`, a timed-out deployment's log file just stops,
+with nothing explaining why.
 
 ### Annotations
 
