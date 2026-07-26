@@ -32,6 +32,7 @@ export async function deploy(
     sameCommitPolicy: config.sameCommitPolicy,
     timeoutSeconds: config.timeout
   })
+  host.setOutput('timedOut', outcome === 'timed-out')
   if (outcome === 'timed-out') {
     // When quiet suppresses the console pipeline, the log file is the only
     // place the timeout can be observed; the live e2e suite asserts it there.

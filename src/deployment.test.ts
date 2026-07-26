@@ -61,6 +61,7 @@ function fakeHost(): Host {
     debug: vi.fn(),
     warning: vi.fn(),
     maskSecret: vi.fn(),
+    setOutput: vi.fn(),
     fail: vi.fn()
   }
 }
@@ -249,12 +250,14 @@ test('a timed-out deployment moves on without failing', async () => {
   const deps = makeDeps({ outcome: 'timed-out' })
   await expect(deploy(config({ timeout: 1800 }), deps)).resolves.toBeUndefined()
   expect(deps.host.info).toHaveBeenCalledWith(DEPLOYMENT_TIMEOUT_MESSAGE)
+  expect(deps.host.setOutput).toHaveBeenCalledWith('timedOut', true)
 })
 
 test('a completed deployment does not log the timeout message', async () => {
   const deps = makeDeps()
   await deploy(config(), deps)
   expect(deps.host.info).not.toHaveBeenCalledWith(DEPLOYMENT_TIMEOUT_MESSAGE)
+  expect(deps.host.setOutput).toHaveBeenCalledWith('timedOut', false)
 })
 
 test('a quiet timed-out deployment writes the timeout message to the deploy log', async () => {

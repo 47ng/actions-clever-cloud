@@ -577,6 +577,7 @@ jobs:
           CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
           APP_ID: ${{ steps.create.outputs.app_id }}
           EXPECTED_COMMIT_ID: ${{ steps.recovery-commit.outputs.commit }}
+          ACTION_TIMED_OUT: ${{ steps.recovery.outputs.timedOut }}
         run: node .candidate-source/src/e2e/scripts/observe-recovery-deployment.ts
 
       - name: Capture force baseline state
@@ -723,6 +724,7 @@ jobs:
         id: assert-timeout-deploy
         env:
           ACTION_OUTCOME: ${{ steps.timeout-deploy.outcome }}
+          TIMED_OUT: ${{ steps.timeout-deploy.outputs.timedOut }}
           LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/012-timeout.log
           TRUSTED_WORKFLOW_DIR: ${{ runner.temp }}/trusted-workflow
         run: node "$TRUSTED_WORKFLOW_DIR"/src/e2e/scripts/assert-timeout-contract.ts

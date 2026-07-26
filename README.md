@@ -189,6 +189,28 @@ cancel it.
 If the timeout fires during the push itself, the process is killed, the
 step still succeeds, and nothing was ever deployed.
 
+Give the action step an ID to check whether it timed out:
+
+<!-- x-release-please-start-version -->
+```yml
+- name: Deploy
+  id: deploy
+  uses: 47ng/actions-clever-cloud@v2.1.5
+  with:
+    timeout: 1800
+  env:
+    CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+    CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+
+- name: Handle a timed-out deployment
+  if: steps.deploy.outputs.timedOut == 'true'
+  run: echo "The deployment is still running on Clever Cloud"
+```
+<!-- x-release-please-end -->
+
+The `timedOut` output is `true` when the action reaches the timeout. It is
+`false` when the deployment finishes before the timeout.
+
 `timeout` must be a non-negative integer number of seconds, up to 86400
 (24 hours). No timeout is already the default; `0` is only useful when the
 value comes from an expression that may evaluate to zero. Any other value
