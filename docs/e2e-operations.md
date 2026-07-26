@@ -73,7 +73,8 @@ A hang arriving late in the run can still push the job into its 30-minute cap du
 Skip straight to the manual cleanup commands below in that case.
 
 For manual recovery, first download the failure evidence artifact if one exists.
-If `clever cancel-deploy` reports that the latest deployment is not in `WIP`, wait for that deployment to reach `WIP` and retry.
+`clever cancel-deploy` reports `There is no ongoing deployment for this application` both when a deployment is genuinely in flight but not yet in a cancellable state, and when there is nothing left to cancel at all, including right after a cancellation has already replaced the deploy row.
+Retry briefly if you expect a deployment to still be running, and otherwise go straight to the delete command below.
 Then use the reported app ID with Clever Tools from a trusted shell:
 
 ```bash
