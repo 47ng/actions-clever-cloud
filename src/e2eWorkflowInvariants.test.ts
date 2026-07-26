@@ -72,6 +72,11 @@ const e2eReusable = workflowOf('e2e-reusable.yml')
 
 const e2eWorkflows = allWorkflows.filter(([name]) => name.startsWith('e2e-'))
 
+test('the workflow collections are non-empty', () => {
+  expect(allWorkflows.length).toBeGreaterThan(0)
+  expect(e2eWorkflows.length).toBe(3)
+})
+
 const extractedWorkflows: Array<[string, Workflow]> = [
   ['e2e-manual.yml', e2eManual],
   ['e2e-release-please.yml', e2eAutomatic],
