@@ -1,9 +1,9 @@
-import { appendFile } from 'node:fs/promises'
 import {
   createImagetoolsInspect,
   inspectionFailure,
   probeCandidateImage
 } from '../image-inspection.ts'
+import { writeStepOutputs } from '../step-output.ts'
 
 const image = process.env.CANDIDATE_IMAGE
 const expectedRevision = process.env.EXPECTED_REVISION
@@ -25,7 +25,7 @@ if (result.missing) {
   throw inspectionFailure(image, result.registryStderr)
 }
 
-await appendFile(
-  githubOutput,
-  `digest=${result.digest}\n` + `image=${result.image}\n`
-)
+await writeStepOutputs(githubOutput, {
+  digest: result.digest,
+  image: result.image
+})

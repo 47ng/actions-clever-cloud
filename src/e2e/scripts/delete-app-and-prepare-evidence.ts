@@ -1,11 +1,12 @@
 import { constants } from 'node:fs'
-import { access, appendFile, readFile } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 import { APP_ID_REGEX, createCleverController } from '../clever-client.ts'
 import {
   prepareFailureEvidence,
   verifyPreparedFailureEvidence
 } from '../evidence.ts'
 import { SCENARIO_CATALOGUE } from '../scenario-catalogue.ts'
+import { writeStepOutputs } from '../step-output.ts'
 import { createRunCommand, resolveCleverCLI } from '../workflow-adapters.ts'
 
 const githubOutput = process.env.GITHUB_OUTPUT
@@ -115,7 +116,7 @@ if (evidencePrepared) {
       credentials
     })
     if (githubOutput) {
-      await appendFile(githubOutput, 'failure_evidence_ready=true\n')
+      await writeStepOutputs(githubOutput, { failure_evidence_ready: 'true' })
     }
   } catch (error) {
     errors.push(`Failure evidence verification failed: ${messageFrom(error)}`)

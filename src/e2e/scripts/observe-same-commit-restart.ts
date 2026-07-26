@@ -1,10 +1,11 @@
-import { appendFile, readFile, writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { createCleverController } from '../clever-client.ts'
 import {
   waitForHealthyDeployment,
   waitForNewSuccessfulDeploymentActivity
 } from '../deployment-observer.ts'
 import { FIXTURE_BUILD_MARKER } from '../fixture-app.ts'
+import { writeStepOutputs } from '../step-output.ts'
 import {
   createFetchHealth,
   createRunCommand,
@@ -97,9 +98,8 @@ await writeFile(
   'utf8'
 )
 
-await appendFile(
-  githubOutput,
-  `instance_id=${health.INSTANCE_ID ?? ''}\n` +
-    `deployment_id=${health.CC_DEPLOYMENT_ID ?? ''}\n` +
-    `commit_id=${health.CC_COMMIT_ID ?? ''}\n`
-)
+await writeStepOutputs(githubOutput, {
+  instance_id: health.INSTANCE_ID,
+  deployment_id: health.CC_DEPLOYMENT_ID,
+  commit_id: health.CC_COMMIT_ID
+})

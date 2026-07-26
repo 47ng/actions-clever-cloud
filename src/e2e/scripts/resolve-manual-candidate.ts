@@ -1,6 +1,6 @@
-import { appendFile } from 'node:fs/promises'
 import { filterManualCandidatePulls } from '../candidate-policy.ts'
 import { createGitHubClient } from '../github-api.ts'
+import { writeStepOutputs } from '../step-output.ts'
 
 const headSha = process.env.HEAD_SHA
 const runRef = process.env.RUN_REF
@@ -38,9 +38,8 @@ if (matches.length !== 1 || match === undefined) {
   process.exit(1)
 }
 
-await appendFile(
-  githubOutput,
-  `head_sha=${headSha}\n` +
-    `pr_number=${String(match.number)}\n` +
-    `candidate_source_repository=${thisRepo}\n`
-)
+await writeStepOutputs(githubOutput, {
+  head_sha: headSha,
+  pr_number: String(match.number),
+  candidate_source_repository: thisRepo
+})

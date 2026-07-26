@@ -311,6 +311,17 @@ describe('runtime module resolution', () => {
       }
     }
   })
+
+  test('every script writes step outputs through the shared safe writer', () => {
+    for (const scriptName of readdirSync(scriptsDir)) {
+      const source = scriptSourceOf(scriptName)
+      if (!source.includes('GITHUB_OUTPUT')) {
+        continue
+      }
+      expect(source, scriptName).not.toContain('appendFile(githubOutput')
+      expect(source, scriptName).toContain('writeStepOutputs(')
+    }
+  })
 })
 
 describe('pr-preview', () => {
@@ -772,9 +783,9 @@ describe('e2e-reusable', () => {
     expect(source).toContain('prepareFailureEvidence')
     const verifyIndex = source.indexOf('await verifyPreparedFailureEvidence(')
     expect(verifyIndex).toBeGreaterThan(-1)
-    expect(source.indexOf('failure_evidence_ready=true')).toBeGreaterThan(
-      verifyIndex
-    )
+    expect(
+      source.indexOf("failure_evidence_ready: 'true'")
+    ).toBeGreaterThan(verifyIndex)
     const evidenceSource = readFileSync(
       join(e2eModulesDir, 'evidence.ts'),
       'utf8'

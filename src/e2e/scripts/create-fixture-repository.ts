@@ -1,5 +1,5 @@
-import { appendFile } from 'node:fs/promises'
 import { createFixtureRepository } from '../git-fixture.ts'
+import { writeStepOutputs } from '../step-output.ts'
 
 const workspaceDir = process.env.WORKSPACE_DIR
 const githubOutput = process.env.GITHUB_OUTPUT
@@ -8,4 +8,4 @@ if (!workspaceDir || !githubOutput) {
 }
 
 const fixture = await createFixtureRepository({ workspaceDir })
-await appendFile(githubOutput, `commit=${fixture.commit}\n`)
+await writeStepOutputs(githubOutput, { commit: fixture.commit })

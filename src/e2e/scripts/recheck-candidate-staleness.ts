@@ -5,6 +5,7 @@ import {
   violatesAutomaticCandidatePolicy
 } from '../candidate-policy.ts'
 import { createGitHubClient } from '../github-api.ts'
+import { writeStepOutputs } from '../step-output.ts'
 
 const headSha = process.env.HEAD_SHA
 const prNumberInput = process.env.PR_NUMBER
@@ -40,7 +41,7 @@ if (
   (caller === 'automatic' && violatesAutomaticCandidatePolicy(pr))
 ) {
   if (caller === 'automatic') {
-    await appendFile(githubOutput, 'proceed=false\n')
+    await writeStepOutputs(githubOutput, { proceed: 'false' })
     await appendFile(
       summaryPath,
       buildSupersededSummary(
@@ -54,5 +55,5 @@ if (
     process.exit(1)
   }
 } else {
-  await appendFile(githubOutput, 'proceed=true\n')
+  await writeStepOutputs(githubOutput, { proceed: 'true' })
 }
