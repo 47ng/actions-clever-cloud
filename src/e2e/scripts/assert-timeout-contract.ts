@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { DEPLOYMENT_TIMEOUT_MESSAGE } from '../../deployment.ts'
 
 const actionOutcome = process.env.ACTION_OUTCOME
 const logPath = process.env.LOG_PATH
@@ -12,7 +13,7 @@ if (actionOutcome !== 'success') {
 }
 
 const logContent = await readFile(logPath, 'utf8')
-if (!logContent.includes('Deployment timed out, moving on with workflow run')) {
+if (!logContent.includes(DEPLOYMENT_TIMEOUT_MESSAGE)) {
   throw new Error(
     'Expected timed-out deployment log to contain the documented timeout message'
   )

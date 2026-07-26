@@ -1,4 +1,4 @@
-import { appendFile, readFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { createCleverController } from '../clever-client.ts'
 import {
   waitForHealthyDeployment,
@@ -8,6 +8,7 @@ import {
   assertStartupFailurePreservedProduction,
   parseBaselineState
 } from '../scenario-assertions.ts'
+import { writeStepOutputs } from '../step-output.ts'
 import {
   createFetchHealth,
   createRunCommand,
@@ -75,9 +76,8 @@ assertStartupFailurePreservedProduction({
   logContent
 })
 
-await appendFile(
-  githubOutput,
-  `instance_id=${health.INSTANCE_ID ?? ''}\n` +
-    `deployment_id=${failedDeployment.uuid ?? ''}\n` +
-    `commit_id=${failedDeployment.commit ?? expectedCommitID}\n`
-)
+await writeStepOutputs(githubOutput, {
+  instance_id: health.INSTANCE_ID,
+  deployment_id: failedDeployment.uuid,
+  commit_id: failedDeployment.commit ?? expectedCommitID
+})

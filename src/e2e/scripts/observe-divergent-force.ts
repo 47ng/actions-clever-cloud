@@ -1,6 +1,7 @@
-import { appendFile, readFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { createCleverController } from '../clever-client.ts'
 import { waitForNewHealthyDeployment } from '../deployment-observer.ts'
+import { writeStepOutputs } from '../step-output.ts'
 import {
   assertForcedDeploymentReplacedProduction,
   parseBaselineState
@@ -61,9 +62,8 @@ assertForcedDeploymentReplacedProduction({
   baseline: previousState
 })
 
-await appendFile(
-  githubOutput,
-  `instance_id=${result.health.INSTANCE_ID ?? ''}\n` +
-    `deployment_id=${result.deployment.uuid ?? result.health.CC_DEPLOYMENT_ID ?? ''}\n` +
-    `commit_id=${result.health.CC_COMMIT_ID ?? ''}\n`
-)
+await writeStepOutputs(githubOutput, {
+  instance_id: result.health.INSTANCE_ID,
+  deployment_id: result.deployment.uuid ?? result.health.CC_DEPLOYMENT_ID,
+  commit_id: result.health.CC_COMMIT_ID
+})

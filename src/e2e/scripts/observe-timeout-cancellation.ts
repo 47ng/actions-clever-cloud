@@ -1,7 +1,7 @@
-import { appendFile } from 'node:fs/promises'
 import { createCleverController } from '../clever-client.ts'
 import { cancelTimedOutDeploymentPreservesLiveApp } from '../deployment-observer.ts'
 import { assertTimeoutOutcome } from '../scenario-assertions.ts'
+import { writeStepOutputs } from '../step-output.ts'
 import {
   createFetchHealth,
   createRunCommand,
@@ -65,10 +65,9 @@ if (result.outcome === 'completed') {
   console.log(`Timed-out deployment settled as ${result.outcome}`)
 }
 
-await appendFile(
-  githubOutput,
-  `outcome=${result.outcome}\n` +
-    `instance_id=${result.health.INSTANCE_ID ?? ''}\n` +
-    `deployment_id=${result.deployment.uuid ?? ''}\n` +
-    `commit_id=${result.deployment.commit ?? expectedCancelledCommitID}\n`
-)
+await writeStepOutputs(githubOutput, {
+  outcome: result.outcome,
+  instance_id: result.health.INSTANCE_ID,
+  deployment_id: result.deployment.uuid,
+  commit_id: result.deployment.commit ?? expectedCancelledCommitID
+})

@@ -1,6 +1,6 @@
-import { appendFile } from 'node:fs/promises'
 import { createCleverController } from '../clever-client.ts'
 import { waitForHealthyDeployment } from '../deployment-observer.ts'
+import { writeStepOutputs } from '../step-output.ts'
 import {
   createFetchHealth,
   createRunCommand,
@@ -37,9 +37,8 @@ const health = await waitForHealthyDeployment({
   fetchHealth: createFetchHealth()
 })
 
-await appendFile(
-  githubOutput,
-  `instance_id=${health.INSTANCE_ID ?? ''}\n` +
-    `deployment_id=${health.CC_DEPLOYMENT_ID ?? ''}\n` +
-    `commit_id=${health.CC_COMMIT_ID ?? ''}\n`
-)
+await writeStepOutputs(githubOutput, {
+  instance_id: health.INSTANCE_ID,
+  deployment_id: health.CC_DEPLOYMENT_ID,
+  commit_id: health.CC_COMMIT_ID
+})

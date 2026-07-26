@@ -1,5 +1,5 @@
-import { appendFile } from 'node:fs/promises'
 import { buildE2EApplicationName } from '../clever-client.ts'
+import { writeStepOutputs } from '../step-output.ts'
 
 const runId = process.env.RUN_ID
 const runAttempt = process.env.RUN_ATTEMPT
@@ -10,4 +10,4 @@ if (!runId || !runAttempt || !githubOutput) {
 }
 
 const name = buildE2EApplicationName({ runId, runAttempt })
-await appendFile(githubOutput, `name=${name}\n`)
+await writeStepOutputs(githubOutput, { name })

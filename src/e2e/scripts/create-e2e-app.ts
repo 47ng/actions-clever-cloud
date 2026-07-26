@@ -1,9 +1,10 @@
-import { appendFile, mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
   createApplicationWithRecovery,
   createCleverController
 } from '../clever-client.ts'
+import { writeStepOutputs } from '../step-output.ts'
 import { createRunCommand, resolveCleverCLI } from '../workflow-adapters.ts'
 
 const githubOutput = process.env.GITHUB_OUTPUT
@@ -32,10 +33,10 @@ const application = await createApplicationWithRecovery(controller, {
 
 try {
   await writeFile(appIdFile, JSON.stringify(application), 'utf8')
-  await appendFile(
-    githubOutput,
-    `app_id=${application.appId}\n` + `app_name=${application.name}\n`
-  )
+  await writeStepOutputs(githubOutput, {
+    app_id: application.appId,
+    app_name: application.name
+  })
 } catch (error) {
   try {
     await controller.deleteApplication({

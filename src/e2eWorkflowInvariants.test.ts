@@ -311,6 +311,17 @@ describe('runtime module resolution', () => {
       }
     }
   })
+
+  test('every script writes step outputs through the shared safe writer', () => {
+    for (const scriptName of readdirSync(scriptsDir)) {
+      const source = scriptSourceOf(scriptName)
+      if (!source.includes('GITHUB_OUTPUT')) {
+        continue
+      }
+      expect(source, scriptName).not.toContain('appendFile(githubOutput')
+      expect(source, scriptName).toContain('writeStepOutputs(')
+    }
+  })
 })
 
 describe('pr-preview', () => {
@@ -772,9 +783,9 @@ describe('e2e-reusable', () => {
     expect(source).toContain('prepareFailureEvidence')
     const verifyIndex = source.indexOf('await verifyPreparedFailureEvidence(')
     expect(verifyIndex).toBeGreaterThan(-1)
-    expect(source.indexOf('failure_evidence_ready=true')).toBeGreaterThan(
-      verifyIndex
-    )
+    expect(
+      source.indexOf("failure_evidence_ready: 'true'")
+    ).toBeGreaterThan(verifyIndex)
     const evidenceSource = readFileSync(
       join(e2eModulesDir, 'evidence.ts'),
       'utf8'
@@ -815,7 +826,7 @@ describe('e2e-reusable', () => {
     )
   })
 
-  test('asserts the documented timeout contract message from the trusted workflow copy', () => {
+  test('checks the timeout contract from the trusted workflow copy, against the shared message', () => {
     const timeoutAssertion = onlyStep(
       suiteSteps,
       step =>
@@ -824,8 +835,12 @@ describe('e2e-reusable', () => {
     expect(timeoutAssertion.run).toBe(
       'node "$TRUSTED_WORKFLOW_DIR"/src/e2e/scripts/assert-timeout-contract.ts'
     )
-    expect(scriptSourceOf('assert-timeout-contract.ts')).toContain(
-      'Deployment timed out, moving on with workflow run'
+    const timeoutScript = scriptSourceOf('assert-timeout-contract.ts')
+    // TypeScript guarantees the constant's value; these only guarantee the
+    // script still performs the check, against the single definition of it.
+    expect(timeoutScript).toContain(
+      "import { DEPLOYMENT_TIMEOUT_MESSAGE } from '../../deployment.ts'"
     )
+    expect(timeoutScript).toContain('DEPLOYMENT_TIMEOUT_MESSAGE')
   })
 })

@@ -4,6 +4,7 @@ import {
   isCurrentAutomaticCandidate
 } from '../candidate-policy.ts'
 import { createGitHubClient } from '../github-api.ts'
+import { writeStepOutputs } from '../step-output.ts'
 
 const headSha = process.env.HEAD_SHA
 const prNumber = Number(process.env.PR_NUMBER)
@@ -33,7 +34,7 @@ const github = createGitHubClient({ token, repository: thisRepo })
 const pr = await github.getPullRequest(prNumber)
 
 if (!isCurrentAutomaticCandidate({ pr, thisRepo, defaultBranch, headSha })) {
-  await appendFile(githubOutput, 'proceed=false\n')
+  await writeStepOutputs(githubOutput, { proceed: 'false' })
   await appendFile(
     stepSummary,
     buildSupersededSummary(
@@ -43,4 +44,4 @@ if (!isCurrentAutomaticCandidate({ pr, thisRepo, defaultBranch, headSha })) {
   process.exit(0)
 }
 
-await appendFile(githubOutput, 'proceed=true\n')
+await writeStepOutputs(githubOutput, { proceed: 'true' })
