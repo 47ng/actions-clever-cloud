@@ -150,9 +150,9 @@ A `setEnv` line that is not valid `KEY=value` (bad characters in the key or
 broken quoting) is skipped. The action logs a warning and continues without
 that variable.
 
-If the deployment fails, the environment variables will still have been
-updated. This could be a problem if your app restarts or scales up, as
-the new instance would use the new variable.
+If the deployment fails, or setting the variables fails partway through, the
+ones already applied will still be live. This could be a problem if your app
+restarts or scales up, as the new instance would use the new variable.
 
 In the future, we might include a way to rollback environment variables
 set by this action if deployment fails.
@@ -192,7 +192,7 @@ fails the step.
 
 > Support: introduced in v1.2.0
 
-Clever Cloud uses a Git remote to perform deploys. By default, if the commit you want to deploy is not a fast-forward from the commit currently deployed, the deploy will be rejected. You can pass `force: true` to force the deploy anyway:
+Clever Cloud uses a Git remote to perform deploys. By default, if the commit you want to deploy is not a fast-forward from the last commit pushed to that remote, the deploy will be rejected. You can pass `force: true` to force the deploy anyway:
 
 <!-- x-release-please-start-version -->
 ```yml
@@ -247,7 +247,7 @@ monorepo, the whole repository is still sent.
 When the local and remote commits are identical, you can control what happens using the `sameCommitPolicy` option. Possible values are:
 
 - `error` (default): Fail the deployment
-- `ignore`: Skip the deployment silently
+- `ignore`: Skip the deployment without failing
 - `restart`: Redeploy the same commit, reusing the build cache
 - `rebuild`: Redeploy the same commit without the build cache
 
