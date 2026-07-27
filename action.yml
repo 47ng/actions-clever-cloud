@@ -60,4 +60,4 @@ outputs:
     description: Whether the deployment wait reached the configured timeout.
 runs:
   using: docker
-  image: docker://ghcr.io/47ng/actions-clever-cloud:2.1.5 # x-release-please-version
+  image: docker://ghcr.io/47ng/actions-clever-cloud:2.2.0 # x-release-please-version

@@ -41,7 +41,7 @@ steps:
       fetch-depth: 0
 
   # Deploy your application
-  - uses: 47ng/actions-clever-cloud@v2.1.5
+  - uses: 47ng/actions-clever-cloud@v2.2.0
     env:
       CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
       CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
@@ -63,7 +63,7 @@ the alias of the application to deploy:
 
 <!-- x-release-please-start-version -->
 ```yml
-- uses: 47ng/actions-clever-cloud@v2.1.5
+- uses: 47ng/actions-clever-cloud@v2.2.0
   with:
     alias: my-app-alias
   env:
@@ -77,7 +77,7 @@ deploy to another application, you can pass its ID:
 
 <!-- x-release-please-start-version -->
 ```yml
-- uses: 47ng/actions-clever-cloud@v2.1.5
+- uses: 47ng/actions-clever-cloud@v2.2.0
   with:
     appID: app_facade42-cafe-babe-cafe-deadf00dbaad
   env:
@@ -127,7 +127,7 @@ key=value).
 
 <!-- x-release-please-start-version -->
 ```yml
-- uses: 47ng/actions-clever-cloud@v2.1.5
+- uses: 47ng/actions-clever-cloud@v2.2.0
   with:
     setEnv: | # <- note the pipe here..
       FOO=bar
@@ -173,7 +173,7 @@ regardless of the deployment status:
 
 <!-- x-release-please-start-version -->
 ```yml
-- uses: 47ng/actions-clever-cloud@v2.1.5
+- uses: 47ng/actions-clever-cloud@v2.2.0
   with:
     timeout: 1800 # wait at maximum 30 minutes before moving on
   env:
@@ -204,7 +204,7 @@ Give the action step an ID to check whether it timed out:
 ```yml
 - name: Deploy
   id: deploy
-  uses: 47ng/actions-clever-cloud@v2.1.5
+  uses: 47ng/actions-clever-cloud@v2.2.0
   with:
     timeout: 1800
   env:
@@ -229,7 +229,7 @@ Clever Cloud uses a Git remote to perform deploys. By default, if the commit you
 
 <!-- x-release-please-start-version -->
 ```yml
-- uses: 47ng/actions-clever-cloud@v2.1.5
+- uses: 47ng/actions-clever-cloud@v2.2.0
   with:
     appID: app_facade42-cafe-babe-cafe-deadf00dbaad
     force: true
@@ -250,7 +250,7 @@ Clever Cloud receives the whole Git repository. To deploy one app from a monorep
 
 <!-- x-release-please-start-version -->
 ```yml
-- uses: 47ng/actions-clever-cloud@v2.1.5
+- uses: 47ng/actions-clever-cloud@v2.2.0
   with:
     alias: backend
     setEnv: |
@@ -286,7 +286,7 @@ When the local and remote commits are identical, you can control what happens us
 
 <!-- x-release-please-start-version -->
 ```yml
-- uses: 47ng/actions-clever-cloud@v2.1.5
+- uses: 47ng/actions-clever-cloud@v2.2.0
   with:
     sameCommitPolicy: restart
   env:
@@ -303,7 +303,7 @@ You can write the deployment logs to a file for archiving:
 
 <!-- x-release-please-start-version -->
 ```yml
-- uses: 47ng/actions-clever-cloud@v2.1.5
+- uses: 47ng/actions-clever-cloud@v2.2.0
   with:
     logFile: ./clever-cloud-deploy.log
   env:
@@ -324,7 +324,7 @@ disable it from printing onto the console, using the `quiet` option:
 
 <!-- x-release-please-start-version -->
 ```yml
-- uses: 47ng/actions-clever-cloud@v2.1.5
+- uses: 47ng/actions-clever-cloud@v2.2.0
   with:
     quiet: true
   env:
@@ -354,7 +354,7 @@ This action follows [SemVer](https://semver.org/).
 
 To specify the version of the action to use:
 
-- `uses: 47ng/actions-clever-cloud@v2.1.5`: latest stable version <!-- x-release-please-version -->
+- `uses: 47ng/actions-clever-cloud@v2.2.0`: latest stable version <!-- x-release-please-version -->
 - `uses: 47ng/actions-clever-cloud@f496297399b2351f4459d10f556e1c4eff2566b7`: pinned to a specific Git SHA-1 (check out the [releases](https://github.com/47ng/actions-clever-cloud/releases))
 - `uses: docker://ghcr.io/47ng/actions-clever-cloud:latest`: tracks the newest released version (moved there right after each release, not from an ordinary push to master)
 

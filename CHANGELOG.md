@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/47ng/actions-clever-cloud/compare/v2.1.5...v2.2.0) (2026-07-27)
+
+
+### Features
+
+* expose deployment timeout output ([#285](https://github.com/47ng/actions-clever-cloud/issues/285)) ([3227a3c](https://github.com/47ng/actions-clever-cloud/commit/3227a3cfc5c831eda36c3a4cc245d7e5c4c3da5a))
+
 ## [2.1.5](https://github.com/47ng/actions-clever-cloud/compare/v2.1.4...v2.1.5) (2026-07-24)
 
 
