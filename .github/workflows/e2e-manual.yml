@@ -73,8 +73,8 @@ jobs:
           EXPECTED_SOURCE_REPOSITORY: ${{ needs.resolve.outputs.candidate_source_repository }}
         run: node src/e2e/scripts/verify-image.ts
 
-  create-and-delete:
-    name: Create and delete app
+  e2e-deployment-test:
+    name: E2E Deployment Test
     needs: [resolve, candidate]
     uses: ./.github/workflows/e2e-reusable.yml
     permissions:

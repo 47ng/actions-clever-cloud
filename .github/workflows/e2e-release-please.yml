@@ -194,8 +194,8 @@ jobs:
           TRUSTED_E2E_DIR: ${{ runner.temp }}/trusted-e2e
         run: node "$TRUSTED_E2E_DIR"/scripts/verify-image.ts
 
-  create-and-delete:
-    name: Create and delete app
+  e2e-deployment-test:
+    name: E2E Deployment Test
     if: needs.current-state.outputs.proceed == 'true'
     needs: [resolve, current-state, candidate]
     uses: ./.github/workflows/e2e-reusable.yml

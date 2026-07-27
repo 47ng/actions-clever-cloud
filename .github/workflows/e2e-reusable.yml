@@ -32,8 +32,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  create-and-delete:
-    name: Create and delete app
+  e2e-deployment-test:
+    name: E2E Deployment Test
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

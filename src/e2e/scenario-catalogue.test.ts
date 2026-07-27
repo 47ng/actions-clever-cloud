@@ -29,7 +29,7 @@ const workflowPath = fileURLToPath(
 
 const workflow: Workflow = parse(readFileSync(workflowPath, 'utf8'))
 
-const suiteSteps: Step[] = workflow.jobs['create-and-delete']?.steps ?? []
+const suiteSteps: Step[] = workflow.jobs['e2e-deployment-test']?.steps ?? []
 
 function envKeysOf(step: Step): string[] {
   return Object.keys(step.env ?? {})
