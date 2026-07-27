@@ -213,7 +213,7 @@ Give the action step an ID to check whether it timed out:
 
 - name: Handle a timed-out deployment
   if: steps.deploy.outputs.timedOut == 'true'
-  run: echo "The deployment is still running on Clever Cloud"
+  run: echo "The action stopped waiting for the deployment"
 ```
 <!-- x-release-please-end -->
 
