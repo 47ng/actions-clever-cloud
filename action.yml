@@ -55,6 +55,9 @@ inputs:
       What to do when local and remote commit are identical.
       Possible values: error, ignore, restart, rebuild.
       If not set, the Clever Cloud CLI default (error) will be used.
+outputs:
+  timedOut:
+    description: Whether the deployment wait reached the configured timeout.
 runs:
   using: docker
   image: docker://ghcr.io/47ng/actions-clever-cloud:2.1.5 # x-release-please-version

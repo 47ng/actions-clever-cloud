@@ -33,6 +33,7 @@ export async function deploy(
     timeoutSeconds: config.timeout
   })
   if (outcome === 'timed-out') {
+    host.setOutput('timedOut', true)
     // When quiet suppresses the console pipeline, the log file is the only
     // place the timeout can be observed; the live e2e suite asserts it there.
     if (config.quiet && config.logFile) {

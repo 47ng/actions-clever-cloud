@@ -94,6 +94,7 @@ function fakeHost(): Host {
     debug: vi.fn(),
     warning: vi.fn(),
     maskSecret: vi.fn(),
+    setOutput: vi.fn(),
     fail: vi.fn()
   }
 }

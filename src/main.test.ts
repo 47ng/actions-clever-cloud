@@ -24,6 +24,7 @@ const host: Host = {
   debug: vi.fn(),
   warning: vi.fn(),
   maskSecret: vi.fn(),
+  setOutput: vi.fn(),
   fail: vi.fn()
 }
 
@@ -58,6 +59,7 @@ test('a successful deployment does not fail the workflow', async () => {
   await main()
   expect(host.fail).not.toHaveBeenCalled()
   expect(deploy).toHaveBeenCalledOnce()
+  expect(host.setOutput).toHaveBeenCalledWith('timedOut', false)
 })
 
 test('the client is wired with the parsed CLI path, the log stream and the host', async () => {

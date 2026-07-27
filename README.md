@@ -194,6 +194,33 @@ step still succeeds, and nothing was ever deployed.
 value comes from an expression that may evaluate to zero. Any other value
 fails the step.
 
+### Reading timeout status
+
+> Support: introduced in v2.2.0
+
+Give the action step an ID to check whether it timed out:
+
+<!-- x-release-please-start-version -->
+```yml
+- name: Deploy
+  id: deploy
+  uses: 47ng/actions-clever-cloud@v2.1.5
+  with:
+    timeout: 1800
+  env:
+    CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+    CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+
+- name: Handle a timed-out deployment
+  if: steps.deploy.outputs.timedOut == 'true'
+  run: echo "The action stopped waiting for the deployment"
+```
+<!-- x-release-please-end -->
+
+The `timedOut` output is `true` when the action reaches the timeout. It stays
+`false` when the action does not reach the timeout. This includes deployment
+failures.
+
 ## Force deployement
 
 > Support: introduced in v1.2.0

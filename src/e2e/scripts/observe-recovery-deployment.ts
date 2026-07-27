@@ -9,11 +9,16 @@ import {
 
 const appId = process.env.APP_ID
 const expectedCommitID = process.env.EXPECTED_COMMIT_ID
+const actionTimedOut = process.env.ACTION_TIMED_OUT
 const githubOutput = process.env.GITHUB_OUTPUT
 const cleverCLI = resolveCleverCLI()
 
-if (!appId || !expectedCommitID || !githubOutput) {
+if (!appId || !expectedCommitID || !actionTimedOut || !githubOutput) {
   throw new Error('Missing recovery deployment observation inputs')
+}
+
+if (actionTimedOut !== 'false') {
+  throw new Error('Expected completed deployment action to set timedOut=false')
 }
 
 const controller = createCleverController({

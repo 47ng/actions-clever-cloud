@@ -851,6 +851,32 @@ describe('e2e-reusable', () => {
     )
   })
 
+  test('checks that non-timeout deployments report timedOut=false', () => {
+    const recoveryObserver = onlyStep(
+      suiteSteps,
+      step =>
+        step.run ===
+        'node .candidate-source/src/e2e/scripts/observe-recovery-deployment.ts'
+    )
+    expect(recoveryObserver.env?.['ACTION_TIMED_OUT']).toBe(
+      '${{ steps.recovery.outputs.timedOut }}'
+    )
+    const recoveryScript = scriptSourceOf('observe-recovery-deployment.ts')
+    expect(recoveryScript).toContain('process.env.ACTION_TIMED_OUT')
+    expect(recoveryScript).toContain("actionTimedOut !== 'false'")
+
+    const startupFailureAssertion = onlyStep(
+      suiteSteps,
+      step => step.id === 'assert-startup-failure'
+    )
+    expect(startupFailureAssertion.env?.['ACTION_TIMED_OUT']).toBe(
+      '${{ steps.startup-failure.outputs.timedOut }}'
+    )
+    const startupFailureScript = scriptSourceOf('assert-startup-failure.ts')
+    expect(startupFailureScript).toContain('process.env.ACTION_TIMED_OUT')
+    expect(startupFailureScript).toContain("actionTimedOut !== 'false'")
+  })
+
   test('checks the timeout contract from the trusted workflow copy, against the shared message', () => {
     const timeoutAssertion = onlyStep(
       suiteSteps,
@@ -860,6 +886,9 @@ describe('e2e-reusable', () => {
     expect(timeoutAssertion.run).toBe(
       'node "$TRUSTED_WORKFLOW_DIR"/src/e2e/scripts/assert-timeout-contract.ts'
     )
+    expect(timeoutAssertion.env?.['ACTION_TIMED_OUT']).toBe(
+      '${{ steps.timeout-deploy.outputs.timedOut }}'
+    )
     const timeoutScript = scriptSourceOf('assert-timeout-contract.ts')
     // TypeScript guarantees the constant's value; these only guarantee the
     // script still performs the check, against the single definition of it.
@@ -867,6 +896,8 @@ describe('e2e-reusable', () => {
       "import { DEPLOYMENT_TIMEOUT_MESSAGE } from '../../deployment.ts'"
     )
     expect(timeoutScript).toContain('DEPLOYMENT_TIMEOUT_MESSAGE')
+    expect(timeoutScript).toContain('process.env.ACTION_TIMED_OUT')
+    expect(timeoutScript).toContain("timedOut !== 'true'")
   })
 
   test('bounds every candidate action invocation well under the job timeout', () => {
