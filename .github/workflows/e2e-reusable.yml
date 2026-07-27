@@ -725,7 +725,7 @@ jobs:
         id: assert-timeout-deploy
         env:
           ACTION_OUTCOME: ${{ steps.timeout-deploy.outcome }}
-          TIMED_OUT: ${{ steps.timeout-deploy.outputs.timedOut }}
+          ACTION_TIMED_OUT: ${{ steps.timeout-deploy.outputs.timedOut }}
           LOG_PATH: ${{ github.workspace }}/.e2e-artifacts/candidate-action/012-timeout.log
           TRUSTED_WORKFLOW_DIR: ${{ runner.temp }}/trusted-workflow
         run: node "$TRUSTED_WORKFLOW_DIR"/src/e2e/scripts/assert-timeout-contract.ts

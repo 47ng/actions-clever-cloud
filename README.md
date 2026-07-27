@@ -189,6 +189,15 @@ cancel it.
 If the timeout fires during the push itself, the process is killed, the
 step still succeeds, and nothing was ever deployed.
 
+`timeout` must be a non-negative integer number of seconds, up to 86400
+(24 hours). No timeout is already the default; `0` is only useful when the
+value comes from an expression that may evaluate to zero. Any other value
+fails the step.
+
+### Reading timeout status
+
+> Support: introduced in v2.2.0
+
 Give the action step an ID to check whether it timed out:
 
 <!-- x-release-please-start-version -->
@@ -211,11 +220,6 @@ Give the action step an ID to check whether it timed out:
 The `timedOut` output is `true` when the action reaches the timeout. It stays
 `false` when the action does not reach the timeout. This includes deployment
 failures.
-
-`timeout` must be a non-negative integer number of seconds, up to 86400
-(24 hours). No timeout is already the default; `0` is only useful when the
-value comes from an expression that may evaluate to zero. Any other value
-fails the step.
 
 ## Force deployement
 

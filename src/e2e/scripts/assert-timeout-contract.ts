@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { DEPLOYMENT_TIMEOUT_MESSAGE } from '../../deployment.ts'
 
 const actionOutcome = process.env.ACTION_OUTCOME
-const timedOut = process.env.TIMED_OUT
+const timedOut = process.env.ACTION_TIMED_OUT
 const logPath = process.env.LOG_PATH
 
 if (!actionOutcome || !timedOut || !logPath) {

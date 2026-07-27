@@ -886,7 +886,7 @@ describe('e2e-reusable', () => {
     expect(timeoutAssertion.run).toBe(
       'node "$TRUSTED_WORKFLOW_DIR"/src/e2e/scripts/assert-timeout-contract.ts'
     )
-    expect(timeoutAssertion.env?.['TIMED_OUT']).toBe(
+    expect(timeoutAssertion.env?.['ACTION_TIMED_OUT']).toBe(
       '${{ steps.timeout-deploy.outputs.timedOut }}'
     )
     const timeoutScript = scriptSourceOf('assert-timeout-contract.ts')
@@ -896,7 +896,7 @@ describe('e2e-reusable', () => {
       "import { DEPLOYMENT_TIMEOUT_MESSAGE } from '../../deployment.ts'"
     )
     expect(timeoutScript).toContain('DEPLOYMENT_TIMEOUT_MESSAGE')
-    expect(timeoutScript).toContain('process.env.TIMED_OUT')
+    expect(timeoutScript).toContain('process.env.ACTION_TIMED_OUT')
     expect(timeoutScript).toContain("timedOut !== 'true'")
   })
 
