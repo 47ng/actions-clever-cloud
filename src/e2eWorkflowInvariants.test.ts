@@ -197,7 +197,7 @@ describe('shared workflow policies', () => {
       for (const [jobId, job] of Object.entries(workflow.jobs)) {
         const isE2ESuiteCall =
           job.uses === './.github/workflows/e2e-reusable.yml' &&
-          jobId === 'create-and-delete'
+          jobId === 'e2e-deployment-test'
         if (isE2ESuiteCall) {
           expect(job.secrets).toBe('inherit')
         } else {
@@ -209,7 +209,7 @@ describe('shared workflow policies', () => {
 
   test('environment secrets can reach the called suite from both e2e callers', () => {
     for (const workflow of [e2eManual, e2eAutomatic]) {
-      expect(jobOf(workflow, 'create-and-delete').secrets).toBe('inherit')
+      expect(jobOf(workflow, 'e2e-deployment-test').secrets).toBe('inherit')
     }
   })
 
@@ -501,7 +501,7 @@ describe('e2e-manual', () => {
   })
 
   test('passes the digest-pinned candidate identity to the reusable suite', () => {
-    const caller = jobOf(e2eManual, 'create-and-delete')
+    const caller = jobOf(e2eManual, 'e2e-deployment-test')
     expect(caller.uses).toBe('./.github/workflows/e2e-reusable.yml')
     expect(caller.with?.['candidate_digest']).toBe(
       '${{ needs.candidate.outputs.digest }}'
@@ -580,7 +580,7 @@ describe('e2e-release-please', () => {
     expect(jobOf(e2eAutomatic, 'candidate').if).toBe(
       "needs.current-state.outputs.proceed == 'true'"
     )
-    expect(jobOf(e2eAutomatic, 'create-and-delete').if).toBe(
+    expect(jobOf(e2eAutomatic, 'e2e-deployment-test').if).toBe(
       "needs.current-state.outputs.proceed == 'true'"
     )
   })
@@ -632,7 +632,7 @@ describe('e2e-release-please', () => {
   })
 
   test('passes the digest-pinned candidate identity to the reusable suite', () => {
-    const caller = jobOf(e2eAutomatic, 'create-and-delete')
+    const caller = jobOf(e2eAutomatic, 'e2e-deployment-test')
     expect(caller.uses).toBe('./.github/workflows/e2e-reusable.yml')
     expect(caller.with?.['candidate_digest']).toBe(
       '${{ needs.candidate.outputs.digest }}'
@@ -653,7 +653,7 @@ describe('e2e-release-please', () => {
 })
 
 describe('e2e-reusable', () => {
-  const suiteJob = jobOf(e2eReusable, 'create-and-delete')
+  const suiteJob = jobOf(e2eReusable, 'e2e-deployment-test')
   const suiteSteps = suiteJob.steps ?? []
   const trustedScriptNames = [
     'validate-candidate-inputs.ts',
