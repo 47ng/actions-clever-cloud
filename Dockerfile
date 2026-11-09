@@ -21,7 +21,7 @@ RUN pnpm install --frozen-lockfile --ignore-scripts --production
 FROM node:26.13.0-slim AS final
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git \
+  && apt-get install -y --no-install-recommends git ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 # Provide defaults for boolean inputs so the parser doesn't complain
