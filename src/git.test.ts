@@ -164,19 +164,38 @@ test('restoring git hooks throws when git fails, surfacing stderr', async () => 
   ])
   const restore = await disableGitHooks(undefined, run)
   await expect(restore()).rejects.toThrow(
-    'Failed to restore git hooks (exit code 255): ' +
+    'Failed to restore git hooks, turn them back on with ' +
+      '"git config --local --unset core.hooksPath" (exit code 255): ' +
       'error: could not lock config file'
   )
 })
 
+test('a failed restore names the command that puts back the previous hooks path', async () => {
+  const run = scriptedRun([
+    { stdout: '.husky/_\n' },
+    {},
+    { code: 255, stderr: 'error: could not lock config file\n' }
+  ])
+  const restore = await disableGitHooks(undefined, run)
+  await expect(restore()).rejects.toThrow(
+    'Failed to restore git hooks, turn them back on with ' +
+      '"git config --local core.hooksPath .husky/_"'
+  )
+})
+
 describe('with a real repository', () => {
+  const ambientEnv = { ...process.env }
   let dir: string
+  let workDir: string
   let runInRepo: typeof runProcess
 
   beforeEach(async () => {
+    process.env.GIT_CONFIG_GLOBAL = '/dev/null'
+    process.env.GIT_CONFIG_NOSYSTEM = '1'
     dir = await mkdtemp(join(tmpdir(), 'git-hooks-'))
+    workDir = join(dir, 'work')
     runInRepo = (command, args, options) =>
-      runProcess(command, args, { ...options, cwd: join(dir, 'work') })
+      runProcess(command, args, { ...options, cwd: workDir })
     await runProcess('git', ['init', '--quiet', '--bare', 'remote.git'], {
       cwd: dir
     })
@@ -186,24 +205,25 @@ describe('with a real repository', () => {
       'user.name=test',
       '-c',
       'user.email=test@example.com',
-      '-c',
-      'commit.gpgsign=false',
       'commit',
       '--quiet',
       '--allow-empty',
       '--message',
       'init'
     ])
-    await mkdir(join(dir, 'work', 'hooks'))
-    const hook = join(dir, 'work', 'hooks', 'pre-push')
-    await writeFile(hook, '#!/bin/sh\nexit 1\n')
-    await chmod(hook, 0o755)
-    await runInRepo('git', ['config', '--local', 'core.hooksPath', 'hooks'])
   })
 
   afterEach(async () => {
+    process.env = { ...ambientEnv }
     await rm(dir, { recursive: true, force: true })
   })
+
+  async function installFailingPrePushHook(hooksDir: string): Promise<void> {
+    await mkdir(join(workDir, hooksDir), { recursive: true })
+    const hook = join(workDir, hooksDir, 'pre-push')
+    await writeFile(hook, '#!/bin/sh\nexit 1\n')
+    await chmod(hook, 0o755)
+  }
 
   async function push(branch: string): Promise<number | null> {
     const result = await runInRepo(
@@ -214,16 +234,28 @@ describe('with a real repository', () => {
     return result.code
   }
 
-  test('a push skips pre-push hooks until they are restored', async () => {
-    const restore = await disableGitHooks(join(dir, 'work'))
+  async function localHooksPath(): Promise<RunResult> {
+    return runInRepo('git', ['config', '--local', '--get', 'core.hooksPath'], {
+      captureStdout: true
+    })
+  }
+
+  test('a push skips the default hooks until they are restored', async () => {
+    await installFailingPrePushHook('.git/hooks')
+    const restore = await disableGitHooks(workDir)
     expect(await push('with-hooks-off')).toBe(0)
     await restore()
     expect(await push('with-hooks-on')).not.toBe(0)
-    const hooksPath = await runInRepo(
-      'git',
-      ['config', '--local', '--get', 'core.hooksPath'],
-      { captureStdout: true }
-    )
-    expect(hooksPath.stdout.trim()).toBe('hooks')
+    expect((await localHooksPath()).code).toBe(1)
+  })
+
+  test('a push skips hooks from a custom core.hooksPath until they are restored', async () => {
+    await installFailingPrePushHook('hooks')
+    await runInRepo('git', ['config', '--local', 'core.hooksPath', 'hooks'])
+    const restore = await disableGitHooks(workDir)
+    expect(await push('with-hooks-off')).toBe(0)
+    await restore()
+    expect(await push('with-hooks-on')).not.toBe(0)
+    expect((await localHooksPath()).stdout.trim()).toBe('hooks')
   })
 })

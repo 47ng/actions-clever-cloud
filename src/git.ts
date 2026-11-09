@@ -53,14 +53,16 @@ export async function disableGitHooks(
     ['core.hooksPath', '/dev/null'],
     'Failed to disable git hooks'
   )
+  const restoreArgs =
+    previous === undefined
+      ? ['--unset', 'core.hooksPath']
+      : ['core.hooksPath', previous]
   return () =>
     setLocalConfig(
       cwd,
       run,
-      previous === undefined
-        ? ['--unset', 'core.hooksPath']
-        : ['core.hooksPath', previous],
-      'Failed to restore git hooks'
+      restoreArgs,
+      `Failed to restore git hooks, turn them back on with "git config --local ${restoreArgs.join(' ')}"`
     )
 }
 
