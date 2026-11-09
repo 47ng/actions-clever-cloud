@@ -73,6 +73,10 @@ const e2eReusable = workflowOf('e2e-reusable.yml')
 
 const e2eWorkflows = allWorkflows.filter(([name]) => name.startsWith('e2e-'))
 
+const { packageManager } = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8')
+) as { packageManager: string }
+
 test('the workflow collections are non-empty', () => {
   expect(allWorkflows.length).toBeGreaterThan(0)
   expect(e2eWorkflows.length).toBe(3)
@@ -282,6 +286,21 @@ describe('shared workflow policies', () => {
           step => step.uses?.includes('github-script') ?? false
         )
       ).toEqual([])
+    }
+  )
+
+  test.each(allWorkflows)(
+    '%s pins pnpm to the packageManager version',
+    (file, workflow) => {
+      const pnpmSetupSteps = stepsOf(workflow).filter(
+        step => step.uses?.startsWith('pnpm/action-setup@') ?? false
+      )
+      for (const step of pnpmSetupSteps) {
+        const version = step.with?.['version']
+        if (version !== undefined) {
+          expect(`pnpm@${version}`).toBe(packageManager)
+        }
+      }
     }
   )
 

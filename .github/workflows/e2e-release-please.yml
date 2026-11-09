@@ -12,7 +12,6 @@ on:
       - 'action.yml'
       - 'package.json'
       - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
       - 'tsconfig.json'
       - '.github/workflows/pr-preview.yml'
       - '.github/workflows/pr-preview-manual.yml'

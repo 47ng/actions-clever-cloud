@@ -1,4 +1,4 @@
-FROM node:24.9.0-slim AS builder
+FROM node:26.13.0-slim AS builder
 
 # Note: when updating things that go into this Docker image (with COPY or RUN),
 # make sure to update the allow-list in the .github/workflows/pr-preview.yml
@@ -6,9 +6,9 @@ FROM node:24.9.0-slim AS builder
 
 WORKDIR /action
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml ./
 
-RUN corepack enable
+RUN npm install --global "$(node --print 'require("./package.json").packageManager')"
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY src ./src
 COPY tsconfig.json ./
@@ -18,7 +18,7 @@ RUN pnpm install --frozen-lockfile --ignore-scripts --production
 
 # ---
 
-FROM node:24.9.0-slim AS final
+FROM node:26.13.0-slim AS final
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git \
