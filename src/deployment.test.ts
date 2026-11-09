@@ -11,6 +11,7 @@ import type { Host } from './github.ts'
 const APP_ID = 'app_facade42-cafe-babe-cafe-deadf00dbaad'
 
 type FakeCleverScript = {
+  restoreHooksError?: Error
   linkedAlias?: string | Error
   linkError?: Error
   setEnvError?: Error
@@ -74,9 +75,18 @@ function makeDeps(script: FakeCleverScript = {}): DeploymentDeps & {
   const shallowCheck = vi.fn(async () => {
     calls.push(['checkForShallowCopy'])
   })
+  const disableHooks = vi.fn(async () => {
+    calls.push(['disableHooks'])
+    return async () => {
+      calls.push(['restoreHooks'])
+      if (script.restoreHooksError) {
+        throw script.restoreHooksError
+      }
+    }
+  })
   return {
     clever,
-    git: { checkForShallowCopy: shallowCheck },
+    git: { checkForShallowCopy: shallowCheck, disableHooks },
     host: fakeHost(),
     calls,
     shallowCheck
@@ -88,6 +98,7 @@ function config(overrides: Partial<Config> = {}): Config {
     cleverCLI: 'clever',
     force: false,
     quiet: false,
+    gitHooks: false,
     extraEnv: {},
     ...overrides
   }
@@ -104,6 +115,7 @@ test('deploys the default application with no arguments', async () => {
   await deploy(config(), deps)
   expect(deps.calls).toEqual([
     ['checkForShallowCopy'],
+    ['disableHooks'],
     [
       'deploy',
       {
@@ -112,7 +124,8 @@ test('deploys the default application with no arguments', async () => {
         sameCommitPolicy: undefined,
         timeoutSeconds: undefined
       }
-    ]
+    ],
+    ['restoreHooks']
   ])
 })
 
@@ -198,7 +211,9 @@ test('sets extra environment variables in order, before the deploy', async () =>
     ['checkForShallowCopy'],
     ['setEnv', 'foo', 'bar', undefined],
     ['setEnv', 'egg', 'spam', undefined],
-    ['deploy', expect.anything()]
+    ['disableHooks'],
+    ['deploy', expect.anything()],
+    ['restoreHooks']
   ])
 })
 
@@ -285,5 +300,53 @@ test('deployment failures propagate to the caller', async () => {
   })
   await expect(deploy(config(), deps)).rejects.toThrow(
     'Deployment failed with code 42'
+  )
+})
+
+test('runs git hooks when the gitHooks input is on', async () => {
+  const deps = makeDeps()
+  await deploy(config({ gitHooks: true }), deps)
+  expect(deps.calls).toEqual([
+    ['checkForShallowCopy'],
+    ['deploy', expect.anything()]
+  ])
+})
+
+test('restores git hooks when the deployment fails', async () => {
+  const deps = makeDeps({
+    outcome: new Error('Deployment failed with code 42')
+  })
+  await expect(deploy(config(), deps)).rejects.toThrow(
+    'Deployment failed with code 42'
+  )
+  expect(deps.calls.at(-1)).toEqual(['restoreHooks'])
+})
+
+test('restores git hooks when the deployment times out', async () => {
+  const deps = makeDeps({ outcome: 'timed-out' })
+  await deploy(config({ timeout: 60 }), deps)
+  expect(deps.calls).toContainEqual(['restoreHooks'])
+})
+
+test('a git hooks restore failure warns without hiding the deployment result', async () => {
+  const deps = makeDeps({
+    outcome: new Error('Deployment failed with code 42'),
+    restoreHooksError: new Error('Failed to restore git hooks (exit code 255)')
+  })
+  await expect(deploy(config(), deps)).rejects.toThrow(
+    'Deployment failed with code 42'
+  )
+  expect(deps.host.warning).toHaveBeenCalledWith(
+    'Failed to restore git hooks (exit code 255)'
+  )
+})
+
+test('a git hooks restore failure does not fail a successful deployment', async () => {
+  const deps = makeDeps({
+    restoreHooksError: new Error('Failed to restore git hooks (exit code 255)')
+  })
+  await expect(deploy(config(), deps)).resolves.toBeUndefined()
+  expect(deps.host.warning).toHaveBeenCalledWith(
+    'Failed to restore git hooks (exit code 255)'
   )
 })

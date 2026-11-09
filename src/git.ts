@@ -39,3 +39,69 @@ export async function checkForShallowCopy(
 `)
   }
 }
+
+export type RestoreGitHooks = () => Promise<void>
+
+export async function disableGitHooks(
+  cwd: string | undefined,
+  run: typeof runProcess = runProcess
+): Promise<RestoreGitHooks> {
+  const previous = await readLocalHooksPath(cwd, run)
+  await setLocalConfig(
+    cwd,
+    run,
+    ['core.hooksPath', '/dev/null'],
+    'Failed to disable git hooks'
+  )
+  const restoreArgs =
+    previous === undefined
+      ? ['--unset', 'core.hooksPath']
+      : ['core.hooksPath', previous]
+  return () =>
+    setLocalConfig(
+      cwd,
+      run,
+      restoreArgs,
+      `Failed to restore git hooks, turn them back on with "git config --local ${restoreArgs.join(' ')}"`
+    )
+}
+
+const GIT_CONFIG_KEY_NOT_FOUND = 1
+
+async function readLocalHooksPath(
+  cwd: string | undefined,
+  run: typeof runProcess
+): Promise<string | undefined> {
+  const result = await run(
+    'git',
+    ['config', '--local', '--get', 'core.hooksPath'],
+    { cwd, captureStdout: true, captureStderr: true }
+  )
+  if (result.code === GIT_CONFIG_KEY_NOT_FOUND) {
+    return undefined
+  }
+  if (result.code !== 0 || result.signal) {
+    throw new Error(
+      `Failed to read core.hooksPath (${exitReason(result)})` +
+        stderrDetail(result.stderr)
+    )
+  }
+  return result.stdout.trim()
+}
+
+async function setLocalConfig(
+  cwd: string | undefined,
+  run: typeof runProcess,
+  args: string[],
+  failure: string
+): Promise<void> {
+  const result = await run('git', ['config', '--local', ...args], {
+    cwd,
+    captureStderr: true
+  })
+  if (result.code !== 0 || result.signal) {
+    throw new Error(
+      `${failure} (${exitReason(result)})` + stderrDetail(result.stderr)
+    )
+  }
+}

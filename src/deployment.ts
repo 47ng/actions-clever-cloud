@@ -1,5 +1,6 @@
-import type { Clever } from './clever.ts'
+import type { Clever, DeployOutcome } from './clever.ts'
 import type { Config } from './config.ts'
+import type { RestoreGitHooks } from './git.ts'
 import type { Host } from './github.ts'
 
 export const DEPLOYMENT_TIMEOUT_MESSAGE =
@@ -7,7 +8,10 @@ export const DEPLOYMENT_TIMEOUT_MESSAGE =
 
 export type DeploymentDeps = {
   clever: Clever
-  git: { checkForShallowCopy(): Promise<void> }
+  git: {
+    checkForShallowCopy(): Promise<void>
+    disableHooks(): Promise<RestoreGitHooks>
+  }
   host: Host
   deployLog?: { write(chunk: string): void }
 }
@@ -26,12 +30,18 @@ export async function deploy(
   for (const [name, value] of Object.entries(config.extraEnv)) {
     await clever.setEnv(name, value, alias)
   }
-  const outcome = await clever.deploy({
-    alias,
-    force: config.force,
-    sameCommitPolicy: config.sameCommitPolicy,
-    timeoutSeconds: config.timeout
-  })
+  const restoreHooks = config.gitHooks ? undefined : await git.disableHooks()
+  let outcome: DeployOutcome
+  try {
+    outcome = await clever.deploy({
+      alias,
+      force: config.force,
+      sameCommitPolicy: config.sameCommitPolicy,
+      timeoutSeconds: config.timeout
+    })
+  } finally {
+    await restoreHooks?.().catch(error => host.warning(errorMessage(error)))
+  }
   if (outcome === 'timed-out') {
     host.setOutput('timedOut', true)
     // When quiet suppresses the console pipeline, the log file is the only
@@ -59,4 +69,8 @@ async function resolveAlias(
   host.debug(`Linking ${appID}`)
   await clever.link(appID)
   return appID
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }

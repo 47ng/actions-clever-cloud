@@ -49,6 +49,12 @@ inputs:
     description: |
       Don't print deployment output to the console. This does not affect
       logFile, which still receives the raw output, secrets and PII included.
+  gitHooks:
+    required: false
+    default: 'false'
+    description: |
+      Use true to run your repository's git hooks (e.g. pre-push)
+      when the action pushes your code to Clever Cloud.
   sameCommitPolicy:
     required: false
     description: |

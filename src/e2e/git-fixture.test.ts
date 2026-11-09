@@ -9,6 +9,7 @@ import { promisify } from 'node:util'
 import { afterEach, expect, test } from 'vitest'
 import {
   FIXTURE_BUILD_FAILURE_MARKER,
+  FIXTURE_PRE_PUSH_HOOK_MARKER,
   FIXTURE_STARTUP_FAILURE_MARKER
 } from './fixture-app.ts'
 import {
@@ -98,6 +99,17 @@ async function waitForOutput(
   throw new Error(`Timed out while waiting for output: ${expectedText}`)
 }
 
+test('the fixture repository rejects every push through a pre-push hook', async () => {
+  const workspaceDir = await createTemporaryWorkspace()
+  const remoteDir = await createTemporaryWorkspace()
+  await runGit(remoteDir, ['init', '--bare'])
+  await createFixtureRepository({ workspaceDir })
+
+  await expect(
+    runGit(workspaceDir, ['push', remoteDir, 'HEAD:refs/heads/master'])
+  ).rejects.toThrow(FIXTURE_PRE_PUSH_HOOK_MARKER)
+})
+
 test('creates a fresh non-shallow fixture repository and keeps support files ignored', async () => {
   const workspaceDir = await createTemporaryWorkspace()
   await mkdir(path.join(workspaceDir, '.candidate-source'), { recursive: true })
@@ -177,7 +189,7 @@ test('resets to a known ancestor and creates a real divergent commit instead of 
 
   await runGit(remoteDir, ['init', '--bare'])
   await runGit(workspaceDir, ['remote', 'add', 'origin', remoteDir])
-  await runGit(workspaceDir, ['push', '--set-upstream', 'origin', 'master'])
+  await runGit(workspaceDir, ['push', '--no-verify', '--set-upstream', 'origin', 'master'])
 
   const divergentCommit = await createDivergentFixtureCommit({
     workspaceDir,
@@ -217,7 +229,7 @@ test('creates the slow-build child commit on top of the forced healthy commit', 
 
   await runGit(remoteDir, ['init', '--bare'])
   await runGit(workspaceDir, ['remote', 'add', 'origin', remoteDir])
-  await runGit(workspaceDir, ['push', '--set-upstream', 'origin', 'master'])
+  await runGit(workspaceDir, ['push', '--no-verify', '--set-upstream', 'origin', 'master'])
 
   const forcedHealthyCommit = await createDivergentFixtureCommit({
     workspaceDir,

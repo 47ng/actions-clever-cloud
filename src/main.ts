@@ -2,7 +2,11 @@ import fs from 'node:fs/promises'
 import { cleverClient } from './clever.ts'
 import { parseConfig } from './config.ts'
 import { deploy } from './deployment.ts'
-import { checkForShallowCopy, fixGitDubiousOwnership } from './git.ts'
+import {
+  checkForShallowCopy,
+  disableGitHooks,
+  fixGitDubiousOwnership
+} from './git.ts'
 import { gitHubHost, type Host } from './github.ts'
 import { createDeployLog, type DeployLog } from './output.ts'
 
@@ -27,7 +31,7 @@ export async function main(): Promise<void> {
     })
     await deploy(config, {
       clever,
-      git: { checkForShallowCopy },
+      git: { checkForShallowCopy, disableHooks: () => disableGitHooks(cwd) },
       host,
       deployLog: log.stream
     })

@@ -295,6 +295,28 @@ When the local and remote commits are identical, you can control what happens us
 ```
 <!-- x-release-please-end -->
 
+## Git hooks
+
+> Support: introduced in v2.3.0
+
+The action deploys with `git push`. By default, it turns off your repository's
+git hooks for that push, then restores your hook settings.
+This keeps hooks like Git LFS (which needs `git-lfs`, not in the action container)
+or Husky's `pre-push` checks from failing the deployment.
+
+To run your hooks during the push, set `gitHooks` to `true`:
+
+<!-- x-release-please-start-version -->
+```yml
+- uses: 47ng/actions-clever-cloud@v2.2.0
+  with:
+    gitHooks: true
+  env:
+    CLEVER_TOKEN: ${{ secrets.CLEVER_TOKEN }}
+    CLEVER_SECRET: ${{ secrets.CLEVER_SECRET }}
+```
+<!-- x-release-please-end -->
+
 ## Logs
 
 > Support: introduced in v1.3.0

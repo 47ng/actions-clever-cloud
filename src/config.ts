@@ -18,6 +18,7 @@ export type Config = {
   deployPath?: string
   logFile?: string
   quiet: boolean
+  gitHooks: boolean
   sameCommitPolicy?: string
 }
 
@@ -147,6 +148,7 @@ export function parseConfig(): Config {
   }
   const logFile = core.getInput('logFile') || undefined
   const quiet = core.getBooleanInput('quiet', { required: false })
+  const gitHooks = core.getBooleanInput('gitHooks', { required: false })
   const deployPath = core.getInput('deployPath') || undefined
   const sameCommitPolicy = core.getInput('sameCommitPolicy') || undefined
 
@@ -160,6 +162,7 @@ export function parseConfig(): Config {
     extraEnv: listExtraEnv(),
     logFile,
     quiet,
+    gitHooks,
     sameCommitPolicy
   }
 }

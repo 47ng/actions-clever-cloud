@@ -1,10 +1,11 @@
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import {
   FIXTURE_BUILD_FAILURE_MARKER,
   FIXTURE_BUILD_MARKER,
+  FIXTURE_PRE_PUSH_HOOK_MARKER,
   FIXTURE_READY_MARKER,
   FIXTURE_STARTUP_FAILURE_MARKER,
   FIXTURE_START_MARKER
@@ -94,6 +95,11 @@ if (scenario === 'build-failure') {
   process.exitCode = 1
 }
 `
+const FIXTURE_PRE_PUSH_HOOK_SOURCE = `#!/bin/sh
+echo '${FIXTURE_PRE_PUSH_HOOK_MARKER}' >&2
+exit 1
+`
+const FIXTURE_HOOKS_PATH = '.git/hooks'
 const FIXTURE_VERSION_FILE = 'fixture-version.txt'
 const INITIAL_FIXTURE_VERSION = 'healthy-1\n'
 
@@ -155,6 +161,7 @@ export async function createFixtureRepository({
     workspaceDir,
     ['config', 'user.email', 'actions-clever-cloud-e2e@example.com']
   )
+  await installFailingPrePushHook(workspaceDir)
   await runGit(workspaceDir, [
     'add',
     '.gitignore',
@@ -196,6 +203,15 @@ export async function createDivergentFixtureCommit({
   await writeFixtureVersion(workspaceDir, label)
   await runGit(workspaceDir, ['commit', '-m', `fixture: ${label}`])
   return runGit(workspaceDir, ['rev-parse', 'HEAD'])
+}
+
+async function installFailingPrePushHook(workspaceDir: string): Promise<void> {
+  const hooksDir = path.join(workspaceDir, FIXTURE_HOOKS_PATH)
+  await mkdir(hooksDir, { recursive: true })
+  const hook = path.join(hooksDir, 'pre-push')
+  await writeFile(hook, FIXTURE_PRE_PUSH_HOOK_SOURCE, 'utf8')
+  await chmod(hook, 0o755)
+  await runGit(workspaceDir, ['config', 'core.hooksPath', FIXTURE_HOOKS_PATH])
 }
 
 async function writeFixtureVersion(workspaceDir: string, label: string): Promise<void> {

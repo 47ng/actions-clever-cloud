@@ -29,22 +29,22 @@
     "knip": "knip"
   },
   "engines": {
-    "node": "^24.9.0"
+    "node": "^26.13.0"
   },
-  "packageManager": "pnpm@11.10.0",
+  "packageManager": "pnpm@12.18.0",
   "dependencies": {
     "@actions/core": "^3.0.1",
-    "clever-tools": "^4.11.0"
+    "clever-tools": "^5.4.0"
   },
   "devDependencies": {
-    "@types/node": "^24.13.2",
-    "knip": "^6.25.0",
-    "msw": "^2.15.0",
-    "prettier": "^3.9.4",
-    "tsdown": "^0.22.3",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.10",
-    "yaml": "^2.9.0"
+    "@types/node": "^26.6.6",
+    "knip": "^6.44.2",
+    "msw": "^3.0.4",
+    "prettier": "^3.9.10",
+    "tsdown": "^0.23.7",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0",
+    "yaml": "^2.9.1"
   },
   "prettier": {
     "printWidth": 80,
