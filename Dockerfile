@@ -26,6 +26,7 @@ RUN apt-get update \
 
 # Provide defaults for boolean inputs so the parser doesn't complain
 ENV INPUT_QUIET=false
+ENV INPUT_GITHOOKS=false
 ENV INPUT_FORCE=false
 
 COPY --from=builder /action/package.json /action/package.json

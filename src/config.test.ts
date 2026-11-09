@@ -29,6 +29,7 @@ beforeEach(() => {
   // Simulate default values
   process.env.INPUT_FORCE = 'false'
   process.env.INPUT_QUIET = 'false'
+  process.env.INPUT_GITHOOKS = 'false'
   delete process.env.NODE_ENV
   warn.mockClear()
   info.mockClear()
@@ -306,6 +307,29 @@ test('force, wrong value type fails the action', () => {
   process.env.CLEVER_TOKEN = 'token'
   process.env.CLEVER_SECRET = 'secret'
   process.env.INPUT_FORCE = 'nope'
+  const run = () => parseConfig()
+  expect(run).toThrow()
+})
+
+test('git hooks are off by default', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  const config = parseConfig()
+  expect(config.gitHooks).toBe(false)
+})
+
+test('git hooks, value is true', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_GITHOOKS = 'true'
+  const config = parseConfig()
+  expect(config.gitHooks).toBe(true)
+})
+
+test('git hooks, wrong value type fails the action', () => {
+  process.env.CLEVER_TOKEN = 'token'
+  process.env.CLEVER_SECRET = 'secret'
+  process.env.INPUT_GITHOOKS = 'nope'
   const run = () => parseConfig()
   expect(run).toThrow()
 })

@@ -6,6 +6,7 @@ vi.mock('./config', () => ({ parseConfig: vi.fn() }))
 vi.mock('./deployment', () => ({ deploy: vi.fn() }))
 vi.mock('./git', () => ({
   checkForShallowCopy: vi.fn(),
+  disableGitHooks: vi.fn(),
   fixGitDubiousOwnership: vi.fn()
 }))
 vi.mock('./github', () => ({ gitHubHost: vi.fn() }))
@@ -14,7 +15,7 @@ vi.mock('./output', () => ({ createDeployLog: vi.fn() }))
 import { cleverClient, type Clever } from './clever.ts'
 import { parseConfig, type Config } from './config.ts'
 import { deploy } from './deployment.ts'
-import { fixGitDubiousOwnership } from './git.ts'
+import { disableGitHooks, fixGitDubiousOwnership } from './git.ts'
 import { gitHubHost, type Host } from './github.ts'
 import { main } from './main.ts'
 import { createDeployLog, type DeployLog } from './output.ts'
@@ -32,6 +33,7 @@ const config: Config = {
   cleverCLI: 'clever-mocked',
   force: false,
   quiet: false,
+  gitHooks: false,
   extraEnv: {}
 }
 
@@ -60,6 +62,14 @@ test('a successful deployment does not fail the workflow', async () => {
   expect(host.fail).not.toHaveBeenCalled()
   expect(deploy).toHaveBeenCalledOnce()
   expect(host.setOutput).toHaveBeenCalledWith('timedOut', false)
+})
+
+test('the deployment turns off git hooks in the deploy directory', async () => {
+  vi.mocked(parseConfig).mockReturnValue({ ...config, deployPath: 'src' })
+  await main()
+  const deps = vi.mocked(deploy).mock.calls[0]![1]
+  await deps.git.disableHooks()
+  expect(disableGitHooks).toHaveBeenCalledExactlyOnceWith('src')
 })
 
 test('the client is wired with the parsed CLI path, the log stream and the host', async () => {
