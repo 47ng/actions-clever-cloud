@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/47ng/actions-clever-cloud/compare/v2.2.0...v2.3.0) (2026-11-09)
+
+
+### Features
+
+* deploy with clever-tools 5 and Node.js 26, add gitHooks input ([#289](https://github.com/47ng/actions-clever-cloud/issues/289)) ([d81af49](https://github.com/47ng/actions-clever-cloud/commit/d81af490c08c0f181a0b33892a8b4cf6a2c8ac3f))
+
 ## [2.2.0](https://github.com/47ng/actions-clever-cloud/compare/v2.1.5...v2.2.0) (2026-07-27)
 
 
